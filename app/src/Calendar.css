@@ -1,0 +1,535 @@
+/* Calendar – blue theme to match header (#0a41b1) */
+.calendar-page-wrapper {
+  background: #fff;
+  border-radius: 20px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+  padding: 0;
+  margin: 0;
+  max-width: 100%;
+}
+
+/* Page header: blue gradient to match app header */
+.calendar-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 28px 24px;
+  background: linear-gradient(to right, #0a41b1, #1e5bc9);
+  color: #fff;
+}
+
+.calendar-page-header-icon {
+  flex-shrink: 0;
+  color: #fff;
+}
+
+.calendar-page-header-text {
+  text-align: center;
+}
+
+.calendar-page-title {
+  margin: 0;
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #fff;
+  line-height: 1.2;
+}
+
+.calendar-page-subtitle {
+  margin: 6px 0 0;
+  font-size: 0.95rem;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.calendar-error-banner {
+  padding: 12px 16px;
+  margin: 16px 24px 0;
+  background: #fee;
+  color: #c00;
+  border-radius: 8px;
+}
+
+.calendar-layout {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  padding: 24px;
+}
+
+/* Left: Calendar card – white, rounded 15–20px, shadow */
+.calendar-card {
+  flex: 1 1 420px;
+  max-width: 520px;
+  background: #fff;
+  border-radius: 20px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+}
+
+/* Month nav bar: blue gradient to match header */
+.calendar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  background: linear-gradient(to right, #0a41b1, #1e5bc9);
+  color: #fff;
+}
+
+.calendar-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: none;
+  border-radius: 50%;
+  background: #E8E8E8;
+  color: #333333;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+.calendar-nav-btn:hover {
+  background: #d0d0d0;
+  color: #222;
+}
+
+.calendar-header-title {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.calendar-month {
+  display: block;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #fff;
+  line-height: 1.2;
+}
+
+.calendar-year {
+  display: block;
+  font-size: 0.95rem;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.9);
+  margin-top: 2px;
+}
+
+.calendar-dow {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  padding: 14px 16px 10px;
+  background: #fff;
+  border-bottom: 1px solid #EEEEEE;
+}
+
+.calendar-dow-cell {
+  text-align: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #888888;
+  text-transform: uppercase;
+}
+
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  grid-auto-rows: minmax(48px, 1fr);
+  gap: 6px;
+  padding: 16px;
+  min-height: 0;
+}
+
+.calendar-cell-wrapper {
+  min-height: 48px;
+  display: flex;
+  align-items: stretch;
+  justify-content: stretch;
+}
+
+.calendar-cell-wrapper button.calendar-cell {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Normal number box: white background only (no hover/focus change) */
+.calendar-cell {
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid #EEEEEE;
+  border-radius: 8px;
+  background: #FFFFFF;
+  color: #333333;
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+  box-shadow: none;
+  position: relative;
+}
+
+.calendar-cell:not(.selected):not(.is-holiday):focus,
+.calendar-cell:not(.selected):not(.is-holiday):active {
+  background: #FFFFFF;
+  outline: none;
+}
+
+.calendar-cell.empty {
+  background: transparent;
+  border: 1px solid transparent;
+  box-shadow: none;
+  cursor: default;
+}
+
+/* Selected date: blue gradient to match header */
+.calendar-cell.selected {
+  background: linear-gradient(to right, #0a41b1, #1e5bc9);
+  border-color: transparent;
+  color: #fff;
+  border-radius: 12px;
+  box-shadow: 0 3px 12px rgba(10, 65, 177, 0.45);
+}
+
+/* Selected date that is also a holiday: dark pink */
+.calendar-cell.selected.is-holiday {
+  background: linear-gradient(to right, #E07A8C, #C75D7A);
+  box-shadow: 0 3px 12px rgba(199, 93, 122, 0.45);
+}
+
+.calendar-cell.today:not(.selected) {
+  border: 2px solid #0a41b1;
+  color: #0a41b1;
+  font-weight: 600;
+}
+
+/* Holiday (not selected): dark pink background */
+.calendar-cell.is-holiday:not(.selected) {
+  background: #E07A8C;
+  color: #fff;
+}
+
+/* Small red dot indicator for holiday dates (when not selected) */
+.calendar-cell.is-holiday:not(.selected) .calendar-cell-dot {
+  display: block;
+}
+
+.calendar-cell-num {
+  display: block;
+  line-height: 1;
+}
+
+.calendar-cell-dot {
+  display: none;
+  position: absolute;
+  bottom: 6px;
+  right: 8px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #DC3545;
+  pointer-events: none;
+}
+
+.calendar-today-wrap {
+  padding: 16px 16px 24px;
+  text-align: center;
+}
+
+.calendar-today-btn {
+  padding: 12px 32px;
+  border: none;
+  border-radius: 20px;
+  background: linear-gradient(to right, #0a41b1, #1e5bc9);
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.calendar-today-btn:hover {
+  opacity: 0.9;
+}
+
+/* Right: Added Holidays panel */
+.holidays-panel {
+  flex: 1 1 340px;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.holidays-add-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 14px 20px;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(to right, #0a41b1, #1e5bc9);
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.holidays-add-btn:hover {
+  opacity: 0.9;
+}
+
+.holidays-list-card {
+  flex: 1;
+  min-height: 280px;
+  background: #fff;
+  border-radius: 20px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.holidays-list-title {
+  padding: 16px 20px;
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #333333;
+  border-bottom: 1px solid #EEEEEE;
+}
+
+.holidays-list-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.holidays-list-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.holidays-list-scroll::-webkit-scrollbar-track {
+  background: #f0f0f0;
+  border-radius: 4px;
+}
+
+.holidays-list-scroll::-webkit-scrollbar-thumb {
+  background: #0a41b1;
+  border-radius: 4px;
+}
+
+.holidays-loading,
+.holidays-empty {
+  padding: 24px;
+  text-align: center;
+  color: #888888;
+  font-size: 0.95rem;
+}
+
+.holidays-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.holiday-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 20px;
+  border-bottom: 1px solid #EEEEEE;
+  background: #fff;
+}
+
+.holiday-item:last-child {
+  border-bottom: none;
+}
+
+.holiday-item-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.holiday-name {
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: #333333;
+}
+
+.holiday-date {
+  font-size: 0.8rem;
+  color: #888888;
+}
+
+.holiday-delete-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 8px;
+  background: #DC3545;
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.2s, opacity 0.2s;
+}
+
+.holiday-delete-btn:hover:not(:disabled) {
+  background: #c82333;
+}
+
+.holiday-delete-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Add Holiday Modal */
+.calendar-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.calendar-modal {
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  max-width: 400px;
+  width: 100%;
+  overflow: hidden;
+}
+
+.calendar-modal-title {
+  margin: 0;
+  padding: 20px 24px;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #333;
+  border-bottom: 1px solid #eee;
+}
+
+.calendar-modal-form {
+  padding: 24px;
+}
+
+.calendar-form-group {
+  margin-bottom: 16px;
+}
+
+.calendar-form-group label {
+  display: block;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #333333;
+  margin-bottom: 6px;
+}
+
+.calendar-required {
+  color: #DC3545;
+  font-weight: 600;
+}
+
+.calendar-form-group input {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  font-size: 1rem;
+  box-sizing: border-box;
+}
+
+.calendar-date-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.calendar-form-group input:focus {
+  outline: none;
+  border-color: #0a41b1;
+  box-shadow: 0 0 0 2px rgba(10, 65, 177, 0.2);
+}
+
+.calendar-modal-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid #eee;
+}
+
+.calendar-modal-cancel {
+  padding: 14px 36px;
+  min-width: 120px;
+  border: none;
+  border-radius: 8px;
+  background: #9e9e9e;
+  color: #333333;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, opacity 0.2s;
+}
+
+.calendar-modal-cancel:hover:not(:disabled) {
+  background: #757575;
+  color: #fff;
+}
+
+.calendar-modal-submit {
+  padding: 14px 36px;
+  min-width: 160px;
+  border: none;
+  border-radius: 8px;
+  background: linear-gradient(to right, #0a41b1, #1e5bc9);
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.calendar-modal-submit:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.calendar-modal-submit:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+@media (max-width: 768px) {
+  .calendar-layout {
+    flex-direction: column;
+  }
+
+  .calendar-card {
+    max-width: 100%;
+  }
+
+  .holidays-panel {
+    max-width: 100%;
+  }
+}

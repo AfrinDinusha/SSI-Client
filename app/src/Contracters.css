@@ -1,0 +1,1834 @@
+/* Contracters page header - decrease "Payroll Management System" text size */
+.cms-header-title .cms-header-text h1 {
+  font-size: 1.35rem;
+}
+
+/* Contractor Management Section */
+.contractor-management-section {
+  background: var(--white);
+  border-radius: 20px;
+  padding: 32px;
+  box-shadow: 0 8px 30px var(--shadow-light);
+  margin-bottom: 32px;
+}
+
+/* Organization Dropdown Styles */
+.organization-dropdown-container {
+  position: relative;
+}
+
+.organization-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: white;
+  border: 1px solid #ddd;
+  border-top: none;
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 1000;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  border-radius: 0 0 8px 8px;
+}
+
+.organization-dropdown div {
+  padding: 8px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid #f0f0f0;
+  transition: background-color 0.2s ease;
+}
+
+.organization-dropdown div:hover {
+  background-color: #f5f5f5;
+}
+
+.organization-dropdown div:last-child {
+  border-bottom: none;
+}
+
+.organization-dropdown-toggle {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  color: #666;
+  transition: color 0.2s ease;
+}
+
+.organization-dropdown-toggle:hover {
+  color: #333;
+}
+
+/* Header Actions */
+.contractor-header-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 32px;
+  gap: 24px;
+}
+
+.contractor-title-section {
+  flex: 1;
+}
+
+.contractor-title {
+  font-size: 2rem;
+  font-weight: 800;
+  color: var(--primary-dark);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.contractor-subtitle {
+  font-size: 1.1rem;
+  color: var(--secondary-blue);
+  font-weight: 500;
+  margin: 0;
+}
+
+.contractor-actions {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* Content Area */
+.contractor-content {
+  margin-top: 24px;
+}
+
+/* Contractor Table */
+.contractor-table-container {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin: 32px auto 0 auto !important;
+  overflow-x: auto !important;
+  background: #fff !important;
+  border-radius: 18px !important;
+  box-shadow: 0 4px 24px rgba(44,62,80,0.07) !important;
+  padding: 0 0 18px 0 !important;
+  min-width: 0 !important;
+}
+
+.contractor-table {
+  width: 100% !important;
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+  background: #fff !important;
+  border-radius: 16px !important;
+  box-shadow: none !important;
+  font-family: 'Segoe UI', 'Roboto', Arial, sans-serif !important;
+  font-size: 1.04rem !important;
+  overflow: hidden !important;
+  table-layout: auto !important;
+  min-width: 1800px !important;
+}
+
+.contractor-table thead tr {
+  background: #f7f8fa !important;
+}
+
+.contractor-table th {
+  color: #232323 !important;
+  background: #f7f8fa !important;
+  font-weight: 600 !important;
+  font-size: 1.08rem !important;
+  padding: 18px 14px 16px 14px !important;
+  border-bottom: 1px solid #ececec !important;
+  text-align: left !important;
+  letter-spacing: 0.01em !important;
+  user-select: none !important;
+}
+
+.contractor-table tbody tr {
+  background: #fff !important;
+  transition: background 0.15s !important;
+}
+
+.contractor-table tbody tr:nth-child(even) {
+  background: #fafbfc !important;
+}
+
+.contractor-table tbody tr:hover {
+  background: #f3f6fa !important;
+}
+
+.contractor-table td {
+  color: #232323 !important;
+  font-size: 1.04rem !important;
+  padding: 16px 14px !important;
+  border-bottom: 1px solid #f0f1f3 !important;
+  background: transparent !important;
+  vertical-align: middle !important;
+  white-space: normal !important;
+  word-wrap: break-word !important;
+  word-break: break-word !important;
+  min-height: 60px !important;
+  line-height: 1.4 !important;
+  max-width: 200px !important;
+}
+
+.contractor-table .btn-icon {
+  padding: 5px 10px !important;
+  margin-right: 5px !important;
+}
+
+/* Contractor Table Button - Matching Candidate Form */
+.contractor-table .btn-outline-primary {
+  background: #fff !important;
+  color: #3f51b5 !important;
+  border: 1.5px solid #3f51b5 !important;
+  border-radius: 4px !important;
+  padding: 4px 12px !important;
+  font-weight: 600 !important;
+  font-size: 15px !important;
+  transition: background 0.2s, color 0.2s !important;
+  cursor: pointer !important;
+}
+
+.contractor-table .btn-outline-primary:hover {
+  background: #3f51b5 !important;
+  color: #fff !important;
+}
+
+/* Contractor Status Badge - Matching Candidate Form */
+.contractor-status-badge {
+  display: inline-block !important;
+  padding: 4px 16px !important;
+  border-radius: 16px !important;
+  font-size: 0.95rem !important;
+  font-weight: 600 !important;
+  background: #e0e7ef !important;
+  color: #333 !important;
+  min-width: 70px !important;
+  text-align: center !important;
+}
+
+.contractor-status-badge[data-status="Pending"] {
+  background: #e0e7ef !important;
+  color: #3f51b5 !important;
+}
+
+.contractor-status-badge[data-status="Rejected"] {
+  background: #fed7d7 !important;
+  color: #c53030 !important;
+}
+
+.contractor-status-badge[data-status="Approved"] {
+  background: #c6f6d5 !important;
+  color: #276749 !important;
+}
+
+/* Contractor Table Column Widths - Matching Candidate Form */
+.contractor-table th:nth-child(1), /* Approval/Reject column */
+.contractor-table td:nth-child(1) {
+  width: 200px !important;
+  min-width: 200px !important;
+  max-width: 200px !important;
+  text-align: center !important;
+  padding: 12px 16px !important;
+}
+
+.contractor-table th:nth-child(2), /* Approval Status column */
+.contractor-table td:nth-child(2) {
+  width: 140px !important;
+  min-width: 140px !important;
+  max-width: 140px !important;
+  text-align: center !important;
+  padding: 12px 16px !important;
+  padding-left: 24px !important; /* Increased left padding for more spacing */
+  word-wrap: break-word !important;
+  white-space: normal !important;
+  line-height: 1.2 !important;
+}
+
+/* Add spacing between second and third columns */
+.contractor-table th:nth-child(3), /* Edit column */
+.contractor-table td:nth-child(3) {
+  padding-left: 24px !important; /* Increased left padding for more spacing */
+}
+
+/* Ensure the approval/reject button fits properly */
+.contractor-table td:nth-child(1) .btn-outline-primary {
+  width: 100% !important;
+  max-width: 160px !important;
+  white-space: nowrap !important;
+  font-size: 0.9rem !important;
+  padding: 8px 12px !important;
+  overflow: visible !important;
+  text-overflow: unset !important;
+  word-wrap: normal !important;
+  word-break: normal !important;
+}
+
+/* Ensure the status badge fits properly */
+.contractor-table td:nth-child(2) .contractor-status-badge {
+  width: 100% !important;
+  max-width: 100px !important;
+  white-space: nowrap !important;
+  font-size: 0.85rem !important;
+  padding: 4px 8px !important;
+  text-align: center !important;
+  display: inline-block !important;
+}
+
+/* Contractor Form Page */
+.contractor-form-page {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: var(--white);
+  border-radius: 20px;
+  box-shadow: 0 8px 30px var(--shadow-light);
+  animation: contractorFormPageSlideIn 0.3s ease-out;
+  overflow: hidden;
+}
+
+@keyframes contractorFormPageSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.contractor-form-container {
+  padding: 32px;
+  max-width: 100%;
+  margin: 0 auto;
+}
+
+.contractor-form-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 32px;
+  padding-bottom: 16px;
+  border-bottom: 2px solid var(--border-light);
+}
+
+.contractor-form-header h2 {
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: var(--primary-dark);
+  margin: 0;
+}
+
+.contractor-form-close-btn {
+  background: none;
+  border: none;
+  color: var(--secondary-text);
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 8px;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.contractor-form-close-btn:hover {
+  background: var(--hover-light);
+  color: var(--primary-dark);
+}
+
+.contractor-form-content {
+  position: relative;
+}
+
+.form-loader {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  border-radius: 12px;
+}
+
+.form-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+.form-section {
+  background: var(--background-light);
+  border-radius: 16px;
+  padding: 24px;
+  border: 1px solid var(--border-light);
+}
+
+.form-section h3 {
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: var(--primary-dark);
+  margin-bottom: 20px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.form-section h4 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--primary-dark);
+  margin: 20px 0 16px 0;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.form-group label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--primary-dark);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.required::after {
+  content: '*';
+  color: var(--error-red);
+  font-weight: 700;
+}
+
+.form-input,
+.form-group input,
+.form-group select {
+  padding: 12px 16px;
+  border: 2px solid var(--border-light);
+  border-radius: 12px;
+  font-size: 0.95rem;
+  transition: all 0.3s ease;
+  background: var(--white);
+  color: var(--primary-dark);
+}
+
+.form-input:focus,
+.form-group input:focus,
+.form-group select:focus {
+  outline: none;
+  border-color: var(--primary-blue);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.form-input::placeholder,
+.form-group input::placeholder {
+  color: var(--secondary-text);
+}
+
+.form-input:disabled,
+.form-group input:disabled,
+.form-group select:disabled {
+  background: var(--disabled-light);
+  color: var(--secondary-text);
+  cursor: not-allowed;
+}
+
+.form-input:disabled {
+  background-image: linear-gradient(45deg, transparent 25%, rgba(255,255,255,.2) 25%, rgba(255,255,255,.2) 50%, transparent 50%, transparent 75%, rgba(255,255,255,.2) 75%, rgba(255,255,255,.2));
+  background-size: 20px 20px;
+  animation: loading-stripes 1s linear infinite;
+}
+
+@keyframes loading-stripes {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 20px 0;
+  }
+}
+
+.checkbox-group {
+  margin-bottom: 20px;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  font-weight: 500;
+  color: var(--primary-dark);
+  margin-bottom: 8px;
+}
+
+.checkbox-label input[type="checkbox"],
+.checkbox-label input[type="radio"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--primary-blue);
+}
+
+/* Radio Group Styles */
+.radio-group {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 20px;
+}
+
+.radio-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-weight: 500;
+  color: var(--primary-dark);
+  padding: 8px 16px;
+  border-radius: 8px;
+  transition: all 0.3s ease;
+  border: 2px solid transparent;
+}
+
+.radio-label:hover {
+  background: rgba(37, 99, 235, 0.05);
+  border-color: rgba(37, 99, 235, 0.2);
+}
+
+.radio-label input[type="radio"] {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--primary-blue);
+  margin: 0;
+}
+
+.radio-text {
+  font-size: 14px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.contractor-form-page .form-actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 2px solid var(--border-light);
+}
+
+.form-actions-container {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+
+/* Bulk Actions */
+.bulk-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  background: linear-gradient(135deg, var(--primary-blue), var(--primary-dark));
+  color: white;
+  border-radius: 12px;
+  margin-bottom: 24px;
+  font-weight: 600;
+}
+
+/* Toolbar Buttons */
+.toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+  text-decoration: none;
+  justify-content: center;
+}
+
+.toolbar-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.toolbar-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none !important;
+}
+
+.btn-loader {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cms-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid transparent;
+  border-top: 2px solid currentColor;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* CMS Button Styles */
+.cms-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  border: none;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+  text-decoration: none;
+  min-width: 140px;
+  justify-content: center;
+}
+
+.cms-btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  transition: left 0.5s;
+}
+
+.cms-btn:hover::before {
+  left: 100%;
+}
+
+.cms-btn-primary {
+  background: linear-gradient(135deg, var(--primary-blue), var(--primary-dark));
+  color: white;
+  box-shadow: 0 4px 15px rgba(37, 99, 235, 0.3);
+}
+
+.cms-btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(37, 99, 235, 0.4);
+}
+
+.cms-btn-danger {
+  background: linear-gradient(135deg, var(--danger-red), var(--danger-dark));
+  color: white;
+  box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3);
+}
+
+.cms-btn-danger:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(239, 68, 68, 0.4);
+}
+
+.cms-btn-secondary {
+  background: linear-gradient(135deg, #6B7280, #4B5563);
+  color: white;
+  box-shadow: 0 4px 15px rgba(107, 114, 128, 0.3);
+}
+
+.cms-btn-secondary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(107, 114, 128, 0.4);
+}
+
+.cms-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none !important;
+}
+
+/* Message Styles */
+.cms-message {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  border-radius: 12px;
+  margin-bottom: 24px;
+  font-weight: 500;
+  animation: messageSlideIn 0.3s ease-out;
+}
+
+.cms-message-success {
+  background: linear-gradient(135deg, #10B981, #059669);
+  color: white;
+  box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);
+}
+
+.cms-message-error {
+  background: linear-gradient(135deg, #EF4444, #DC2626);
+  color: white;
+  box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3);
+}
+
+.cms-message-warning {
+  background: linear-gradient(135deg, #F59E0B, #D97706);
+  color: white;
+  box-shadow: 0 4px 15px rgba(245, 158, 11, 0.3);
+}
+
+@keyframes messageSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Filter Sidebar */
+.filter-sidebar {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 400px;
+  height: 100vh;
+  background: white;
+  box-shadow: -4px 0 20px rgba(0, 0, 0, 0.1);
+  z-index: 1000;
+  transform: translateX(100%);
+  transition: transform 0.3s ease;
+  overflow-y: auto;
+}
+
+.filter-sidebar.show {
+  transform: translateX(0);
+}
+
+.filter-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 24px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.filter-header h2 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--primary-dark);
+  margin: 0;
+}
+
+.close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--danger-red);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.close-btn:hover {
+  background: var(--danger-red);
+  color: white;
+  transform: scale(1.05);
+}
+
+.filter-body {
+  padding: 24px;
+}
+
+.filter-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.filter-field label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--primary-dark);
+}
+
+.filter-field input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--primary-blue);
+}
+
+.filter-field select,
+.filter-field input[type="text"] {
+  padding: 8px 12px;
+  border: 2px solid var(--border-light);
+  border-radius: 8px;
+  font-size: 0.9rem;
+  transition: all 0.2s ease;
+}
+
+.filter-field select:focus,
+.filter-field input[type="text"]:focus {
+  outline: none;
+  border-color: var(--primary-blue);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+/* Responsive adjustments for contractor form */
+@media (max-width: 1400px) {
+  .form-grid {
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+  }
+  
+  .contractor-form-container {
+    padding: 24px;
+  }
+  
+  .form-section {
+    padding: 20px;
+  }
+}
+
+@media (max-width: 1200px) {
+  .form-grid {
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 14px;
+  }
+  
+  .contractor-form-header h2 {
+    font-size: 1.6rem;
+  }
+  
+  .contractor-management-section {
+    padding: 24px;
+    margin-bottom: 24px;
+  }
+  
+  .contractor-header-actions {
+    flex-direction: column;
+    gap: 20px;
+  }
+  
+  .contractor-actions {
+    justify-content: center;
+  }
+  
+  .contractor-table th,
+  .contractor-table td {
+    padding: 8px 6px;
+    font-size: 13px;
+    min-width: 60px;
+  }
+  
+  .contractor-table th:nth-child(1),
+  .contractor-table td:nth-child(1) {
+    width: 160px;
+    min-width: 160px;
+    max-width: 160px;
+    padding: 8px 12px !important;
+  }
+  
+  .contractor-table th:nth-child(2),
+  .contractor-table td:nth-child(2) {
+    width: 120px;
+    min-width: 120px;
+    max-width: 120px;
+    padding: 8px 12px !important;
+    padding-left: 16px !important;
+    word-wrap: break-word !important;
+    white-space: normal !important;
+    line-height: 1.2 !important;
+  }
+  
+  .contractor-table td:nth-child(1) .btn-outline-primary {
+    max-width: 120px;
+    font-size: 0.8rem;
+    padding: 6px 8px;
+  }
+  
+  .filter-sidebar {
+    width: 100%;
+  }
+}
+
+@media (max-width: 900px) {
+  .form-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  
+  .contractor-form-container {
+    padding: 20px;
+  }
+  
+  .form-section {
+    padding: 16px;
+  }
+  
+  .contractor-form-page .form-actions {
+    flex-direction: column;
+    gap: 12px;
+  }
+  
+  .contractor-form-page .form-actions .cms-btn {
+    width: 100%;
+  }
+  
+  .contractor-table th,
+  .contractor-table td {
+    padding: 6px 4px;
+    font-size: 12px;
+    min-width: 50px;
+  }
+  
+  .contractor-table th:nth-child(1),
+  .contractor-table td:nth-child(1) {
+    width: 140px;
+    min-width: 140px;
+    max-width: 140px;
+    padding: 6px 8px !important;
+  }
+  
+  .contractor-table th:nth-child(2),
+  .contractor-table td:nth-child(2) {
+    width: 100px;
+    min-width: 100px;
+    max-width: 100px;
+    padding: 6px 8px !important;
+    padding-left: 12px !important;
+    word-wrap: break-word !important;
+    white-space: normal !important;
+    line-height: 1.2 !important;
+  }
+  
+  .contractor-table td:nth-child(1) .btn-outline-primary {
+    max-width: 100px;
+    font-size: 0.75rem;
+    padding: 4px 6px;
+  }
+  
+  .contractor-table td:nth-child(2) .contractor-status-badge {
+    max-width: 70px;
+    font-size: 0.75rem;
+    padding: 2px 4px;
+  }
+}
+
+@media (max-width: 768px) {
+  .contractor-form-page {
+    border-radius: 16px;
+  }
+  
+  .contractor-form-container {
+    padding: 16px;
+  }
+  
+  .contractor-form-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+  }
+  
+  .contractor-form-header h2 {
+    font-size: 1.4rem;
+  }
+  
+  .form-section h3 {
+    font-size: 1.1rem;
+  }
+  
+  .form-input,
+  .form-group input,
+  .form-group select {
+    padding: 10px 14px;
+    font-size: 0.9rem;
+  }
+  
+  .radio-group {
+    flex-direction: column;
+    gap: 12px;
+  }
+  
+  .radio-label {
+    padding: 6px 12px;
+  }
+  
+  .form-actions-container {
+    flex-direction: column;
+    gap: 12px;
+    width: 100%;
+  }
+  
+  .form-actions-container .cms-btn {
+    width: 100%;
+  }
+  
+  .contractor-table-container {
+    overflow-x: auto;
+  }
+  
+  .contractor-table {
+    min-width: 800px;
+  }
+  
+  .contractor-title {
+    font-size: 1.5rem;
+  }
+  
+  .contractor-subtitle {
+    font-size: 1rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .contractor-form-container {
+    padding: 12px;
+  }
+  
+  .form-section {
+    padding: 12px;
+  }
+  
+  .contractor-form-header h2 {
+    font-size: 1.2rem;
+  }
+  
+  .form-section h3 {
+    font-size: 1rem;
+  }
+  
+  .contractor-title {
+    font-size: 1.3rem;
+  }
+  
+  .contractor-subtitle {
+    font-size: 0.9rem;
+  }
+  
+  .contractor-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .toolbar-btn {
+    width: 100%;
+    justify-content: center;
+  }
+  
+  .contractor-table th,
+  .contractor-table td {
+    padding: 4px 2px;
+    font-size: 11px;
+    min-width: 40px;
+  }
+  
+  .contractor-table th:nth-child(1),
+  .contractor-table td:nth-child(1) {
+    width: 120px;
+    min-width: 120px;
+    max-width: 120px;
+    padding: 4px 6px !important;
+  }
+  
+  .contractor-table th:nth-child(2),
+  .contractor-table td:nth-child(2) {
+    width: 80px;
+    min-width: 80px;
+    max-width: 80px;
+    padding: 4px 6px !important;
+    padding-left: 8px !important;
+    word-wrap: break-word !important;
+    white-space: normal !important;
+    line-height: 1.2 !important;
+  }
+  
+  .contractor-table td:nth-child(1) .btn-outline-primary {
+    max-width: 80px;
+    font-size: 0.7rem;
+    padding: 3px 4px;
+  }
+  
+  .contractor-table td:nth-child(2) .contractor-status-badge {
+    max-width: 50px;
+    font-size: 0.7rem;
+    padding: 1px 2px;
+  }
+}
+
+/* CSS Variables */
+:root {
+  --primary-blue: #3B82F6;
+  --primary-dark: #1E40AF;
+  --secondary-blue: #6B7280;
+  --secondary-dark: #374151;
+  --danger-red: #EF4444;
+  --danger-dark: #DC2626;
+  --success-green: #10B981;
+  --warning-yellow: #F59E0B;
+  --white: #FFFFFF;
+  --border-light: #E5E7EB;
+  --shadow-light: rgba(0, 0, 0, 0.1);
+  --secondary-text: #6B7280;
+  --background-light: #F9FAFB;
+  --hover-light: #F3F4F6;
+  --disabled-light: #F3F4F6;
+  --error-red: #EF4444;
+}
+
+/* File upload table styles */
+.employee-files-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+  table-layout: fixed;
+  min-width: 600px; /* Ensure minimum width for content */
+}
+
+.employee-files-table th,
+.employee-files-table td {
+  padding: 12px;
+  text-align: left;
+  border-bottom: 1px solid #e0e0e0;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.employee-files-table th {
+  background-color: #f5f5f5;
+  font-weight: 600;
+  color: #333;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.employee-files-table tr:hover {
+  background-color: #f9f9f9;
+}
+
+/* Ensure table container doesn't cut off content */
+.employee-files-table-container {
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: visible;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  background: white;
+  grid-column: 1 / -1; /* Span full width in grid */
+  margin-bottom: 20px;
+}
+
+/* Specific styling for document uploads section */
+.document-uploads-section {
+  grid-column: 1 / -1;
+  width: 100%;
+  max-width: none;
+}
+
+.document-uploads-section .employee-files-table-container {
+  width: 100%;
+  max-width: none;
+}
+
+/* Set specific column widths */
+.employee-files-table th:nth-child(1),
+.employee-files-table td:nth-child(1) {
+  width: 35%; /* Document column */
+}
+
+.employee-files-table th:nth-child(2),
+.employee-files-table td:nth-child(2) {
+  width: 40%; /* File column */
+}
+
+.employee-files-table th:nth-child(3),
+.employee-files-table td:nth-child(3) {
+  width: 25%; /* Action column */
+}
+
+/* Responsive design for smaller screens */
+@media (max-width: 768px) {
+  .employee-files-table {
+    table-layout: auto;
+  }
+  
+  .employee-files-table th,
+  .employee-files-table td {
+    padding: 8px;
+    font-size: 14px;
+  }
+  
+  .employee-files-table th:nth-child(1),
+  .employee-files-table td:nth-child(1) {
+    width: auto;
+  }
+  
+  .employee-files-table th:nth-child(2),
+  .employee-files-table td:nth-child(2) {
+    width: auto;
+  }
+  
+  .employee-files-table th:nth-child(3),
+  .employee-files-table td:nth-child(3) {
+    width: auto;
+  }
+  
+  .btn {
+    padding: 6px 12px;
+    font-size: 12px;
+    min-height: 32px;
+  }
+  
+  .btn-icon {
+    width: 32px;
+    height: 32px;
+  }
+}
+
+/* Button styles */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background-color: #f5f5f5;
+  color: #333;
+  min-height: 36px;
+}
+
+.btn-primary {
+  background-color: #1976d2;
+  color: white;
+}
+
+.btn-primary:hover {
+  background-color: #1565c0;
+}
+
+.btn-danger {
+  background-color: #f44336;
+  color: white;
+}
+
+.btn-danger:hover {
+  background-color: #d32f2f;
+}
+
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background-color: white;
+  color: #666;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-decoration: none;
+}
+
+.btn-icon:hover {
+  background-color: #f5f5f5;
+  border-color: #bbb;
+  color: #333;
+}
+
+.btn-danger-icon {
+  color: #f44336;
+  border-color: #f44336;
+}
+
+.btn-danger-icon:hover {
+  background-color: #f44336;
+  color: white;
+}
+
+/* Utility classes */
+.ml-5 {
+  margin-left: 5px;
+}
+
+.dF {
+  display: flex;
+}
+
+.aI-center {
+  align-items: center;
+}
+
+.jC-center {
+  justify-content: center;
+}
+
+.h-inh {
+  height: inherit;
+}
+
+.text-center {
+  text-align: center;
+}
+
+/* Loader styles */
+.loader-xs {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid #f3f3f3;
+  border-top: 2px solid #3498db;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* When Edit column is hidden, # column becomes 2nd column */
+.contractor-table.edit-column-hidden th:nth-child(2),
+.contractor-table.edit-column-hidden td:nth-child(2) {
+  /* # column takes Edit column position */
+  padding-right: 20px !important;
+  width: 50px !important;
+  min-width: 50px !important;
+  max-width: 50px !important;
+  text-align: center !important;
+  white-space: nowrap !important;
+  overflow: visible !important;
+  text-overflow: unset !important;
+}
+
+.contractor-table.edit-column-hidden th:nth-child(3),
+.contractor-table.edit-column-hidden td:nth-child(3) {
+  /* Organization column */
+  padding-left: 20px !important;
+}
+
+/* Ensure proper spacing for all columns when Edit is hidden */
+.contractor-table.edit-column-hidden th:nth-child(n+3),
+.contractor-table.edit-column-hidden td:nth-child(n+3) {
+  padding-left: 20px !important;
+}
+
+/* Normal table layout spacing */
+.contractor-table th:nth-child(2), /* # column */
+.contractor-table td:nth-child(2) {
+  padding-right: 20px !important;
+  width: 50px !important;
+  min-width: 50px !important;
+  max-width: 50px !important;
+  text-align: center !important;
+  white-space: nowrap !important;
+  overflow: visible !important;
+  text-overflow: unset !important;
+}
+
+.contractor-table th:nth-child(3), /* Edit column */
+.contractor-table td:nth-child(3) {
+  width: 60px;
+  min-width: 60px;
+  max-width: 60px;
+  text-align: center !important;
+  padding: 14px 8px !important;
+}
+
+.contractor-table th:nth-child(4), /* Organization column */
+.contractor-table td:nth-child(4) {
+  padding-left: 20px !important;
+}
+
+/* General spacing for all other columns */
+.contractor-table th:nth-child(n+4),
+.contractor-table td:nth-child(n+4) {
+  padding-left: 20px !important;
+}
+
+/* Center checkboxes in Select column */
+.contractor-table td:nth-child(1) input[type="checkbox"] {
+  margin: 0 auto;
+  display: block;
+}
+
+/* Center edit icons in Edit column */
+.contractor-table td:nth-child(3) .btn-icon {
+  margin: 0 auto;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* Table spacing and layout improvements with inner scroll */
+.contractor-table-container {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin: 32px auto 0 auto !important;
+  overflow-x: auto !important;
+  overflow-y: auto !important;
+  max-height: 70vh !important;
+  background: #fff !important;
+  border-radius: 18px !important;
+  box-shadow: 0 4px 24px rgba(44,62,80,0.07) !important;
+  padding: 0 0 18px 0 !important;
+  min-width: 0 !important;
+}
+
+/* Custom scrollbar styling */
+.contractor-table-container::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+
+.contractor-table-container::-webkit-scrollbar-track {
+  background: #f8fafc;
+  border-radius: 8px;
+}
+
+.contractor-table-container::-webkit-scrollbar-thumb {
+  background-color: #dc3545;
+  border-radius: 8px;
+  border: 2px solid #f8fafc;
+}
+
+.contractor-table-container::-webkit-scrollbar-thumb:hover {
+  background-color: #c82333;
+}
+
+.contractor-table {
+  width: 100% !important;
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+  background: #fff !important;
+  border-radius: 16px !important;
+  box-shadow: 0 2px 8px rgba(44,62,80,0.04) !important;
+  overflow: hidden !important;
+  font-family: 'Segoe UI', 'Roboto', Arial, sans-serif !important;
+  font-size: 1rem !important;
+}
+
+.contractor-table th,
+.contractor-table td {
+  padding: 16px 20px; /* Increased padding for better spacing */
+  text-align: left;
+  border-bottom: 1px solid #f0f0f0;
+  vertical-align: middle;
+  min-width: 120px; /* Minimum column width */
+  white-space: nowrap; /* Prevent text wrapping */
+}
+
+.contractor-table thead tr {
+  background: #f7f8fa !important;
+}
+
+.contractor-table th {
+  color: #232323 !important;
+  background: #f7f8fa !important;
+  font-weight: 600 !important;
+  font-size: 1.08rem !important;
+  padding: 18px 14px 16px 14px !important;
+  border-bottom: 1px solid #ececec !important;
+  text-align: center !important;
+  letter-spacing: 0.01em !important;
+  user-select: none !important;
+  text-transform: capitalize; /* Only capitalize first letter */
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 10 !important;
+  white-space: normal; /* Allow text wrapping in headers */
+  word-wrap: break-word;
+  line-height: 1.4;
+}
+
+.contractor-table th:first-child {
+  border-top-left-radius: 16px !important;
+}
+
+.contractor-table th:last-child {
+  border-top-right-radius: 16px !important;
+}
+
+.contractor-table tbody tr {
+  background: #fff !important;
+  transition: background 0.15s !important;
+}
+
+.contractor-table tbody tr:nth-child(even) {
+  background: #fafbfc !important;
+}
+
+.contractor-table tbody tr:hover {
+  background: #f3f6fa !important;
+}
+
+.contractor-table td {
+  color: #232323 !important;
+  font-size: 1.04rem !important;
+  padding: 16px 14px !important;
+  border-bottom: 1px solid #f0f1f3 !important;
+  background: transparent !important;
+  vertical-align: middle !important;
+  text-align: center !important;
+  min-width: 120px; /* Minimum column width */
+  white-space: nowrap; /* Prevent text wrapping */
+}
+
+.contractor-table tr:last-child td {
+  border-bottom: none !important;
+}
+
+/* Specific column spacing for document columns */
+.contractor-table th:nth-child(n+45), /* Document columns start around position 45 */
+.contractor-table td:nth-child(n+45) {
+  min-width: 150px; /* Wider spacing for document columns */
+  padding-left: 25px;
+  padding-right: 25px;
+}
+
+/* Status and action columns */
+.contractor-table th:nth-child(1), /* Checkbox column */
+.contractor-table td:nth-child(1) {
+  min-width: 60px;
+  text-align: center;
+  padding: 16px 12px;
+}
+
+.contractor-table th:nth-child(2), /* # column */
+.contractor-table td:nth-child(2) {
+  min-width: 60px;
+  text-align: center;
+  padding: 16px 12px;
+}
+
+.contractor-table th:nth-child(3), /* Edit column */
+.contractor-table td:nth-child(3) {
+  min-width: 80px;
+  text-align: center;
+  padding: 16px 12px;
+}
+
+.contractor-table th:nth-child(4), /* Approve/Reject column */
+.contractor-table td:nth-child(4) {
+  min-width: 140px;
+  text-align: center;
+  padding: 16px 16px;
+}
+
+.contractor-table th:nth-child(5), /* Status column */
+.contractor-table td:nth-child(5) {
+  min-width: 100px;
+  text-align: center;
+  padding: 16px 16px;
+}
+
+/* Organization and basic info columns */
+.contractor-table th:nth-child(6), /* Organization */
+.contractor-table td:nth-child(6),
+.contractor-table th:nth-child(7), /* Establishment Code */
+.contractor-table td:nth-child(7),
+.contractor-table th:nth-child(8), /* License No */
+.contractor-table td:nth-child(8),
+.contractor-table th:nth-child(9), /* Contractor Name */
+.contractor-table td:nth-child(9) {
+  min-width: 140px;
+  padding: 16px 20px;
+}
+
+/* Email and contact columns */
+.contractor-table th:nth-child(10), /* Primary Email */
+.contractor-table td:nth-child(10),
+.contractor-table th:nth-child(11), /* Contract Start Date */
+.contractor-table td:nth-child(11),
+.contractor-table th:nth-child(12), /* Establishment Short Name */
+.contractor-table td:nth-child(12),
+.contractor-table th:nth-child(13), /* Contract End Date */
+.contractor-table td:nth-child(13),
+.contractor-table th:nth-child(14), /* Primary Mobile */
+.contractor-table td:nth-child(14) {
+  min-width: 130px;
+  padding: 16px 18px;
+}
+
+/* Address columns */
+.contractor-table th:nth-child(20), /* Register Address Line 1 */
+.contractor-table td:nth-child(20),
+.contractor-table th:nth-child(21), /* Register Address Line 2 */
+.contractor-table td:nth-child(21),
+.contractor-table th:nth-child(22), /* Register City */
+.contractor-table td:nth-child(22),
+.contractor-table th:nth-child(23), /* Register State */
+.contractor-table td:nth-child(23),
+.contractor-table th:nth-child(24), /* Register Postal Code */
+.contractor-table td:nth-child(24),
+.contractor-table th:nth-child(25), /* Register Country */
+.contractor-table td:nth-child(25) {
+  min-width: 120px;
+  padding: 16px 16px;
+}
+
+/* Document number columns */
+.contractor-table th:nth-child(32), /* Organization PAN No */
+.contractor-table td:nth-child(32),
+.contractor-table th:nth-child(33), /* Organization GSTIN Number */
+.contractor-table td:nth-child(33),
+.contractor-table th:nth-child(34), /* Organization PF Establishment Code */
+.contractor-table td:nth-child(34),
+.contractor-table th:nth-child(35), /* Organization ESI Establishment Code */
+.contractor-table td:nth-child(35) {
+  min-width: 160px;
+  padding: 16px 20px;
+}
+
+/* Contact person columns */
+.contractor-table th:nth-child(40), /* Name of Site Manager */
+.contractor-table td:nth-child(40),
+.contractor-table th:nth-child(41), /* Name of Site Incharge */
+.contractor-table td:nth-child(41),
+.contractor-table th:nth-child(42), /* Site Manager Mobile */
+.contractor-table td:nth-child(42),
+.contractor-table th:nth-child(43), /* Site Incharge Mobile */
+.contractor-table td:nth-child(43) {
+  min-width: 140px;
+  padding: 16px 18px;
+}
+
+/* Responsive table */
+@media (max-width: 1200px) {
+  .contractor-table th,
+  .contractor-table td {
+    padding: 12px 16px;
+    min-width: 100px;
+  }
+  
+  .contractor-table th:nth-child(n+45),
+  .contractor-table td:nth-child(n+45) {
+    min-width: 120px;
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+}
+
+@media (max-width: 768px) {
+  .contractor-table th,
+  .contractor-table td {
+    padding: 10px 12px;
+    min-width: 80px;
+    font-size: 12px;
+  }
+}
+
+/* File download link styles */
+.file-download-link {
+  background: none !important;
+  border: none !important;
+  color: #3182ce !important;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0 !important;
+  margin: 0;
+  font-size: inherit;
+  text-align: left;
+  max-width: 100%;
+  word-wrap: break-word;
+  white-space: normal;
+  line-height: 1.3;
+}
+
+.file-download-link:hover {
+  color: #2c5aa0 !important;
+  text-decoration: underline;
+  background: none !important;
+}
+
+.file-download-link:focus {
+  outline: 2px solid #4299e1;
+  outline-offset: 1px;
+}
+
+.file-download-link i {
+  color: #666;
+  font-size: 12px;
+}
+
+/* Nature of Work Container */
+.nature-of-work-container {
+  position: relative;
+  width: 100%;
+}
+
+/* Modal Styles */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: modalFadeIn 0.3s ease-out;
+}
+
+@keyframes modalFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.modal-content {
+  background: white;
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  max-width: 500px;
+  width: 90%;
+  max-height: 90vh;
+  overflow-y: auto;
+  animation: modalSlideIn 0.3s ease-out;
+}
+
+@keyframes modalSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-30px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 24px 24px 16px 24px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.modal-header h3 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #1f2937;
+  margin: 0;
+}
+
+.modal-close-btn {
+  background: none;
+  border: none;
+  color: #6b7280;
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-close-btn:hover {
+  background: #f3f4f6;
+  color: #374151;
+}
+
+.modal-body {
+  padding: 24px;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 24px 24px 24px;
+  border-top: 1px solid #e5e7eb;
+}
+
+/* Form Error Styles */
+.form-error {
+  color: #dc3545;
+  font-size: 14px;
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Responsive Modal */
+@media (max-width: 768px) {
+  .modal-content {
+    width: 95%;
+    margin: 20px;
+  }
+  
+  .modal-header,
+  .modal-body,
+  .modal-footer {
+    padding: 16px;
+  }
+  
+  .modal-footer {
+    flex-direction: column;
+  }
+  
+  .modal-footer .cms-btn {
+    width: 100%;
+  }
+}

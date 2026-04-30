@@ -1,0 +1,48 @@
+button {
+border: none;
+outline: 0;
+display: inline-block;
+padding: 8px;
+color: white;
+background-color: #000;
+text-align: center;
+cursor: pointer;
+width: 20%;
+font-size: 18px;
+border-radius: 8px;
+}
+
+/* Override for CMS logout button */
+.cms-logout-btn {
+  background-color: transparent !important;
+  color: white !important;
+  width: auto !important;
+  font-size: inherit !important;
+  border-radius: 50% !important;
+  padding: 8px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: all 0.3s ease !important;
+}
+
+.cms-logout-btn:hover {
+  background-color: rgba(255, 255, 255, 0.2) !important;
+  transform: scale(1.1) !important;
+  opacity: 1 !important;
+}
+
+.cms-logout-btn svg {
+  color: white !important;
+}
+
+button:hover,
+.forgetPassword-btn:hover,
+a:hover {
+opacity: 0.7;
+}
+a {
+text-decoration: none;
+font-size: 22px;
+color: black;
+}

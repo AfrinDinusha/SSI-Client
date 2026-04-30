@@ -1,0 +1,419 @@
+/* NewShiftMap component styles */
+
+/* Card container */
+.newshiftmap-card-container {
+  background: #fff;
+  border-radius: 20px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08);
+  padding: 30px;
+  margin: 0;
+  max-width: 100%;
+  position: relative;
+  border: 1px solid rgba(37, 99, 235, 0.12);
+}
+
+/* Header */
+.newshiftmap-header {
+  margin-bottom: 24px;
+}
+
+.newshiftmap-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #1a237e;
+  margin: 0 0 8px 0;
+}
+
+.newshiftmap-subtitle {
+  font-size: 0.95rem;
+  color: #64748b;
+  margin: 0;
+}
+
+/* Alerts (if not already in App/helper) */
+.newshiftmap-card-container .alert {
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.newshiftmap-card-container .alert-error {
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+
+.newshiftmap-card-container .alert-success {
+  background: #f0fdf4;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+}
+
+.newshiftmap-card-container .alert-icon {
+  font-size: 1.1rem;
+}
+
+/* Date filter row - dates left, buttons pushed to far right */
+.newshiftmap-date-filter {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin-bottom: 24px;
+  gap: 24px;
+}
+
+.newshiftmap-date-filter-left {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex-shrink: 0;
+}
+
+.newshiftmap-date-filter-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.newshiftmap-date-filter .date-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.newshiftmap-date-filter .date-input-group label {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: #334155;
+}
+
+/* Date input - single icon (browser native calendar) */
+.newshiftmap-date-filter .newshiftmap-date-input,
+.newshiftmap-date-filter .date-input-group input[type="date"] {
+  padding: 8px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  min-width: 200px;
+}
+
+.newshiftmap-date-filter .newshiftmap-date-input:focus,
+.newshiftmap-date-filter .date-input-group input[type="date"]:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+}
+
+/* File input hidden */
+.newshiftmap-date-filter input[type="file"],
+.file-input-hidden {
+  display: none !important;
+}
+
+.newshiftmap-date-filter .export-excel-btn-first {
+  margin-left: 0;
+}
+
+/* Buttons in date filter - blue background (icon boxes) */
+.newshiftmap-date-filter .import-btn {
+  padding: 10px 24px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  border: none;
+  background: #2563eb;
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+  min-width: 140px;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.newshiftmap-date-filter .import-btn:hover:not(:disabled) {
+  background: #1d4ed8;
+  color: #fff;
+}
+
+.newshiftmap-date-filter .import-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.newshiftmap-date-filter .export-excel-btn {
+  margin-left: 10px;
+  padding: 10px 24px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  border: none;
+  background: #2563eb;
+  color: #fff;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-width: 165px;
+  white-space: nowrap;
+}
+
+/* Export Excel: icon on the right of text, more space for icon */
+.newshiftmap-date-filter .export-excel-btn .export-excel-icon,
+.newshiftmap-date-filter .export-excel-btn svg {
+  flex-shrink: 0;
+  margin-left: 4px;
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  min-height: 22px;
+}
+
+.newshiftmap-date-filter .export-excel-btn:first-of-type {
+  margin-left: 0;
+}
+
+.newshiftmap-date-filter .export-excel-btn:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.newshiftmap-date-filter .export-excel-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.newshiftmap-date-filter .delete-selected-btn {
+  margin-left: 10px;
+  padding: 10px;
+  width: 52px;
+  min-width: 52px;
+  height: 44px;
+  border-radius: 8px;
+  font-weight: 600;
+  border: none;
+  background: #2563eb;
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.newshiftmap-date-filter .delete-selected-btn svg {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  color: #fff;
+}
+
+.newshiftmap-date-filter .delete-selected-btn:hover:not(:disabled) {
+  background: #1d4ed8;
+  color: #fff;
+}
+
+.newshiftmap-date-filter .delete-selected-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Table container */
+.newshiftmap-table-container {
+  width: 100%;
+  max-width: 100%;
+  margin-top: 24px;
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 70vh;
+  background: #fff;
+  border-radius: 18px;
+  box-shadow: 0 4px 24px rgba(44, 62, 80, 0.07);
+  padding: 0 0 18px 0;
+}
+
+.newshiftmap-table-container::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+
+.newshiftmap-table-container::-webkit-scrollbar-track {
+  background: #f8fafc;
+  border-radius: 8px;
+}
+
+.newshiftmap-table-container::-webkit-scrollbar-thumb {
+  background-color: #2196f3;
+  border-radius: 8px;
+  border: 2px solid #f8fafc;
+}
+
+/* Table */
+.newshiftmap-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: #fff;
+  border-radius: 16px;
+  font-family: 'Segoe UI', 'Roboto', Arial, sans-serif;
+  font-size: 1rem;
+  overflow: hidden;
+  table-layout: auto;
+  min-width: 800px;
+}
+
+.newshiftmap-table thead tr {
+  background: #f7f8fa;
+}
+
+.newshiftmap-table th {
+  color: #232323;
+  background: #f7f8fa;
+  font-weight: 600;
+  font-size: 0.95rem;
+  padding: 14px 12px;
+  border-bottom: 2px solid #e2e8f0;
+  text-align: left;
+}
+
+.newshiftmap-table th.th-select {
+  min-width: 60px;
+  text-align: center;
+}
+
+.newshiftmap-table th.th-date {
+  min-width: 100px;
+  text-align: center;
+}
+
+.newshiftmap-table tbody tr {
+  transition: background-color 0.2s;
+}
+
+.newshiftmap-table tbody tr:hover {
+  background: #f8fafc;
+}
+
+.newshiftmap-table td {
+  padding: 12px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.newshiftmap-table td.td-select {
+  text-align: center;
+  vertical-align: middle;
+}
+
+.newshiftmap-table input.checkbox-cell,
+.newshiftmap-table input[type="checkbox"].checkbox-cell {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: #2563eb;
+}
+
+.newshiftmap-table input.checkbox-cell:disabled,
+.newshiftmap-table input[type="checkbox"].checkbox-cell:disabled {
+  cursor: not-allowed;
+}
+
+.newshiftmap-table .td-empty {
+  text-align: center;
+  padding: 20px;
+  color: #64748b;
+}
+
+/* Shift type cell colors */
+.newshiftmap-table .shift-type-empty {
+  color: #94a3b8;
+  font-style: italic;
+}
+
+.newshiftmap-table .shift-type-general,
+.newshiftmap-table td[class^="shift-type-"]:not(.shift-type-empty) {
+  font-weight: 500;
+  text-align: center;
+}
+
+/* Loading */
+.loading-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  gap: 16px;
+}
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid #e2e8f0;
+  border-top-color: #2563eb;
+  border-radius: 50%;
+  animation: newshiftmap-spin 0.8s linear infinite;
+}
+
+@keyframes newshiftmap-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.loading-text {
+  font-size: 0.95rem;
+  color: #64748b;
+  margin: 0;
+}
+
+/* Placeholder when no dates selected */
+.newshiftmap-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  text-align: center;
+  color: #64748b;
+  background: #f8fafc;
+  border-radius: 16px;
+  margin-top: 24px;
+}
+
+.newshiftmap-placeholder svg {
+  opacity: 0.3;
+  margin-bottom: 16px;
+}
+
+.newshiftmap-placeholder p {
+  margin: 0;
+  font-size: 1rem;
+}
+
+/* Add Shift Roaster button */
+.newshiftmap-date-filter .add-shift-roster-btn {
+  gap: 8px;
+  min-width: 220px;
+  padding-left: 20px;
+  padding-right: 20px;
+}
+
+.newshiftmap-date-filter .add-shift-roster-icon {
+  flex-shrink: 0;
+}
+
+/* Full-screen Add Shift Roaster — uses employee-form-page + form-section-card (employeeManagement.css), form-input + cms-btn (Organization.css) */
+.newshiftmap-add-roster-fullpage .form-input[type='date'],
+.newshiftmap-add-roster-fullpage select.form-input {
+  cursor: pointer;
+}

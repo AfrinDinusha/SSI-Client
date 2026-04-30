@@ -1,0 +1,567 @@
+/* Fix typo: leading dot */
+.shift-form-wrapper {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+}
+
+/* Shift list: container and grid (sample 2nd image – 3 cards per row, white cards) */
+.shift-container {
+  padding: 24px;
+  max-width: 100%;
+}
+
+.shift-simple-header {
+  margin-bottom: 20px;
+}
+
+/* Card width to match image model – consistent card size */
+.shifts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 24px;
+  align-items: start;
+}
+
+/* Each shift card: white, rounded, subtle blue top border (image model) */
+.shift-card {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+  border: 1px solid #e8e8e8;
+  border-top: 3px solid #2563eb;
+  min-width: 0;
+}
+
+/* Card top row: checkbox left, edit/delete right */
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 16px;
+  border-bottom: 1px solid #eee;
+}
+
+.card-checkbox {
+  display: flex;
+  align-items: center;
+}
+
+.card-checkbox .custom-checkbox {
+  width: 18px;
+  height: 18px;
+  border: 2px solid #2563eb;
+  border-radius: 4px;
+  cursor: pointer;
+  accent-color: #2563eb;
+}
+
+.card-checkbox .checkbox-label {
+  display: none;
+}
+
+/* Edit / Delete: small circular-backed red icons (image model) */
+.card-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.card-actions .btn-edit,
+.card-actions .btn-delete {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  min-height: 36px;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s, transform 0.15s;
+  background: rgba(211, 47, 47, 0.12);
+  color: #c62828;
+}
+
+.card-actions .btn-edit:hover,
+.card-actions .btn-delete:hover {
+  background: rgba(211, 47, 47, 0.2);
+  transform: scale(1.05);
+}
+
+.card-actions .btn-edit svg,
+.card-actions .btn-delete svg {
+  color: inherit;
+}
+
+/* Card content: clock icon + name, FROM–TO bar, ID */
+.card-content {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.shift-name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Clock icon: blue background #EAF6FF (image model) */
+.shift-name .shift-icon {
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  border-radius: 8px;
+  background: #EAF6FF;
+  color: #1976d2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.shift-name .shift-icon svg {
+  color: inherit;
+}
+
+/* Shift name: bold blue text (image model) */
+.shift-name h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #1976d2;
+}
+
+/* FROM–TO time bar: blue background #EAF6FF (image model) */
+.shift-time {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: #EAF6FF;
+  border-radius: 8px;
+}
+
+.shift-time .time-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.shift-time .time-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #757575;
+}
+
+.shift-time .time-value {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #212121;
+}
+
+.shift-time .time-arrow {
+  color: #64b5f6;
+}
+
+.shift-time .time-arrow svg {
+  color: inherit;
+}
+
+/* ID: same line – gray label left, blue number right (image model) */
+.shift-id {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+
+.shift-id .id-label {
+  font-weight: 500;
+  color: #757575;
+}
+
+.shift-id .id-value {
+  color: #1976d2;
+  font-weight: 500;
+  text-align: right;
+}
+
+/* Alerts */
+.shift-container .alert {
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.shift-container .alert-success {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.shift-container .alert-error {
+  background: #ffebee;
+  color: #c62828;
+}
+
+/* Loading / error / empty */
+.loading-container,
+.error-container {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  text-align: center;
+}
+
+.empty-state {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 48px 24px;
+}
+
+/* ========== Add Shift form (2nd image model: alignment, header, sections, buttons) ========== */
+.shift-form-page {
+  padding: 24px;
+  max-width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.shift-form-container {
+  width: 100%;
+  max-width: 920px;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+
+/* Header: blue bar, plus + "Add Shift" left, X right (2nd image) */
+.shift-form-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 18px 24px;
+  background: linear-gradient(to right, #1976d2, #1565c0);
+  color: #fff;
+}
+
+.shift-form-title {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.shift-form-title-icon {
+  flex-shrink: 0;
+  color: #fff;
+}
+
+.shift-form-close {
+  background: transparent !important;
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  padding: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  transition: background 0.2s;
+}
+
+.shift-form-close:hover {
+  background: rgba(255, 255, 255, 0.2) !important;
+}
+
+.shift-form-content {
+  padding: 24px;
+  position: relative;
+}
+
+/* Section cards: white, rounded, spacing (2nd image) */
+.shift-form-section-card {
+  background: #fff;
+  border: 1px solid #e8e8e8;
+  border-radius: 10px;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.shift-form-section-card:last-of-type {
+  margin-bottom: 24px;
+}
+
+.section-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.shift-form-section-card .section-title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #1976d2;
+}
+
+.section-title-card-icon {
+  flex-shrink: 0;
+}
+
+.shift-info .section-title-icon-info {
+  color: #9e9e9e;
+}
+
+.time-details .section-title-icon-time {
+  color: #e91e63;
+}
+
+/* Form grid: single column for Shift Information, two columns for Time Details */
+.shift-form-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.shift-form-grid-single {
+  grid-template-columns: 1fr;
+}
+
+.shift-form-grid-double {
+  grid-template-columns: 1fr 1fr;
+  align-items: start;
+}
+
+.shift-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.shift-form-group label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #333;
+  text-transform: uppercase;
+}
+
+.shift-form-group .label-icon {
+  color: #666;
+  flex-shrink: 0;
+}
+
+.shift-form-group .required {
+  color: #c62828;
+  font-weight: 700;
+}
+
+.shift-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.shift-input-wrap .shift-input {
+  padding-right: 44px;
+}
+
+.shift-input-icon {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #888;
+  pointer-events: none;
+}
+
+.shift-form-group .shift-input {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  font-size: 1rem;
+  box-sizing: border-box;
+}
+
+.shift-form-group .shift-input:focus {
+  outline: none;
+  border-color: #1976d2;
+  box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.2);
+}
+
+/* Form actions: card-like area, Reset (red), Add Shift (blue) centered (2nd image) */
+.shift-form-actions {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 16px;
+  padding: 20px 24px;
+  margin-top: 8px;
+  background: #f5f5f5;
+  border-radius: 10px;
+  border: 1px solid #e8e8e8;
+}
+
+.shift-form-actions .btn-danger,
+.shift-form-actions .btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 24px;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s, background 0.2s;
+}
+
+.shift-form-actions .btn-danger {
+  background: #c62828;
+  color: #fff;
+}
+
+.shift-form-actions .btn-danger:hover:not(:disabled) {
+  background: #b71c1c;
+}
+
+.shift-form-actions .btn-primary {
+  background: #1976d2;
+  color: #fff;
+}
+
+.shift-form-actions .btn-primary:hover:not(:disabled) {
+  background: #1565c0;
+}
+
+.shift-form-actions .btn-primary:disabled,
+.shift-form-actions .btn-danger:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.shift-form-actions .btn-icon-svg {
+  flex-shrink: 0;
+  color: inherit;
+}
+
+@media (max-width: 600px) {
+  .shift-form-grid-double {
+    grid-template-columns: 1fr;
+  }
+}
+
+.shift-form {
+  background: #fff;
+  padding: 2.5rem 2rem;
+  border-radius: 12px;
+  box-shadow: 0 2px 16px rgba(0,0,0,0.08);
+  width: 350px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.shift-form-title {
+  text-align: center;
+  font-size: 2rem;
+  font-weight: 700;
+  margin-bottom: 1.5rem;
+  position: relative;
+}
+
+.close-btn {
+  position: absolute;
+  right: 0;
+  top: 0;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: #2563eb;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.btn-icon {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.25rem;
+  margin: 0 auto 0 8px; /* Add left margin to move icon left */
+  display: flex;
+  align-items: center;
+  color: #2563eb;
+}
+
+.shift-form-group {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 1.2rem;
+}
+
+.shift-form-group label {
+  margin-bottom: 0.4rem;
+  font-weight: 500;
+}
+
+.shift-form-group input {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #bdbdbd;
+  border-radius: 6px;
+  font-size: 1rem;
+}
+
+.required {
+  color: red;
+}
+
+.shift-form-actions {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 1.5rem;
+}
+
+.add-btn {
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  padding: 0.6rem 1.5rem;
+  border-radius: 6px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.reset-btn {
+  background: #e53935;
+  color: #fff;
+  border: none;
+  padding: 0.6rem 1.5rem;
+  border-radius: 6px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}

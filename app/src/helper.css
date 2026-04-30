@@ -1,0 +1,289 @@
+/* helper.css */
+.dF { display: flex; }
+.aI-center { align-items: center; }
+.jC-center { justify-content: center; }
+.h-inh { min-height: 180px; }
+.px-20 { padding-left: 20px; padding-right: 20px; }
+.p-20 { padding: 20px; }
+.ml-10 { margin-left: 10px; }
+.ml-5 { margin-left: 5px; }
+.my-5 { margin-top: 5px; margin-bottom: 5px; }
+.text-28 { font-size: 28px; font-family: 'Segoe UI', 'Roboto', Arial, sans-serif; color: #1a237e; }
+.text-16 { font-size: 16px; font-family: 'Segoe UI', 'Roboto', Arial, sans-serif; color: #607d8b; }
+.font-700 { font-weight: 700; }
+
+/* Loader styles */
+.loader–lg, .loader–sm, .loader–xs, .btn–primary__loader {
+  border: 4px solid #e3e8ee;
+  border-top: 4px solid #3f51b5;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  display: inline-block;
+}
+
+.loader–lg { width: 40px; height: 40px; border-width: 5px; }
+.loader–sm { width: 20px; height: 20px; border-width: 3px; }
+.loader–xs { width: 14px; height: 14px; border-width: 2px; }
+.btn–primary__loader { width: 16px; height: 16px; border-width: 2px; }
+
+@keyframes spin {
+  0% { transform: rotate(0deg);}
+  100% { transform: rotate(360deg);}
+}
+
+/* --- Modern CandidateManagement UI --- */
+.candidate-mgmt-modern {
+  background: #f7fafd;
+  min-height: 100vh;
+  padding-bottom: 40px;
+}
+.candidate-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-bottom: 24px;
+  border-bottom: 2px solid #e3e8ee;
+  padding-bottom: 12px;
+}
+.candidate-title {
+  font-size: 2.2rem;
+  font-weight: 700;
+  color: #2a4365;
+  margin: 0;
+}
+.candidate-subtitle {
+  color: #718096;
+  font-size: 1.1rem;
+  margin: 0;
+}
+.candidate-toolbar {
+  display: flex;
+  gap: 12px;
+}
+.toolbar-btn {
+  background: #fff;
+  border: 1px solid #cbd5e0;
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-size: 1rem;
+  color: #2a4365;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: box-shadow 0.2s, border 0.2s;
+  cursor: pointer;
+}
+.toolbar-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.toolbar-btn.import-btn { color: #3182ce; }
+.toolbar-btn.export-btn { color: #38a169; }
+.toolbar-btn.filter-btn { color: #d69e2e; }
+.toolbar-btn.add-btn { color: #805ad5; }
+.toolbar-btn.add-btn {
+  background: #805ad5;
+  color: #fff;
+  border: none;
+}
+.toolbar-btn.add-btn:hover {
+  background: #6b46c1;
+}
+.filter-summary-modern {
+  margin: 10px 0 20px 0;
+  font-size: 15px;
+  color: #555;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.filter-chip {
+  background: #e2e8f0;
+  color: #2a4365;
+  border-radius: 16px;
+  padding: 2px 12px;
+  margin-right: 6px;
+  font-size: 13px;
+  display: inline-block;
+}
+.candidate-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 24px;
+  margin-bottom: 32px;
+}
+.candidate-card {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(44, 62, 80, 0.07);
+  padding: 20px 18px 14px 18px;
+  display: flex;
+  flex-direction: column;
+  transition: box-shadow 0.2s;
+  border: 1px solid #e2e8f0;
+}
+.candidate-card:hover {
+  box-shadow: 0 4px 16px rgba(44, 62, 80, 0.13);
+  border-color: #a0aec0;
+}
+.candidate-card-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 0px;
+}
+.candidate-avatar {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: #edf2f7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  margin-right: 16px;
+  font-size: 2.2rem;
+  color: #a0aec0;
+}
+.candidate-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+}
+.avatar-placeholder {
+  font-size: 2.2rem;
+}
+.candidate-card-title {
+  flex: 1;
+}
+.candidate-card-title h2 {
+  font-size: 1.2rem;
+  font-weight: 600;
+  margin: 0 0 2px 0;
+  color: #2a4365;
+}
+.candidate-status-badge {
+  font-size: 0.95rem;
+  padding: 2px 10px;
+  border-radius: 12px;
+  background: #e2e8f0;
+  color: #2a4365;
+  margin-left: 4px;
+  text-transform: capitalize;
+}
+.candidate-status-badge[data-status="Approved"] {
+  background: #c6f6d5;
+  color: #276749;
+}
+.candidate-status-badge[data-status="Rejected"] {
+  background: #fed7d7;
+  color: #c53030;
+}
+.candidate-card-body {
+  margin-bottom: 10px;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 10px;
+  padding-bottom: 6px;
+}
+.candidate-info-row {
+  font-size: 0.98rem;
+  color: #4a5568;
+  margin-bottom: 7px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.candidate-card-actions {
+  display: flex;
+  gap: 8px;
+}
+.candidate-card-actions .edit-btn {
+  color: #3182ce;
+  background: #e6f0fa;
+  border-radius: 50%;
+  padding: 7px;
+  border: none;
+  transition: background 0.2s;
+}
+.candidate-card-actions .edit-btn:hover {
+  background: #bee3f8;
+}
+.candidate-card-actions .delete-btn {
+  color: #e53e3e;
+  background: #fde8e8;
+  border-radius: 50%;
+  padding: 7px;
+  border: none;
+  transition: background 0.2s;
+}
+.candidate-card-actions .delete-btn:hover {
+  background: #feb2b2;
+}
+.candidate-card-footer {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 7px;
+}
+.candidate-chip {
+  background: #f7fafc;
+  color: #4a5568;
+  border-radius: 12px;
+  padding: 2px 10px;
+  font-size: 12px;
+}
+.no-candidates {
+  text-align: center;
+  color: #a0aec0;
+  font-size: 1.1rem;
+  margin: 30px 0;
+}
+.candidate-pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  margin: 20px 0 0 0;
+}
+.candidate-pagination-info {
+  margin-left: 18px;
+  font-size: 14px;
+  color: #555;
+}
+.candidate-modal-content {
+  border-radius: 16px;
+  box-shadow: 0 6px 32px rgba(44, 62, 80, 0.18);
+  padding: 32px 28px 24px 28px;
+  background: #fff;
+  max-width: 700px;
+  margin: 0 auto;
+}
+/* Floating label effect for inputs (optional) */
+.employee-form .form-group label {
+  position: relative;
+  top: 0;
+  left: 0;
+  font-size: 1rem;
+  color: #4a5568;
+  transition: 0.2s;
+  pointer-events: none;
+}
+.employee-form .form-group input:focus + label,
+.employee-form .form-group input:not(:placeholder-shown) + label {
+  top: -18px;
+  left: 2px;
+  font-size: 0.85rem;
+  color: #3182ce;
+}
+.employee-form .form-group input {
+  border: 1px solid #cbd5e0;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 1rem;
+  outline: none;
+  transition: border 0.2s;
+}
+.employee-form .form-group input:focus {
+  border-color: #3182ce;
+}

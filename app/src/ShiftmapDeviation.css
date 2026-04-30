@@ -1,0 +1,454 @@
+/* ShiftmapDeviation component styles - same format as NewShiftMap */
+
+/* Card container */
+.shiftmapdeviation-card-container {
+  background: #fff;
+  border-radius: 20px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08);
+  padding: 30px;
+  margin: 0;
+  max-width: 100%;
+  position: relative;
+  border: 1px solid rgba(37, 99, 235, 0.12);
+}
+
+/* Header */
+.shiftmapdeviation-header {
+  margin-bottom: 24px;
+}
+
+.shiftmapdeviation-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #1a237e;
+  margin: 0 0 8px 0;
+}
+
+.shiftmapdeviation-subtitle {
+  font-size: 0.95rem;
+  color: #64748b;
+  margin: 0;
+}
+
+/* Alerts */
+.shiftmapdeviation-card-container .alert {
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.shiftmapdeviation-card-container .alert-error {
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+
+.shiftmapdeviation-card-container .alert-success {
+  background: #f0fdf4;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+}
+
+.shiftmapdeviation-card-container .alert-icon {
+  font-size: 1.1rem;
+}
+
+/* Date filter row */
+.shiftmapdeviation-date-filter {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin-bottom: 24px;
+  gap: 24px;
+}
+
+.shiftmapdeviation-date-filter-left {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex-shrink: 0;
+}
+
+.shiftmapdeviation-date-filter-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.shiftmapdeviation-date-filter .date-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.shiftmapdeviation-date-filter .date-input-group label {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: #334155;
+}
+
+.shiftmapdeviation-date-filter .shiftmapdeviation-date-input,
+.shiftmapdeviation-date-filter .date-input-group input[type="date"] {
+  padding: 8px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  min-width: 200px;
+}
+
+.shiftmapdeviation-date-filter .shiftmapdeviation-date-input:focus,
+.shiftmapdeviation-date-filter .date-input-group input[type="date"]:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+}
+
+.shiftmapdeviation-date-filter input[type="file"],
+.file-input-hidden {
+  display: none !important;
+}
+
+.shiftmapdeviation-date-filter .export-excel-btn-first {
+  margin-left: 0;
+}
+
+.shiftmapdeviation-date-filter .export-excel-btn .export-excel-icon,
+.shiftmapdeviation-date-filter .export-excel-btn svg {
+  flex-shrink: 0;
+  margin-left: 4px;
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  min-height: 22px;
+}
+
+/* Buttons in date filter */
+.shiftmapdeviation-date-filter .import-btn {
+  padding: 10px 24px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  border: none;
+  background: #2563eb;
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+  min-width: 140px;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.shiftmapdeviation-date-filter .import-btn:hover:not(:disabled) {
+  background: #1d4ed8;
+  color: #fff;
+}
+
+.shiftmapdeviation-date-filter .import-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.shiftmapdeviation-date-filter .export-excel-btn {
+  margin-left: 10px;
+  padding: 10px 24px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  border: none;
+  background: #2563eb;
+  color: #fff;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-width: 165px;
+  white-space: nowrap;
+}
+
+.shiftmapdeviation-date-filter .export-excel-btn:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.shiftmapdeviation-date-filter .export-excel-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Table container */
+.shiftmapdeviation-table-container {
+  width: 100%;
+  max-width: 100%;
+  margin-top: 24px;
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 70vh;
+  background: #fff;
+  border-radius: 18px;
+  box-shadow: 0 4px 24px rgba(44, 62, 80, 0.07);
+  padding: 0 0 18px 0;
+}
+
+.shiftmapdeviation-table-container::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+
+.shiftmapdeviation-table-container::-webkit-scrollbar-track {
+  background: #f8fafc;
+  border-radius: 8px;
+}
+
+.shiftmapdeviation-table-container::-webkit-scrollbar-thumb {
+  background-color: #2196f3;
+  border-radius: 8px;
+  border: 2px solid #f8fafc;
+}
+
+/* Table */
+.shiftmapdeviation-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: #fff;
+  border-radius: 16px;
+  font-family: 'Segoe UI', 'Roboto', Arial, sans-serif;
+  font-size: 1rem;
+  overflow: hidden;
+  table-layout: auto;
+  min-width: 800px;
+}
+
+.shiftmapdeviation-table thead tr {
+  background: #f7f8fa;
+}
+
+.shiftmapdeviation-table th {
+  color: #232323;
+  background: #f7f8fa;
+  font-weight: 600;
+  font-size: 0.95rem;
+  padding: 14px 12px;
+  border-bottom: 2px solid #e2e8f0;
+  text-align: left;
+}
+
+.shiftmapdeviation-table th.th-select {
+  min-width: 60px;
+  text-align: center;
+}
+
+.shiftmapdeviation-table th.th-date {
+  min-width: 100px;
+  text-align: center;
+}
+
+.shiftmapdeviation-table th.th-emp {
+  min-width: 90px;
+  vertical-align: middle;
+}
+
+/* Two-row header: date groups (row 1) and Shift/FirstIN/LastOUT/Deviation (row 2) */
+.shiftmapdeviation-table-with-subcols thead .shiftmapdeviation-thead-row-dates th {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+}
+/* Employee Code, Employee Name, Contractor (and checkbox) – same blue as date headers */
+.shiftmapdeviation-table-with-subcols .shiftmapdeviation-thead-row-dates th:not(.th-date-group) {
+  background: #2563eb !important;
+  color: #fff !important;
+}
+.shiftmapdeviation-table th.th-date-group {
+  min-width: 200px;
+  text-align: center;
+  background: #2563eb;
+  color: #fff;
+  font-weight: 600;
+  padding: 12px 8px;
+}
+.shiftmapdeviation-table-with-subcols .shiftmapdeviation-thead-row-subcols th {
+  background: #1d4ed8;
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.85rem;
+  padding: 10px 8px;
+  text-align: center;
+  border-right: 1px solid rgba(255, 255, 255, 0.2);
+}
+.shiftmapdeviation-table th.th-sub,
+.shiftmapdeviation-table th.th-subcol {
+  min-width: 70px;
+  text-align: center;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+.shiftmapdeviation-table th.th-shift { min-width: 80px; }
+.shiftmapdeviation-table th.th-firstin { min-width: 72px; }
+.shiftmapdeviation-table th.th-lastout { min-width: 72px; }
+.shiftmapdeviation-table th.th-deviation { min-width: 90px; }
+
+.shiftmapdeviation-table td.td-time {
+  text-align: center;
+  font-size: 0.9rem;
+}
+
+.shiftmapdeviation-table td.td-subcol {
+  padding: 8px 10px;
+  text-align: center;
+  font-size: 0.9rem;
+  border-right: 1px solid #f1f5f9;
+  vertical-align: middle;
+}
+.shiftmapdeviation-table td.td-firstin,
+.shiftmapdeviation-table td.td-lastout {
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+.shiftmapdeviation-table td.td-deviation {
+  text-align: center;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+.shiftmapdeviation-table td.td-deviation.deviation-mismatch {
+  background: #fef2f2;
+  color: #b91c1c;
+  font-weight: 600;
+}
+.shiftmapdeviation-table td.td-deviation.deviation-1st {
+  background: #fef2f2;
+  color: #b91c1c;
+  font-weight: 600;
+}
+.shiftmapdeviation-table td.td-deviation.deviation-general {
+  background: #f0fdf4;
+  color: #166534;
+}
+.shiftmapdeviation-table td.td-deviation.mismatch {
+  background: #fef2f2;
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.shiftmapdeviation-table tbody tr {
+  transition: background-color 0.2s;
+}
+
+.shiftmapdeviation-table tbody tr:hover {
+  background: #f8fafc;
+}
+
+.shiftmapdeviation-table td {
+  padding: 12px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.shiftmapdeviation-table td.td-select {
+  text-align: center;
+  vertical-align: middle;
+}
+
+.shiftmapdeviation-table input.checkbox-cell,
+.shiftmapdeviation-table input[type="checkbox"].checkbox-cell {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: #2563eb;
+}
+
+.shiftmapdeviation-table .td-empty {
+  text-align: center;
+  padding: 20px;
+  color: #64748b;
+}
+
+.shiftmapdeviation-table .shift-type-empty {
+  color: #94a3b8;
+  font-style: italic;
+}
+
+.shiftmapdeviation-table .shift-type-general,
+.shiftmapdeviation-table td[class^="shift-type-"]:not(.shift-type-empty) {
+  font-weight: 500;
+  text-align: center;
+}
+
+.shiftmapdeviation-table td {
+  vertical-align: top;
+}
+
+.shiftmapdeviation-cell-shift {
+  font-weight: 500;
+  margin-bottom: 2px;
+}
+
+.shiftmapdeviation-cell-times {
+  font-size: 0.75rem;
+  color: #64748b;
+  white-space: nowrap;
+}
+
+/* Loading */
+.shiftmapdeviation-loading-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  gap: 16px;
+}
+
+.shiftmapdeviation-loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid #e2e8f0;
+  border-top-color: #2563eb;
+  border-radius: 50%;
+  animation: shiftmapdeviation-spin 0.8s linear infinite;
+}
+
+@keyframes shiftmapdeviation-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.shiftmapdeviation-loading-text {
+  font-size: 0.95rem;
+  color: #64748b;
+  margin: 0;
+}
+
+/* Placeholder */
+.shiftmapdeviation-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  text-align: center;
+  color: #64748b;
+  background: #f8fafc;
+  border-radius: 16px;
+  margin-top: 24px;
+}
+
+.shiftmapdeviation-placeholder svg {
+  opacity: 0.3;
+  margin-bottom: 16px;
+}
+
+.shiftmapdeviation-placeholder p {
+  margin: 0;
+  font-size: 1rem;
+}

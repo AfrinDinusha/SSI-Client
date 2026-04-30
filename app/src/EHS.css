@@ -1,0 +1,1385 @@
+/* Updated Color Palette for CMS */
+:root {
+  --primary-blue: #3B82F6;
+  --primary-dark: #1E40AF;
+  --secondary-blue: #6B7280;
+  --secondary-dark: #4B5563;
+  --danger-red: #EF4444;
+  --danger-dark: #DC2626;
+  --success-green: #10B981;
+  --warning-yellow: #F59E0B;
+  --white: #FFFFFF;
+  --gray-50: #F9FAFB;
+  --gray-100: #F3F4F6;
+  --gray-200: #E5E7EB;
+  --gray-300: #D1D5DB;
+  --gray-400: #9CA3AF;
+  --gray-500: #6B7280;
+  --gray-600: #4B5563;
+  --gray-700: #374151;
+  --gray-800: #1F2937;
+  --gray-900: #111827;
+  --shadow-light: rgba(0, 0, 0, 0.05);
+  --shadow-medium: rgba(0, 0, 0, 0.1);
+  --shadow-heavy: rgba(0, 0, 0, 0.15);
+}
+
+/* EHS Management - Matching EmployeeManagement Style */
+
+.ehs-container {
+  max-width: 100%;
+  margin: 0;
+  padding: 24px;
+  font-family: 'Segoe UI', 'Roboto', Arial, sans-serif;
+  background: transparent;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* EHS Title Section - Matching Employee Style */
+.ehs-header-actions {
+  flex: 1;
+}
+
+.ehs-title-section {
+  flex: 1;
+}
+
+.ehs-title {
+  font-size: 2rem;
+  font-weight: 800;
+  color: var(--primary-dark);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ehs-subtitle {
+  font-size: 1.1rem;
+  color: var(--secondary-blue);
+  font-weight: 500;
+  margin: 0;
+}
+
+.ehs-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.ehs-toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+/* Toolbar Button Styles - Matching Employee Management */
+.toolbar-btn {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: #232323;
+  min-width: 40px;
+  height: 40px;
+}
+
+.toolbar-btn:hover {
+  background: #f8fafc;
+  border-color: #cbd5e0;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.toolbar-btn:active {
+  transform: translateY(0);
+}
+
+.toolbar-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.toolbar-btn.import-btn {
+  color: #3182ce;
+}
+
+.toolbar-btn.export-btn {
+  color: #38a169;
+}
+
+.toolbar-btn.filter-btn {
+  color: #d69e2e;
+}
+
+.toolbar-btn.add-btn {
+  color: #38a169;
+}
+
+.toolbar-btn.delete-btn {
+  color: #e53e3e;
+}
+
+.toolbar-btn.delete-btn:hover {
+  background: #fed7d7;
+  border-color: #feb2b2;
+}
+
+/* Legacy Button Styles - Keeping for backward compatibility */
+.ehs-btn {
+  background-color: #3f51b5;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.1s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 100px;
+}
+
+.ehs-btn:hover {
+  background: #283593;
+  transform: translateY(-1px);
+}
+
+.ehs-btn:active {
+  transform: translateY(0);
+}
+
+.ehs-btn.add-btn {
+  background: #10b981;
+}
+
+.ehs-btn.add-btn:hover {
+  background: #059669;
+}
+
+.ehs-btn.ehs-btn-danger {
+  background: #ef4444;
+}
+
+.ehs-btn.ehs-btn-danger:hover {
+  background: #b91c1c;
+}
+
+.ehs-btn.ehs-btn-primary {
+  background: #6366f1;
+}
+
+.ehs-btn.ehs-btn-primary:hover {
+  background: #4338ca;
+}
+
+/* EHS Table - Matching EmployeeManagement Style */
+.ehs-table-container {
+  width: 100%;
+  max-width: 100%;
+  margin: 32px auto 0 auto;
+  overflow-x: auto;
+  background: #fff;
+  border-radius: 18px;
+  box-shadow: 0 4px 24px rgba(44,62,80,0.07);
+  padding: 0 0 18px 0;
+  min-width: 0;
+}
+
+.ehs-table-container::-webkit-scrollbar {
+  height: 8px;
+}
+
+.ehs-table-container::-webkit-scrollbar-track {
+  background: #f8fafc;
+  border-radius: 8px;
+}
+
+.ehs-table-container::-webkit-scrollbar-thumb {
+  background-color: #2196f3;
+  border-radius: 8px;
+  border: 2px solid #f8fafc;
+}
+
+.ehs-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: none;
+  font-family: 'Segoe UI', 'Roboto', Arial, sans-serif;
+  font-size: 1.04rem;
+  overflow: hidden;
+}
+
+.ehs-table thead tr {
+  background: #f7f8fa;
+}
+
+.ehs-table th {
+  color: #232323;
+  background: #f7f8fa;
+  font-weight: 600;
+  font-size: 1.08rem;
+  padding: 18px 14px 16px 14px;
+  border-bottom: 1px solid #ececec;
+  text-align: center;
+  letter-spacing: 0.01em;
+  user-select: none;
+}
+
+/* Specific styling for Delete and Edit columns */
+.ehs-table th:nth-child(1), /* Delete column */
+.ehs-table td:nth-child(1) {
+  width: 60px;
+  min-width: 60px;
+  max-width: 60px;
+  text-align: center;
+  padding: 14px 8px !important;
+}
+
+.ehs-table th:nth-child(2), /* Edit column */
+.ehs-table td:nth-child(2) {
+  width: 60px;
+  min-width: 60px;
+  max-width: 60px;
+  text-align: center;
+  padding: 14px 8px !important;
+}
+
+/* Center checkboxes in Delete column */
+.ehs-table td:nth-child(1) input[type="checkbox"] {
+  margin: 0 auto;
+  display: block;
+  width: 18px;
+  height: 18px;
+}
+
+/* Center edit icons in Edit column */
+.ehs-table td:nth-child(2) .edit-icon-btn {
+  margin: 0 auto;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* Reduce spacing between Status column and # column */
+.ehs-table th:nth-child(3), /* Status column */
+.ehs-table td:nth-child(3) {
+  padding: 16px 20px !important;
+  width: auto !important;
+  min-width: 120px !important;
+  max-width: none !important;
+  text-align: center;
+  white-space: normal !important;
+  word-wrap: break-word !important;
+}
+
+.ehs-table th:nth-child(4), /* # column */
+.ehs-table td:nth-child(4) {
+  padding: 16px 20px !important;
+  width: auto !important;
+  min-width: 60px !important;
+  max-width: none !important;
+  text-align: center;
+}
+
+/* Override any inline styles for the edit button */
+.ehs-table td:nth-child(2) .edit-icon-btn {
+  background: transparent !important;
+  border: none !important;
+  color: #2563eb !important;
+  padding: 8px !important;
+  min-width: 40px !important;
+  height: 40px !important;
+  border-radius: 8px !important;
+  transition: all 0.2s ease !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer !important;
+}
+
+.ehs-table td:nth-child(2) .edit-icon-btn:hover {
+  background: rgba(37, 99, 235, 0.1) !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.2) !important;
+}
+
+/* Ensure the icon itself is centered and styled properly */
+.ehs-table td:nth-child(2) .edit-icon-btn svg {
+  display: block !important;
+  margin: 0 auto !important;
+  width: 20px !important;
+  height: 20px !important;
+}
+
+.ehs-table tbody tr {
+  background: #fff;
+  transition: background 0.15s;
+}
+
+.ehs-table tbody tr:nth-child(even) {
+  background: #fafbfc;
+}
+
+.ehs-table tbody tr:hover {
+  background: #f3f6fa;
+}
+
+.ehs-table td {
+  color: #232323;
+  font-size: 1.04rem;
+  padding: 16px 14px;
+  border-bottom: 1px solid #f0f1f3;
+  background: transparent;
+  vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: normal;
+  max-width: 180px;
+  word-wrap: break-word;
+}
+
+.ehs-table tr:last-child td {
+  border-bottom: none;
+}
+
+/* Rounded corners for the table */
+.ehs-table th:first-child {
+  border-top-left-radius: 16px;
+}
+.ehs-table th:last-child {
+  border-top-right-radius: 16px;
+}
+.ehs-table tr:last-child td:first-child {
+  border-bottom-left-radius: 16px;
+}
+.ehs-table tr:last-child td:last-child {
+  border-bottom-right-radius: 16px;
+}
+
+.ehs-table th:first-child, .ehs-table td:first-child {
+  border-top-left-radius: 12px;
+  border-bottom-left-radius: 12px;
+}
+.ehs-table th:last-child, .ehs-table td:last-child {
+  border-top-right-radius: 12px;
+  border-bottom-right-radius: 12px;
+}
+
+/* Remove sticky, blue, and legacy styles */
+.ehs-table th, .ehs-table td {
+  position: static !important;
+  background: none !important;
+  box-shadow: none !important;
+  border-right: none !important;
+  border-left: none !important;
+}
+
+.ehs-table th, .ehs-table td {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+
+/* Remove all per-cell border-radius except outer corners */
+.ehs-table th,
+.ehs-table td {
+  border-radius: 0 !important;
+}
+
+.ehs-table th:first-child {
+  border-top-left-radius: 16px !important;
+}
+.ehs-table th:last-child {
+  border-top-right-radius: 16px !important;
+}
+.ehs-table tr:last-child td:first-child {
+  border-bottom-left-radius: 16px !important;
+}
+.ehs-table tr:last-child td:last-child {
+  border-bottom-right-radius: 16px !important;
+}
+
+.ehs-table thead tr, .ehs-table th {
+  background: #f7f8fa !important;
+  color: #232323 !important;
+}
+
+/* Super-specific override for table header color */
+.ehs-table thead tr th,
+.ehs-table thead th,
+.ehs-table th,
+.ehs-table thead tr {
+  background-color: #f7f8fa !important;
+  color: #232323 !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
+/* Status Box Styles */
+.ehs-status-box {
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: inline-block;
+  min-width: 80px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: visible;
+}
+
+.ehs-status-approved {
+  background-color: #d1fae5;
+  color: #065f46;
+}
+
+.ehs-status-rejected {
+  background-color: #fee2e2;
+  color: #991b1b;
+}
+
+.ehs-status-inprogress {
+  background-color: #fef3c7;
+  color: #92400e;
+}
+
+/* Toolbar Button Styles */
+.ehs-toolbar .ehs-btn,
+.ehs-toolbar button {
+  background-color: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  padding: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  min-height: 36px;
+  color: #232323;
+  font-size: 14px;
+}
+
+.ehs-toolbar .ehs-btn:hover,
+.ehs-toolbar button:hover {
+  background-color: #e9ecef;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+
+.ehs-toolbar .ehs-btn:active,
+.ehs-toolbar button:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.ehs-toolbar .ehs-btn i,
+.ehs-toolbar button i {
+  color: #232323;
+  font-size: 14px;
+}
+
+/* Feedback Messages */
+.ehs-feedback {
+  margin: 16px 0;
+}
+
+.error-message {
+  padding: 16px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  line-height: 1.5;
+  border-left: 4px solid #ef4444;
+  background: linear-gradient(135deg, #fef2f2 0%, #fef2f2 100%);
+  color: #991b1b;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+/* Loading States */
+.ehs-loader {
+  text-align: center;
+  padding: 32px;
+  font-size: 18px;
+  color: #6366f1;
+}
+
+/* Pagination */
+.ehs-pagination {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 24px;
+  justify-content: center;
+}
+
+.ehs-pagination-info {
+  margin-left: 16px;
+  color: #475569;
+  font-size: 14px;
+}
+
+/* Modal Styles */
+.ehs-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0,0,0,0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.ehs-modal-content {
+  max-height: 80vh;
+  overflow-y: auto;
+  max-width: 600px;
+  width: 100%;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(60,72,88,0.15);
+  padding: 32px 24px;
+  position: relative;
+}
+
+.ehs-modal-header {
+  margin-bottom: 18px;
+}
+
+.ehs-modal-header h2 {
+  color: #333;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+/* Form Styles */
+.ehs-form-row {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 16px;
+}
+
+.ehs-form-row label {
+  font-weight: bold;
+  margin-bottom: 6px;
+  color: #1e293b;
+}
+
+.ehs-form-row input,
+.ehs-form-row select {
+  padding: 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 14px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.ehs-form-row input:focus,
+.ehs-form-row select:focus {
+  outline: none;
+  border-color: #3f51b5;
+  box-shadow: 0 0 0 2px rgba(63, 81, 181, 0.1);
+}
+
+/* React Select Styling for EHS Form - Make it look like a regular select */
+.ehs-form .form-section-card .form-group .basic-multi-select {
+  width: 100%;
+}
+
+.ehs-form .form-section-card .form-group .basic-multi-select .select__control {
+  width: 100%;
+  min-height: 72px;
+  height: 72px;
+  border: 2px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: #1f2937;
+  background: #fff;
+  transition: all 0.2s ease;
+  outline: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  display: flex;
+  align-items: center;
+  padding: 0;
+  cursor: pointer;
+}
+
+.ehs-form .form-section-card .form-group .basic-multi-select .select__control:hover {
+  border-color: #d1d5db;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.ehs-form .form-section-card .form-group .basic-multi-select .select__control--is-focused {
+  border-color: #3B82F6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  transform: translateY(-1px);
+}
+
+.ehs-form .form-section-card .form-group .basic-multi-select .select__value-container {
+  padding: 24px 28px;
+  min-height: 72px;
+  height: 72px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  overflow: hidden;
+  position: relative;
+}
+
+.ehs-form .form-section-card .form-group .basic-multi-select .select__placeholder {
+  display: none;
+}
+
+.ehs-form .form-section-card .form-group .basic-multi-select .select__input-container {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  height: auto;
+  min-height: auto;
+  display: flex !important;
+  border: none !important;
+  outline: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.ehs-form .form-section-card .form-group .basic-multi-select .select__input {
+  margin: 0;
+  padding: 0;
+  height: auto;
+  min-height: auto;
+  font-size: 0.95rem;
+  color: #1f2937;
+  width: 100%;
+  min-width: 0;
+  border: none !important;
+  outline: none !important;
+  background: transparent !important;
+  flex: 1;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+}
+
+.ehs-form .form-section-card .form-group .basic-multi-select .select__multi-value {
+  background: #e5e7eb;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  margin: 0 2px 0 0;
+  padding: 0;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  font-size: 0.85rem;
+  max-width: 120px;
+  flex-shrink: 0;
+  min-height: 36px;
+  overflow: visible;
+}
+
+.ehs-form .form-section-card .form-group .basic-multi-select .select__multi-value__label {
+  color: #374151;
+  font-size: 0.85rem;
+  padding: 6px 8px;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: visible;
+  text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  height: 100%;
+  vertical-align: middle;
+}
+
+.ehs-form .form-section-card .form-group .basic-multi-select .select__multi-value__remove {
+  color: #6b7280;
+  padding: 0 6px;
+  border-radius: 0 6px 6px 0;
+  font-size: 0.8rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  min-height: 22px;
+  flex-shrink: 0;
+}
+
+.ehs-form .form-section-card .form-group .basic-multi-select .select__multi-value__remove:hover {
+  background: #d1d5db;
+  color: #374151;
+}
+
+.ehs-form .form-section-card .form-group .basic-multi-select .select__indicator-separator {
+  display: none;
+}
+
+.ehs-form .form-section-card .form-group .basic-multi-select .select__dropdown-indicator {
+  padding: 0 16px;
+  color: #6b7280;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  flex-shrink: 0;
+}
+
+.ehs-form .form-section-card .form-group .basic-multi-select .select__dropdown-indicator:hover {
+  color: #374151;
+}
+
+.ehs-form .form-section-card .form-group .basic-multi-select .select__menu {
+  border: 2px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  margin-top: 4px;
+  z-index: 1000;
+}
+
+.ehs-form .form-section-card .form-group .basic-multi-select .select__option {
+  padding: 12px 16px;
+  font-size: 0.95rem;
+  color: #374151;
+  cursor: pointer;
+}
+
+.ehs-form .form-section-card .form-group .basic-multi-select .select__option--is-focused {
+  background: #f3f4f6;
+  color: #1f2937;
+}
+
+.ehs-form .form-section-card .form-group .basic-multi-select .select__option--is-selected {
+  background: #3B82F6;
+  color: white;
+}
+
+/* Always show input for search functionality */
+.ehs-form .form-section-card .form-group .basic-multi-select .select__input-container {
+  display: flex !important;
+}
+
+.ehs-form-actions {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 24px;
+}
+
+.ehs-modal-loader {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0,0,0,0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1001;
+  font-size: 20px;
+  color: #6366f1;
+}
+
+/* Filter Sidebar */
+.filter-sidebar {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 350px;
+  height: 100vh;
+  background: #fff;
+  box-shadow: -4px 0 20px rgba(0,0,0,0.1);
+  padding: 24px;
+  overflow-y: auto;
+  z-index: 1000;
+  animation: slideInRight 0.3s ease;
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.filter-sidebar select,
+.filter-sidebar input[type="text"] {
+  min-height: 40px;
+  font-size: 1.1em;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid #bbb;
+  margin-bottom: 6px;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+/* Contractor Link Button */
+.contractor-link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.contractor-link-btn:hover {
+  color: #3f51b5;
+  text-decoration: underline;
+}
+
+/* EHS Form Page - Inline Form Structure */
+.ehs-form-page {
+  position: relative;
+  width: 100%;
+  min-height: auto;
+  background: transparent;
+  z-index: 1;
+  overflow-y: visible;
+  padding: 0;
+  margin: 0;
+}
+
+.ehs-form-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+  animation: formPageSlideIn 0.3s ease-out;
+}
+
+@keyframes formPageSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ehs-form-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 24px 32px;
+  background: linear-gradient(135deg, #3B82F6 0%, #1E40AF 100%);
+  color: white;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.ehs-form-header h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ehs-form-header .close-btn {
+  background: transparent;
+  border: none;
+  color: white;
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+.ehs-form-header .close-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  transform: scale(1.05);
+}
+
+.ehs-form-content {
+  padding: 32px;
+  background: #fff;
+}
+
+/* Form Section Cards */
+.ehs-form .form-section-card {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  padding: 24px;
+  margin-bottom: 24px;
+  border: 1px solid #e5e7eb;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.ehs-form .form-section-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #3B82F6 0%, #1E40AF 100%);
+  animation: shimmer 2s infinite;
+}
+
+.ehs-form .form-section-card::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.05) 0%, rgba(30, 64, 175, 0.05) 100%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+
+.ehs-form .form-section-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  border-color: #3B82F6;
+}
+
+.ehs-form .form-section-card:hover::after {
+  opacity: 1;
+}
+
+.ehs-form .form-section-card h2.section-title {
+  color: #1f2937;
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+}
+
+.ehs-form .form-section-card h2.section-title::before {
+  content: '';
+  position: absolute;
+  left: -24px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 24px;
+  background: linear-gradient(135deg, #3B82F6 0%, #1E40AF 100%);
+  border-radius: 2px;
+}
+
+.ehs-form .form-section-card.ehs-info h2.section-title::after {
+  content: '🛡️';
+  margin-left: 8px;
+}
+
+.ehs-form .form-section-card.candidates-info h2.section-title::after {
+  content: '👥';
+  margin-left: 8px;
+}
+
+.ehs-form .form-section-card .form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
+}
+
+.ehs-form .form-section-card .form-group {
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.2s ease;
+}
+
+.ehs-form .form-section-card .form-group:hover {
+  transform: translateX(4px);
+}
+
+.ehs-form .form-section-card .form-group label {
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 8px;
+  font-size: 0.9rem;
+  transition: color 0.2s ease;
+}
+
+.ehs-form .form-section-card .form-group:hover label {
+  color: #3B82F6;
+}
+
+.ehs-form .form-section-card .form-group .input,
+.ehs-form .form-section-card .form-group select,
+.ehs-form .form-section-card .form-group input {
+  width: 100%;
+  padding: 12px 16px;
+  border: 2px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: #1f2937;
+  background: #fff;
+  transition: all 0.2s ease;
+  outline: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.ehs-form .form-section-card .form-group .input:focus,
+.ehs-form .form-section-card .form-group select:focus,
+.ehs-form .form-section-card .form-group input:focus {
+  border-color: #3B82F6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  transform: translateY(-1px);
+}
+
+.ehs-form .form-section-card .form-group .input:hover,
+.ehs-form .form-section-card .form-group select:hover,
+.ehs-form .form-section-card .form-group input:hover {
+  border-color: #d1d5db;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Form Actions */
+.ehs-form .form-actions {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 32px;
+  padding: 24px;
+  background: #f9fafb;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+}
+
+.ehs-form .form-actions button {
+  padding: 12px 24px;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+  overflow: hidden;
+  min-width: 120px;
+}
+
+.ehs-form .form-actions button::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  transition: left 0.5s ease;
+}
+
+.ehs-form .form-actions button:hover::before {
+  left: 100%;
+}
+
+.ehs-form .form-actions .btn-primary {
+  background: linear-gradient(135deg, #3B82F6 0%, #1E40AF 100%);
+  color: white;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+.ehs-form .form-actions .btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4);
+}
+
+.ehs-form .form-actions .btn-danger {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  color: white;
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+}
+
+.ehs-form .form-actions .btn-danger:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(239, 68, 68, 0.4);
+}
+
+/* Responsive Design */
+@media (max-width: 900px) {
+  .ehs-table th,
+  .ehs-table td {
+    padding: 12px 8px;
+    font-size: 12px;
+  }
+
+  .ehs-table th {
+    font-size: 11px;
+  }
+
+  .ehs-modal-content {
+    padding: 16px 8px;
+  }
+}
+
+@media (max-width: 768px) {
+  .ehs-container {
+    margin: 20px auto;
+    padding: 20px 16px;
+  }
+
+  .ehs-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 16px;
+  }
+
+  .ehs-toolbar {
+    justify-content: center;
+  }
+
+  .ehs-table-container {
+    margin-top: 16px;
+    border-radius: 12px;
+  }
+
+  .ehs-table {
+    font-size: 12px;
+  }
+
+  .ehs-table th,
+  .ehs-table td {
+    padding: 8px 6px;
+  }
+
+  .ehs-form-container {
+    margin: 16px;
+    border-radius: 12px;
+  }
+  
+  .ehs-form-header {
+    padding: 20px 24px;
+  }
+  
+  .ehs-form-header h1 {
+    font-size: 1.25rem;
+  }
+  
+  .ehs-form-content {
+    padding: 24px;
+  }
+  
+  .ehs-form .form-section-card {
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  
+  .ehs-form .form-section-card .form-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  
+  .ehs-form .form-actions {
+    flex-direction: column;
+    gap: 12px;
+  }
+  
+  .ehs-form .form-actions button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .ehs-container {
+    margin: 10px;
+    padding: 16px 12px;
+    border-radius: 8px;
+  }
+
+  .ehs-title {
+    font-size: 24px;
+    margin-bottom: 24px;
+  }
+
+  .ehs-form-row label {
+    font-size: 13px;
+  }
+
+  .ehs-form-row input,
+  .ehs-form-row select {
+    padding: 10px;
+    font-size: 13px;
+  }
+
+  .ehs-btn {
+    padding: 10px 20px;
+    font-size: 14px;
+  }
+
+  .ehs-toolbar .ehs-btn {
+    padding: 8px 12px;
+    font-size: 13px;
+  }
+}
+
+/* --- EHS Table Edit Column Hiding Logic --- */
+/* When Edit column is hidden, # column becomes 2nd column */
+.ehs-table.edit-column-hidden th:nth-child(2),
+.ehs-table.edit-column-hidden td:nth-child(2) {
+  /* # column takes Edit column position */
+  padding-right: 20px !important;
+  width: 50px !important;
+  min-width: 50px !important;
+  max-width: 50px !important;
+  text-align: center !important;
+  white-space: nowrap !important;
+  overflow: visible !important;
+  text-overflow: unset !important;
+}
+
+.ehs-table.edit-column-hidden th:nth-child(3),
+.ehs-table.edit-column-hidden td:nth-child(3) {
+  /* Status column */
+  padding-left: 20px !important;
+  padding-right: 120px !important;
+}
+
+/* Add spacing between Status and Contractor columns when Edit is hidden */
+.ehs-table.edit-column-hidden th:nth-child(4),
+.ehs-table.edit-column-hidden td:nth-child(4) {
+  /* Contractor column */
+  padding-left: 120px !important;
+}
+
+/* Ensure proper spacing for all columns when Edit is hidden */
+.ehs-table.edit-column-hidden th:nth-child(n+4),
+.ehs-table.edit-column-hidden td:nth-child(n+4) {
+  padding-left: 20px !important;
+}
+
+/* Normal table layout spacing */
+.ehs-table th:nth-child(3), /* # column */
+.ehs-table td:nth-child(3) {
+  padding-right: 20px !important;
+  width: 50px !important;
+  min-width: 50px !important;
+  max-width: 50px !important;
+  text-align: center !important;
+  white-space: nowrap !important;
+  overflow: visible !important;
+  text-overflow: unset !important;
+}
+
+.ehs-table th:nth-child(4), /* Status column */
+.ehs-table td:nth-child(4) {
+  padding-left: 20px !important;
+  padding-right: 120px !important;
+}
+
+.ehs-table th:nth-child(5), /* Contractor column */
+.ehs-table td:nth-child(5) {
+  padding-left: 120px !important;
+}
+
+/* General spacing for all other columns */
+.ehs-table th:nth-child(n+5),
+.ehs-table td:nth-child(n+5) {
+  padding-left: 20px !important;
+}
+
+/* Center alignment for all table cells */
+.ehs-table td {
+  text-align: center !important;
+  vertical-align: middle !important;
+}
+
+/* Specific styling for Select and Edit columns */
+.ehs-table th:nth-child(1), /* Select column */
+.ehs-table td:nth-child(1) {
+  width: 60px;
+  min-width: 60px;
+  max-width: 60px;
+  text-align: center !important;
+  padding: 14px 8px !important;
+}
+
+.ehs-table th:nth-child(2), /* Edit column */
+.ehs-table td:nth-child(2) {
+  width: 60px;
+  min-width: 60px;
+  max-width: 60px;
+  text-align: center !important;
+  padding: 14px 8px !important;
+}
+
+/* Center checkboxes in Select column */
+.ehs-table td:nth-child(1) input[type="checkbox"] {
+  margin: 0 auto;
+  display: block;
+}
+
+/* Center edit icons in Edit column */
+.ehs-table td:nth-child(2) .btn-icon {
+  margin: 0 auto;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* Style for edit button to match employee and candidate forms */
+.ehs-table .btn-icon {
+  background: transparent !important;
+  border: none !important;
+  color: #232323 !important;
+  padding: 6px 8px !important;
+  min-width: 32px !important;
+  height: 32px !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+}
+
+.ehs-table .btn-icon:hover {
+  background: #f5f5f5 !important;
+  transform: scale(1.05) !important;
+}
+
+.ehs-table .btn-icon i {
+  font-size: 16px !important;
+}

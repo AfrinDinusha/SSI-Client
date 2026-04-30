@@ -1,0 +1,292 @@
+/* Grace Period Report - layout and alignment */
+
+.grace-container {
+  padding: 24px;
+  max-width: 100%;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  border: 1px solid #e5e7eb;
+}
+
+/* Title */
+.grace-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 0 0 20px 0;
+}
+
+/* Filters row: Start Date, End Date, Employee Code - horizontal alignment */
+.grace-filters {
+  margin-bottom: 24px;
+}
+
+.filters-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 24px;
+  margin-bottom: 20px;
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.filter-group label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #334155;
+  white-space: nowrap;
+}
+
+.filter-select {
+  padding: 8px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  min-width: 160px;
+  background: #fff;
+  color: #1e293b;
+}
+
+.filter-select:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+
+/* Action buttons row: Calculate, Export, Refresh - horizontal alignment */
+.export-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.run-payroll-btn {
+  padding: 10px 24px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  border: none;
+  background: #2563eb;
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.2s;
+  min-width: 200px;
+}
+
+.run-payroll-btn:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.run-payroll-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.export-btn {
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  border: none;
+  background: #3b82f6;
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.export-btn:hover:not(:disabled) {
+  background: #2563eb;
+}
+
+.export-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.export-btn.excel-btn {
+  background: #60a5fa;
+}
+
+.export-btn.excel-btn:hover:not(:disabled) {
+  background: #3b82f6;
+}
+
+.export-btn.refresh-btn {
+  background: #60a5fa;
+}
+
+.export-btn.refresh-btn:hover:not(:disabled) {
+  background: #3b82f6;
+}
+
+/* Summary cards */
+.grace-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.summary-card {
+  padding: 16px 20px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  min-width: 140px;
+}
+
+.summary-card h3 {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #64748b;
+  margin: 0 0 6px 0;
+}
+
+.summary-card span {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+/* Table container */
+.grace-table-container {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.grace-table-container .loading {
+  padding: 24px;
+  text-align: center;
+  color: #64748b;
+  font-size: 0.95rem;
+}
+
+/* Table */
+.grace-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+  table-layout: auto;
+}
+
+/* Table header - same blue as Calculate Grace Periods button */
+.grace-table .table-header th {
+  background: #2563eb;
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  padding: 12px 16px;
+  text-align: center;
+  border: none;
+}
+
+.grace-table .table-header th.col-sno {
+  min-width: 60px;
+  width: 60px;
+}
+
+.grace-table .table-header th.col-emp-code {
+  min-width: 120px;
+  text-align: center;
+}
+
+.grace-table .table-header th.col-emp-name {
+  min-width: 160px;
+  text-align: center;
+}
+
+.grace-table .table-header th.col-first-in {
+  min-width: 100px;
+  text-align: center;
+}
+
+.grace-table .table-header th.col-grace-minutes {
+  min-width: 120px;
+  text-align: center;
+}
+
+.grace-table .table-header th.col-grace-hour {
+  min-width: 100px;
+  text-align: center;
+}
+
+/* Table body */
+.grace-table .table-row td {
+  padding: 12px 16px;
+  border-bottom: 1px solid #f1f5f9;
+  color: #334155;
+  vertical-align: middle;
+}
+
+.grace-table .table-row:hover {
+  background: #f8fafc;
+}
+
+.grace-table .col-sno {
+  text-align: center;
+  width: 60px;
+}
+
+.grace-table .col-emp-code {
+  text-align: center;
+}
+
+.grace-table .col-emp-name {
+  text-align: left;
+  padding-left: 16px;
+}
+
+.grace-table .col-first-in {
+  text-align: center;
+}
+
+.grace-table .col-grace-minutes {
+  text-align: center;
+}
+
+.grace-table .col-grace-hour {
+  text-align: center;
+}
+
+/* No data message */
+.grace-table .no-data-message {
+  padding: 24px 16px;
+  text-align: left;
+  color: #64748b;
+  font-size: 0.95rem;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+/* Table footer */
+.grace-table .table-footer td {
+  padding: 12px 16px;
+  background: #f1f5f9;
+  font-weight: 600;
+  border-top: 2px solid #e2e8f0;
+}
+
+.grace-table .table-footer .footer-total {
+  text-align: right;
+  padding-right: 16px;
+}
+
+.grace-table .table-footer .col-grace-minutes {
+  text-align: center;
+}
+
+.grace-table .table-footer .col-grace-hour {
+  text-align: center;
+}

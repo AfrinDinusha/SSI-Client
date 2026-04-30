@@ -1,0 +1,1535 @@
+/* EHS Violation Form Styles */
+
+/* Import Employee Management styles for form layout */
+.form-container {
+  max-width: 1400px;
+  margin: 40px auto;
+  padding: 32px 24px 40px 24px;
+  font-family: 'Segoe UI', 'Roboto', Arial, sans-serif;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.07);
+}
+
+h2 {
+  text-align: center;
+  color: #333;
+  margin-bottom: 32px;
+  font-size: 28px;
+  font-weight: 600;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 20px;
+  margin-bottom: 24px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.form-group label {
+  margin-bottom: 8px;
+  font-weight: 600;
+  color: #333;
+  font-size: 14px;
+}
+
+.required {
+  color: #dc3545;
+  margin-left: 4px;
+}
+
+.form-group input[type="text"],
+.form-group input[type="date"],
+.form-group select,
+.form-group textarea {
+  padding: 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 14px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  font-family: inherit;
+}
+
+.form-group input[type="text"]:focus,
+.form-group input[type="date"]:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+  outline: none;
+  border-color: #3f51b5;
+  box-shadow: 0 0 0 2px rgba(63, 81, 181, 0.1);
+}
+
+.form-group textarea {
+  min-height: 120px;
+  resize: vertical;
+}
+
+.form-group input[type="file"] {
+  padding: 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 14px;
+  background-color: #f8f9fa;
+  cursor: pointer;
+}
+
+.form-group input[type="file"]:hover {
+  background-color: #e9ecef;
+}
+
+.radio-group {
+  display: flex;
+  gap: 20px;
+  margin-top: 8px;
+}
+
+.radio-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.radio-input {
+  margin: 0;
+  cursor: pointer;
+  width: 16px;
+  height: 16px;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 32px;
+  gap: 12px;
+}
+
+.btn {
+  padding: 12px 24px;
+  border: none;
+  border-radius: 6px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.1s;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 100px;
+}
+
+.btn:hover {
+  transform: translateY(-1px);
+}
+
+.btn:active {
+  transform: translateY(0);
+}
+
+.btn-primary {
+  background-color: #3f51b5;
+  color: #fff;
+}
+
+.btn-primary:hover {
+  background-color: #303f9f;
+}
+
+.btn-primary:disabled {
+  background-color: #9fa8da;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-secondary {
+  background-color: #6c757d;
+  color: white;
+}
+
+.btn-secondary:hover {
+  background-color: #5a6268;
+}
+
+.btn-danger {
+  background-color: #dc3545;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 16px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  min-width: 60px;
+  min-height: 36px;
+}
+
+.btn-danger:hover {
+  background-color: #c82333;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+
+.btn-danger:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.btn-success {
+  background-color: #28a745;
+  color: white;
+}
+
+.btn-success:hover {
+  background-color: #218838;
+}
+
+.feedback-message {
+  padding: 12px 16px;
+  border-radius: 6px;
+  margin-bottom: 20px;
+  text-align: center;
+  font-weight: 500;
+}
+
+.success-message {
+  background-color: #d4edda;
+  color: #155724;
+  border: 1px solid #c3e6cb;
+}
+
+.error-message {
+  background-color: #f8d7da;
+  color: #721c24;
+  border: 1px solid #f5c6cb;
+}
+
+.toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.toolbar-btn {
+  background-color: #3f51b5;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.1s;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toolbar-btn:hover {
+  background-color: #303f9f;
+  transform: translateY(-1px);
+}
+
+.toolbar-btn:active {
+  transform: translateY(0);
+}
+
+.toolbar-btn-secondary {
+  background-color: #6c757d;
+}
+
+.toolbar-btn-secondary:hover {
+  background-color: #5a6268;
+}
+
+/* EHS Violations Table - Matching EmployeeManagement Style */
+.violations-table-container {
+  width: 100%;
+  max-width: 100%;
+  margin: 24px 0 0 0;
+  overflow-x: auto;
+  background: #fff;
+  border-radius: 18px;
+  box-shadow: 0 4px 24px rgba(44,62,80,0.07);
+  padding: 0 0 18px 0;
+  min-width: 0;
+}
+
+.violations-table-container::-webkit-scrollbar {
+  height: 8px;
+}
+
+.violations-table-container::-webkit-scrollbar-track {
+  background: #f8fafc;
+  border-radius: 8px;
+}
+
+.violations-table-container::-webkit-scrollbar-thumb {
+  background-color: #2196f3;
+  border-radius: 8px;
+  border: 2px solid #f8fafc;
+}
+
+.violations-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: none;
+  font-family: 'Segoe UI', 'Roboto', Arial, sans-serif;
+  font-size: 1.04rem;
+  overflow: hidden;
+}
+
+.violations-table thead tr {
+  background: #f7f8fa;
+}
+
+.violations-table th {
+  color: #232323;
+  background: #f7f8fa;
+  font-weight: 600;
+  font-size: 1.08rem;
+  padding: 18px 14px 16px 14px;
+  border-bottom: 1px solid #ececec;
+  text-align: center;
+  letter-spacing: 0.01em;
+  user-select: none;
+}
+
+/* Specific styling for Delete and Edit columns */
+.violations-table th:nth-child(1), /* Delete column */
+.violations-table td:nth-child(1) {
+  width: 60px;
+  min-width: 60px;
+  max-width: 60px;
+  text-align: center;
+  padding: 14px 8px !important;
+}
+
+.violations-table th:nth-child(2), /* Edit column */
+.violations-table td:nth-child(2) {
+  width: 60px;
+  min-width: 60px;
+  max-width: 60px;
+  text-align: center;
+  padding: 14px 8px !important;
+}
+
+/* Center checkboxes in Delete column */
+.violations-table td:nth-child(1) input[type="checkbox"] {
+  margin: 0 auto;
+  display: block;
+}
+
+/* Center edit icons in Edit column */
+.violations-table td:nth-child(2) .btn-icon {
+  margin: 0 auto;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* Reduce spacing between # column and Contractor column */
+.violations-table th:nth-child(3), /* # column */
+.violations-table td:nth-child(3) {
+  padding-right: 0px !important;
+  width: 40px !important;
+  min-width: 40px !important;
+  max-width: 40px !important;
+  text-align: center;
+}
+
+.violations-table th:nth-child(4), /* Contractor column */
+.violations-table td:nth-child(4) {
+  padding-left: 0px !important;
+}
+
+/* Override any inline styles for the edit button */
+.violations-table td:nth-child(2) .btn-icon {
+  background: transparent !important;
+  border: none !important;
+  color: #232323 !important;
+  padding: 6px 8px !important;
+  min-width: 32px !important;
+  height: 32px !important;
+}
+
+/* Ensure the icon itself is centered */
+.violations-table td:nth-child(2) .btn-icon i {
+  display: block !important;
+  margin: 0 auto !important;
+}
+
+.violations-table tbody tr {
+  background: #fff;
+  transition: background 0.15s;
+}
+
+.violations-table tbody tr:nth-child(even) {
+  background: #fafbfc;
+}
+
+.violations-table tbody tr:hover {
+  background: #f3f6fa;
+}
+
+.violations-table td {
+  color: #232323;
+  font-size: 1.04rem;
+  padding: 16px 14px;
+  border-bottom: 1px solid #f0f1f3;
+  background: transparent;
+  vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: normal;
+  max-width: 180px;
+  word-wrap: break-word;
+}
+
+.violations-table td input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+}
+
+.violations-table tr:last-child td {
+  border-bottom: none;
+}
+
+/* Rounded corners for the table */
+.violations-table th:first-child {
+  border-top-left-radius: 16px;
+}
+.violations-table th:last-child {
+  border-top-right-radius: 16px;
+}
+.violations-table tr:last-child td:first-child {
+  border-bottom-left-radius: 16px;
+}
+.violations-table tr:last-child td:last-child {
+  border-bottom-right-radius: 16px;
+}
+
+.violations-table th:first-child, .violations-table td:first-child {
+  border-top-left-radius: 12px;
+  border-bottom-left-radius: 12px;
+}
+.violations-table th:last-child, .violations-table td:last-child {
+  border-top-right-radius: 12px;
+  border-bottom-right-radius: 12px;
+}
+
+/* Remove sticky, blue, and legacy styles */
+.violations-table th, .violations-table td {
+  position: static !important;
+  background: none !important;
+  box-shadow: none !important;
+  border-right: none !important;
+  border-left: none !important;
+}
+
+.violations-table th, .violations-table td {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+
+/* Remove all per-cell border-radius except outer corners */
+.violations-table th,
+.violations-table td {
+  border-radius: 0 !important;
+}
+
+.violations-table th:first-child {
+  border-top-left-radius: 16px !important;
+}
+.violations-table th:last-child {
+  border-top-right-radius: 16px !important;
+}
+.violations-table tr:last-child td:first-child {
+  border-bottom-left-radius: 16px !important;
+}
+.violations-table tr:last-child td:last-child {
+  border-bottom-right-radius: 16px !important;
+}
+
+.violations-table thead tr, .violations-table th {
+  background: #f7f8fa !important;
+  color: #232323 !important;
+}
+
+/* Super-specific override for table header color */
+.violations-table thead tr th,
+.violations-table thead th,
+.violations-table th,
+.violations-table thead tr {
+  background-color: #f7f8fa !important;
+  color: #232323 !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
+/* Responsive Design */
+@media (max-width: 900px) {
+  .violations-table th,
+  .violations-table td {
+    padding: 12px 8px;
+    font-size: 12px;
+  }
+
+  .violations-table th {
+    font-size: 11px;
+  }
+}
+
+@media (max-width: 768px) {
+  .form-container {
+    margin: 20px auto;
+    padding: 20px 16px;
+  }
+
+  .form-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .form-actions {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .form-actions .btn {
+    width: 100%;
+    max-width: 200px;
+  }
+
+  .toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .toolbar-btn {
+    justify-content: center;
+  }
+
+  .radio-group {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .violations-table-container {
+    margin-top: 16px;
+    border-radius: 12px;
+  }
+
+  .violations-table {
+    font-size: 12px;
+  }
+
+  .violations-table th,
+  .violations-table td {
+    padding: 8px 6px;
+  }
+}
+
+@media (max-width: 480px) {
+  .form-container {
+    margin: 10px;
+    padding: 16px 12px;
+    border-radius: 8px;
+  }
+
+  h2 {
+    font-size: 24px;
+    margin-bottom: 24px;
+  }
+
+  .form-group label {
+    font-size: 13px;
+  }
+
+  .form-group input[type="text"],
+  .form-group input[type="date"],
+  .form-group select,
+  .form-group textarea {
+    padding: 10px;
+    font-size: 13px;
+  }
+
+  .btn {
+    padding: 10px 20px;
+    font-size: 14px;
+  }
+
+  .toolbar-btn {
+    padding: 8px 12px;
+    font-size: 13px;
+  }
+}
+
+/* Loading and Error States */
+.loading-state {
+  text-align: center;
+  padding: 40px;
+  color: #6c757d;
+  font-size: 16px;
+}
+
+.error-state {
+  text-align: center;
+  padding: 40px;
+  color: #dc3545;
+  font-size: 16px;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 40px;
+  color: #6c757d;
+  font-size: 16px;
+}
+
+/* File Upload Styling */
+.file-upload-wrapper {
+  position: relative;
+  display: inline-block;
+  width: 100%;
+}
+
+.file-upload-wrapper input[type="file"] {
+  opacity: 0;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+}
+
+.file-upload-label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  background-color: #f8f9fa;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  font-size: 14px;
+  color: #495057;
+}
+
+.file-upload-label:hover {
+  background-color: #e9ecef;
+}
+
+.file-upload-icon {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
+/* Button Icon Styles */
+.btn-icon {
+  background: transparent !important;
+  border: none !important;
+  color: #232323 !important;
+  padding: 6px 8px !important;
+  min-width: 32px !important;
+  height: 32px !important;
+  cursor: pointer;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: all 0.2s ease;
+}
+
+.btn-icon:hover {
+  background-color: #f0f0f0 !important;
+  transform: scale(1.05);
+}
+
+.btn-icon:active {
+  transform: scale(0.95);
+}
+
+/* Toolbar Icon Button Styles */
+.toolbar-icon-btn {
+  background-color: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  padding: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  min-height: 36px;
+}
+
+.toolbar-icon-btn:hover {
+  background-color: #e9ecef;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+
+.toolbar-icon-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.toolbar-icon-btn i {
+  color: #232323;
+  font-size: 14px;
+}
+
+/* Animation for form transitions */
+.form-enter {
+  opacity: 0;
+  transform: translateY(-20px);
+}
+
+.form-enter-active {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 0.3s, transform 0.3s;
+}
+
+.form-exit {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.form-exit-active {
+  opacity: 0;
+  transform: translateY(-20px);
+  transition: opacity 0.3s, transform 0.3s;
+}
+
+/* --- Employee Form Page Layout (for EHS Violation) --- */
+.employee-form-page {
+  position: relative;
+  width: 100%;
+  height: auto;
+  background: #f8fafc;
+  z-index: 1;
+  overflow-y: visible;
+  padding: 20px;
+  box-sizing: border-box;
+  animation: formPageSlideIn 0.3s ease-out;
+}
+
+@keyframes formPageSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.employee-form-container {
+  max-width: 100%;
+  margin: 0 auto;
+  background: #fff;
+  border-radius: 20px;
+  box-shadow: 0 8px 32px rgba(44, 62, 80, 0.12);
+  overflow: hidden;
+  position: relative;
+}
+
+.employee-form-header {
+  background: linear-gradient(135deg, #2196f3, #1976d2);
+  color: white;
+  padding: 24px 32px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.employee-form-header h1 {
+  margin: 0;
+  font-size: 1.8rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.employee-form-header .close-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  color: white;
+  border-radius: 8px;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-size: 1.2rem;
+}
+
+.employee-form-header .close-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+  transform: scale(1.05);
+}
+
+.employee-form-content {
+  padding: 32px;
+  max-height: none;
+  overflow-y: visible;
+}
+
+/* Enhanced form actions for page layout */
+.employee-form-page .form-actions {
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border-radius: 16px;
+  padding: 24px;
+  margin-top: 32px;
+  border: 1px solid rgba(33, 150, 243, 0.1);
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+  position: relative;
+  z-index: 5;
+}
+
+.employee-form-page .form-actions button {
+  padding: 14px 32px;
+  min-width: 160px;
+  font-size: 1rem;
+  font-weight: 600;
+  border-radius: 12px;
+  white-space: normal;
+  text-align: center;
+  margin: 0;
+  box-sizing: border-box;
+  word-break: break-word;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.employee-form-page .form-actions .btn-primary {
+  background: linear-gradient(135deg, #2196f3, #1976d2);
+  color: white;
+  border: none;
+  box-shadow: 0 4px 16px rgba(33, 150, 243, 0.3);
+}
+
+.employee-form-page .form-actions .btn-primary:hover {
+  background: linear-gradient(135deg, #1976d2, #1565c0);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(33, 150, 243, 0.4);
+}
+
+.employee-form-page .form-actions .btn-danger {
+  background: linear-gradient(135deg, #f44336, #d32f2f);
+  color: white;
+  border: none;
+  box-shadow: 0 4px 16px rgba(244, 67, 54, 0.3);
+}
+
+.employee-form-page .form-actions .btn-danger:hover {
+  background: linear-gradient(135deg, #d32f2f, #c62828);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(244, 67, 54, 0.4);
+}
+
+/* Ensure form works well within main content area */
+.cms-main-content .employee-form-page {
+  position: relative;
+  width: 100%;
+  height: auto;
+  min-height: 100%;
+  background: transparent;
+  z-index: 1000;
+}
+
+/* Override for EHS Violation form in CMS layout */
+.cms-dashboard-content .employee-form-page {
+  position: relative;
+  width: 100%;
+  height: auto;
+  background: #f8fafc;
+  z-index: 1;
+  overflow-y: visible;
+  padding: 20px;
+  box-sizing: border-box;
+  margin-bottom: 20px;
+  border-radius: 16px;
+  box-shadow: 0 4px 16px rgba(44, 62, 80, 0.08);
+}
+
+.cms-main-content .employee-form-container {
+  background: #fff;
+  border-radius: 20px;
+  box-shadow: 0 8px 32px rgba(44, 62, 80, 0.12);
+  margin-bottom: 20px;
+}
+
+/* Adjust form content height for main content area */
+.cms-main-content .employee-form-content {
+  max-height: none;
+  overflow-y: visible;
+}
+
+/* Optimize form sections for sidebar layout */
+.cms-main-content .form-section-card {
+  margin-bottom: 24px;
+  padding: 24px;
+}
+
+.cms-main-content .form-section-card .form-grid {
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 16px;
+}
+
+/* Ensure form actions work well in constrained space */
+.cms-main-content .employee-form-page .form-actions {
+  position: relative;
+  bottom: auto;
+  margin-top: 24px;
+  margin-bottom: 20px;
+}
+
+/* Responsive design for form page */
+@media (max-width: 1200px) {
+  .employee-form-page {
+    padding: 15px;
+  }
+  
+  .employee-form-header {
+    padding: 20px 24px;
+  }
+  
+  .employee-form-header h1 {
+    font-size: 1.6rem;
+  }
+  
+  .employee-form-content {
+    padding: 24px;
+  }
+  
+  .cms-main-content .form-section-card .form-grid {
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .employee-form-page {
+    padding: 10px;
+  }
+  
+  .employee-form-container {
+    border-radius: 16px;
+  }
+  
+  .employee-form-header {
+    padding: 16px 20px;
+  }
+  
+  .employee-form-header h1 {
+    font-size: 1.4rem;
+  }
+  
+  .employee-form-content {
+    padding: 20px;
+  }
+  
+  .cms-main-content .form-section-card {
+    padding: 16px;
+  }
+  
+  .cms-main-content .form-section-card .form-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  
+  .employee-form-page .form-actions {
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px;
+  }
+  
+  .employee-form-page .form-actions button {
+    min-width: 120px;
+    padding: 12px 24px;
+  }
+}
+
+@media (max-width: 480px) {
+  .employee-form-page {
+    padding: 5px;
+  }
+  
+  .employee-form-header {
+    padding: 12px 16px;
+  }
+  
+  .employee-form-content {
+    padding: 16px;
+  }
+  
+  .employee-form-page .form-actions {
+    padding: 12px;
+  }
+  
+  .employee-form-page .form-actions button {
+    padding: 10px 20px;
+    font-size: 0.9rem;
+  }
+}
+
+/* Form Section Cards */
+.form-section-card {
+  background: #fff;
+  border-radius: 16px;
+  padding: 24px;
+  margin-bottom: 24px;
+  box-shadow: 0 4px 16px rgba(44, 62, 80, 0.08);
+  border: 1px solid rgba(33, 150, 243, 0.1);
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.form-section-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, #2196f3, #1976d2);
+  opacity: 0.8;
+}
+
+.form-section-card::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, rgba(33, 150, 243, 0.02) 0%, rgba(25, 118, 210, 0.02) 100%);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.form-section-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(44, 62, 80, 0.12);
+}
+
+.form-section-card:hover::after {
+  opacity: 1;
+}
+
+.form-section-card:active {
+  transform: translateY(0);
+  box-shadow: 0 4px 16px rgba(44, 62, 80, 0.08);
+}
+
+.form-section-card h2.section-title {
+  color: #232323;
+  font-size: 1.4rem;
+  font-weight: 700;
+  margin: 0 0 20px 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  position: relative;
+  padding-bottom: 12px;
+}
+
+.form-section-card h2.section-title::before {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 40px;
+  height: 3px;
+  background: linear-gradient(90deg, #2196f3, #1976d2);
+  border-radius: 2px;
+}
+
+.form-section-card.employee-info h2.section-title::after {
+  content: '👤';
+  font-size: 1.2rem;
+}
+
+.form-section-card.work-info h2.section-title::after {
+  content: '💼';
+  font-size: 1.2rem;
+}
+
+.form-section-card.personal-info h2.section-title::after {
+  content: '📋';
+  font-size: 1.2rem;
+}
+
+.form-section-card.identity-info h2.section-title::after {
+  content: '🆔';
+  font-size: 1.2rem;
+}
+
+.form-section-card.address-details h2.section-title::after {
+  content: '📍';
+  font-size: 1.2rem;
+}
+
+.form-section-card.education-details h2.section-title::after {
+  content: '🎓';
+  font-size: 1.2rem;
+}
+
+.form-section-card.salary-info h2.section-title::after {
+  content: '💰';
+  font-size: 1.2rem;
+}
+
+.form-section-card.separation-info h2.section-title::after {
+  content: '🚪';
+  font-size: 1.2rem;
+}
+
+.form-section-card .form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 20px;
+}
+
+.form-section-card .form-group {
+  display: flex;
+  flex-direction: column;
+  transition: all 0.3s ease;
+}
+
+.form-section-card .form-group:hover {
+  transform: translateY(-1px);
+}
+
+.form-section-card .form-group label {
+  color: #232323;
+  font-weight: 600;
+  font-size: 0.95rem;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: color 0.3s ease;
+}
+
+.form-section-card .form-group:hover label {
+  color: #1976d2;
+}
+
+.form-section-card .form-group .input {
+  padding: 12px 16px;
+  border: 2px solid #e3f2fd;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  background: #fafbfc;
+  color: #232323;
+  transition: all 0.3s ease;
+  font-family: inherit;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.form-section-card .form-group .input:focus {
+  outline: none;
+  border-color: #2196f3;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(33, 150, 243, 0.1);
+  transform: translateY(-1px);
+}
+
+.form-section-card .form-group .input:hover {
+  border-color: #bbdefb;
+  background: #fff;
+}
+
+.form-section-card.address-details .address-block {
+  background: #f8fafc;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 20px;
+  border: 1px solid #e3f2fd;
+  transition: all 0.3s ease;
+}
+
+.form-section-card.address-details .address-block:hover {
+  background: #f1f5f9;
+  border-color: #bbdefb;
+  transform: translateY(-1px);
+}
+
+.form-section-card.address-details .address-block h4 {
+  color: #232323;
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin: 0 0 16px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+  padding-bottom: 8px;
+}
+
+.form-section-card.address-details .address-block h4::before {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 30px;
+  height: 2px;
+  background: linear-gradient(90deg, #2196f3, #1976d2);
+  border-radius: 1px;
+}
+
+.form-section-card .checkbox-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  background: #f8fafc;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  transition: all 0.3s ease;
+}
+
+.form-section-card .checkbox-group:hover {
+  background: #f1f5f9;
+  transform: translateY(-1px);
+}
+
+.form-section-card .checkbox-group input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: #2196f3;
+  cursor: pointer;
+}
+
+.form-section-card .checkbox-group label {
+  font-weight: 600;
+  color: #232323;
+  cursor: pointer;
+  margin: 0;
+}
+
+/* File Upload Styles for EHS Violation */
+.file-upload-container {
+  border: 2px dashed #ddd;
+  border-radius: 6px;
+  padding: 20px;
+  text-align: center;
+  background-color: #f8f9fa;
+  transition: border-color 0.2s, background-color 0.2s;
+  cursor: pointer;
+}
+
+.file-upload-container:hover {
+  border-color: #3f51b5;
+  background-color: #f0f2ff;
+}
+
+.file-upload-input {
+  display: none;
+}
+
+.file-upload-icon {
+  font-size: 24px;
+  color: #6c757d;
+  margin-bottom: 8px;
+}
+
+.file-upload-text {
+  color: #6c757d;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+.file-upload-hint {
+  color: #aaa;
+  font-size: 12px;
+}
+
+.file-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  background-color: #e9ecef;
+  border-radius: 4px;
+  margin-top: 8px;
+}
+
+.file-preview-name {
+  flex: 1;
+  font-size: 14px;
+}
+
+.file-preview-remove {
+  background-color: #dc3545;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.file-download-btn {
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 12px;
+  margin-right: 8px;
+}
+
+.file-error {
+  color: #dc3545;
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+/* Radio group styles */
+.radio-group {
+  display: flex;
+  gap: 20px;
+  margin-top: 8px;
+}
+
+.radio-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.radio-input {
+  margin: 0;
+  cursor: pointer;
+  width: 16px;
+  height: 16px;
+  accent-color: #2196f3;
+}
+
+/* EHS Title Section - Matching EmployeeManagement Style */
+/* EHS Title Section - Matching Employee Management Style */
+.ehs-header-actions {
+  flex: 1;
+}
+
+.ehs-title-section {
+  flex: 1;
+}
+
+.ehs-title {
+  font-size: 2rem;
+  font-weight: 800;
+  color: var(--primary-dark);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ehs-subtitle {
+  font-size: 1.1rem;
+  color: var(--secondary-blue);
+  font-weight: 500;
+  margin: 0;
+}
+
+/* Toolbar Button Styles */
+.toolbar-btn {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: #232323;
+  min-width: 40px;
+  height: 40px;
+}
+
+.toolbar-btn:hover {
+  background: #f8fafc;
+  border-color: #cbd5e0;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.toolbar-btn:active {
+  transform: translateY(0);
+}
+
+.toolbar-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.toolbar-btn.filter-btn {
+  color: #d69e2e;
+}
+
+.toolbar-btn.add-btn {
+  color: #38a169;
+}
+
+.toolbar-btn.delete-btn {
+  color: #e53e3e;
+}
+
+.toolbar-btn.delete-btn:hover {
+  background: #fed7d7;
+  border-color: #feb2b2;
+}
+
+/* Updated Color Palette for CMS */
+:root {
+  --primary-blue: #3B82F6;
+  --primary-dark: #1E40AF;
+  --secondary-blue: #6B7280;
+  --secondary-dark: #4B5563;
+  --danger-red: #EF4444;
+  --danger-dark: #DC2626;
+  --success-green: #10B981;
+  --warning-yellow: #F59E0B;
+  --white: #FFFFFF;
+  --gray-50: #F9FAFB;
+  --gray-100: #F3F4F6;
+  --gray-200: #E5E7EB;
+  --gray-300: #D1D5DB;
+  --gray-400: #9CA3AF;
+  --gray-500: #6B7280;
+  --gray-600: #4B5563;
+  --gray-700: #374151;
+  --gray-800: #1F2937;
+  --gray-900: #111827;
+  --shadow-light: rgba(0, 0, 0, 0.05);
+  --shadow-medium: rgba(0, 0, 0, 0.1);
+  --shadow-heavy: rgba(0, 0, 0, 0.15);
+}
+
+/* When Edit column is hidden, # column becomes 2nd column */
+.violations-table.edit-column-hidden th:nth-child(2),
+.violations-table.edit-column-hidden td:nth-child(2) {
+  /* # column takes Edit column position */
+  padding-right: 20px !important;
+  width: 50px !important;
+  min-width: 50px !important;
+  max-width: 50px !important;
+  text-align: center !important;
+  white-space: nowrap !important;
+  overflow: visible !important;
+  text-overflow: unset !important;
+}
+
+.violations-table.edit-column-hidden th:nth-child(3),
+.violations-table.edit-column-hidden td:nth-child(3) {
+  /* Contractor column */
+  padding-left: 20px !important;
+  padding-right: 120px !important;
+}
+
+/* Add spacing between Contractor and Contract Employee ID columns when Edit is hidden */
+.violations-table.edit-column-hidden th:nth-child(4),
+.violations-table.edit-column-hidden td:nth-child(4) {
+  /* Contract Employee ID column */
+  padding-left: 120px !important;
+  min-width: 150px !important;
+  width: auto !important;
+  max-width: none !important;
+  white-space: nowrap !important;
+  overflow: visible !important;
+  text-overflow: unset !important;
+}
+
+/* Ensure proper spacing for all columns when Edit is hidden */
+.violations-table.edit-column-hidden th:nth-child(n+3),
+.violations-table.edit-column-hidden td:nth-child(n+3) {
+  padding-left: 20px !important;
+}
+
+/* Normal table layout spacing */
+.violations-table th:nth-child(3), /* # column */
+.violations-table td:nth-child(3) {
+  padding-right: 20px !important;
+  width: 50px !important;
+  min-width: 50px !important;
+  max-width: 50px !important;
+  text-align: center !important;
+  white-space: nowrap !important;
+  overflow: visible !important;
+  text-overflow: unset !important;
+}
+
+.violations-table th:nth-child(4), /* Contractor column */
+.violations-table td:nth-child(4) {
+  padding-left: 20px !important;
+  padding-right: 120px !important;
+}
+
+.violations-table th:nth-child(5), /* Contract Employee ID column */
+.violations-table td:nth-child(5) {
+  padding-left: 120px !important;
+  min-width: 150px !important;
+  width: auto !important;
+  max-width: none !important;
+  white-space: nowrap !important;
+  overflow: visible !important;
+  text-overflow: unset !important;
+}
+
+/* General spacing for all other columns */
+.violations-table th:nth-child(n+5),
+.violations-table td:nth-child(n+5) {
+  padding-left: 20px !important;
+}

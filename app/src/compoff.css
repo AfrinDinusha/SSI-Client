@@ -1,0 +1,484 @@
+/* Comp Off Management – layout and styles (matches Comp Off Management screen) */
+
+/* Card container */
+.compoff-card-container {
+  background: #fff;
+  border-radius: 20px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08);
+  padding: 30px 36px 36px;
+  margin: 0 auto;
+  max-width: 100%;
+  position: relative;
+  border: 1px solid rgba(37, 99, 235, 0.12);
+}
+
+/* Main content area background (light creamy peach / off-white) */
+.cms-dashboard-content:has(.compoff-card-container) {
+  background: #faf8f5;
+  min-height: 100%;
+}
+
+/* Header: title and subtitle */
+.compoff-header-actions {
+  flex: 1;
+}
+
+.compoff-title-section {
+  flex: 1;
+}
+
+.compoff-title {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #232323;
+  margin: 0 0 8px 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.compoff-title svg {
+  flex-shrink: 0;
+  color: #374151;
+}
+
+.compoff-subtitle {
+  font-size: 1.05rem;
+  color: #6b7280;
+  font-weight: 500;
+  margin: 0;
+}
+
+/* Toolbar: above-image style – white rounded buttons with colored icons */
+.compoff-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: nowrap;
+}
+
+.compoff-toolbar-btn {
+  background: #ffffff !important;
+  border: 1px solid #e5e7eb;
+  padding: 0;
+  border-radius: 10px;
+  width: 48px;
+  height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  cursor: pointer;
+  transition: box-shadow 0.2s, transform 0.15s;
+}
+
+.compoff-toolbar-btn:hover:not(:disabled) {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  background: #ffffff !important;
+  transform: scale(1.02);
+}
+
+.compoff-toolbar-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Export – green (document with arrow out) */
+.compoff-toolbar-export {
+  color: #16a34a;
+}
+
+.compoff-toolbar-export svg {
+  color: #16a34a;
+}
+
+/* Import – blue (document with arrow in) */
+.compoff-toolbar-import {
+  color: #2563eb;
+}
+
+.compoff-toolbar-import svg {
+  color: #2563eb;
+}
+
+/* Refresh – purple (cycle arrows) */
+.compoff-toolbar-refresh {
+  color: #7c3aed;
+}
+
+.compoff-toolbar-refresh svg {
+  color: #7c3aed;
+}
+
+/* Add – blue (plus) */
+.compoff-toolbar-add {
+  color: #2563eb;
+}
+
+.compoff-toolbar-add svg {
+  color: #2563eb;
+}
+
+/* Delete – red */
+.compoff-toolbar-delete {
+  color: #dc2626;
+  box-shadow: 0 2px 8px rgba(220, 38, 38, 0.2);
+}
+
+.compoff-toolbar-delete svg {
+  color: #dc2626;
+}
+
+.compoff-toolbar-delete:hover:not(:disabled) {
+  box-shadow: 0 4px 12px rgba(220, 38, 38, 0.25);
+  background: #ffffff !important;
+}
+
+/* Search bar */
+.compoff-card-container input[type="text"][placeholder*="Search"] {
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: 10px;
+  border: 1px solid #e5e7eb;
+  font-size: 1rem;
+  color: #374151;
+  background: #fff;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.compoff-card-container input[type="text"][placeholder*="Search"]::placeholder {
+  color: #9ca3af;
+}
+
+.compoff-card-container input[type="text"][placeholder*="Search"]:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+/* Table container */
+.compoff-table-container {
+  width: 100%;
+  max-width: 100%;
+  margin-top: 24px;
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 70vh;
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  border: 1px solid #e5e7eb;
+}
+
+.compoff-table-container::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+
+.compoff-table-container::-webkit-scrollbar-track {
+  background: #f8fafc;
+  border-radius: 8px;
+}
+
+.compoff-table-container::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 8px;
+}
+
+.compoff-table-container::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Table */
+.compoff-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: #fff;
+  font-size: 1rem;
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.compoff-table thead tr {
+  background: #f7f8fa;
+}
+
+.compoff-table th {
+  color: #232323;
+  background: #f7f8fa;
+  font-weight: 700;
+  font-size: 1rem;
+  padding: 16px 14px;
+  border-bottom: 2px solid #e3e8ee;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.compoff-table th:first-child {
+  text-align: center;
+  width: 50px;
+}
+
+.compoff-table td {
+  padding: 14px 16px;
+  border-bottom: 1px solid #e5e7eb;
+  color: #374151;
+}
+
+.compoff-table tbody tr:hover {
+  background: #f9fafb;
+}
+
+.compoff-table tbody tr.clickable-row {
+  cursor: pointer;
+}
+
+.compoff-table .text-center {
+  text-align: center;
+}
+
+/* Empty state */
+.compoff-table tbody td.text-center {
+  padding: 48px 24px;
+  color: #6b7280;
+  font-size: 1rem;
+  background: #fff;
+}
+
+/* Pagination area */
+.compoff-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 24px 0;
+  padding: 16px 0;
+}
+
+.compoff-pagination .toolbar-btn {
+  background: #fff;
+  color: #374151;
+  border: 1px solid #e5e7eb;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.compoff-pagination .toolbar-btn:hover:not(:disabled) {
+  background: #f3f4f6;
+  border-color: #d1d5db;
+}
+
+.compoff-pagination .toolbar-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Show All button (dark gray when active) */
+.compoff-pagination .toolbar-btn[style*="28a745"] {
+  background: #374151 !important;
+  color: #fff !important;
+  border-color: transparent !important;
+}
+
+/* Per page dropdown */
+.compoff-pagination select {
+  margin-left: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  font-size: 0.95rem;
+  color: #374151;
+  background: #fff;
+  cursor: pointer;
+}
+
+.compoff-pagination span {
+  font-size: 14px;
+  color: #6b7280;
+  margin: 0 10px;
+}
+
+.compoff-pagination span:last-child {
+  margin-left: 20px;
+}
+
+/* Form page (Add/Edit) */
+.compoff-form-page {
+  margin-top: 24px;
+}
+
+.compoff-form-container {
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+  border: 1px solid #e5e7eb;
+}
+
+.compoff-form-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 24px;
+  background: #f9fafb;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.compoff-form-header h1 {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #232323;
+  margin: 0;
+}
+
+.compoff-form-header .close-btn {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #374151;
+  transition: background 0.2s, color 0.2s;
+}
+
+.compoff-form-header .close-btn:hover {
+  background: #f3f4f6;
+  color: #111;
+}
+
+.compoff-form-content {
+  padding: 24px;
+}
+
+.compoff-form-card .form-section-card {
+  margin-bottom: 24px;
+}
+
+.compoff-form-card .section-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #232323;
+  margin: 0 0 16px 0;
+}
+
+.compoff-form-card .form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 20px;
+}
+
+.compoff-form-card .form-group label {
+  display: block;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 6px;
+}
+
+.compoff-form-card .form-group .input {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 1rem;
+  color: #374151;
+  box-sizing: border-box;
+}
+
+.compoff-form-card .form-group .input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+.compoff-form-card .form-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.compoff-form-card .btn {
+  padding: 10px 24px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background 0.2s, opacity 0.2s;
+}
+
+.compoff-form-card .btn-primary {
+  background: #2563eb;
+  color: #fff;
+  border: none;
+}
+
+.compoff-form-card .btn-primary:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.compoff-form-card .btn-danger {
+  background: #fff;
+  color: #6b7280;
+  border: 1px solid #e5e7eb;
+}
+
+.compoff-form-card .btn-danger:hover {
+  background: #f3f4f6;
+  color: #374151;
+}
+
+/* Error message */
+.compoff-card-container .error-message {
+  margin: 10px 0;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 0.95rem;
+}
+
+/* Loader */
+.dF {
+  display: flex;
+}
+
+.aI-center {
+  align-items: center;
+}
+
+.jC-center {
+  justify-content: center;
+}
+
+.h-inh {
+  min-height: 200px;
+}
+
+.loader-lg {
+  width: 40px;
+  height: 40px;
+  border: 3px solid #e5e7eb;
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: compoff-spin 0.8s linear infinite;
+}
+
+@keyframes compoff-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Utility */
+.mr-2 { margin-right: 8px; }
+.ml-2 { margin-left: 8px; }
+.ml-5 { margin-left: 20px; }

@@ -1,0 +1,13 @@
+{
+	"name": "attendance_function",
+	"version": "1.0.0",
+	"main": "FetchESSLData.js",
+	"author": "hr@sspower.com",
+	"dependencies": {
+		"axios": "^1.13.4",
+		"express": "^5.2.1",
+		"xlsx": "^0.18.5",
+		"xml2js": "^0.6.2",
+		"zcatalyst-sdk-node": "latest"
+	}
+}

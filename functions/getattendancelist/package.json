@@ -1,0 +1,10 @@
+{
+	"name": "getattendancelist",
+	"version": "1.0.0",
+	"main": "GetAttendanceList.js",
+	"author": "hr@sspower.com",
+	"dependencies": {
+		"express": "^5.2.1",
+		"zcatalyst-sdk-node": "latest"
+	}
+}

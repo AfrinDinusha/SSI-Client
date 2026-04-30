@@ -1,0 +1,30 @@
+{
+  "defaults": {
+    "project": 1,
+    "env": 1
+  },
+  "actives": {
+    "project": 1,
+    "env": 1
+  },
+  "projects": [
+    {
+      "idx": 1,
+      "id": "399000000022223",
+      "name": "SSIClient",
+      "domain": {
+        "id": "50039307341",
+        "name": "ssiclient-60010250976.development"
+      },
+      "timezone": "Asia/Kolkata",
+      "env": [
+        {
+          "idx": 1,
+          "id": "60010250976",
+          "name": "Development",
+          "type": 3
+        }
+      ]
+    }
+  ]
+}

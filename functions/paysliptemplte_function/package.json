@@ -1,0 +1,9 @@
+{
+	"name": "paysliptemplte_function",
+	"version": "1.0.0",
+	"main": "index.js",
+	"author": "zoho.peopleplus@hrinabox.in",
+	"dependencies": {
+		"zcatalyst-sdk-node": "latest"
+	}
+}

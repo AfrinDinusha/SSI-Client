@@ -1,0 +1,12 @@
+{
+	"name": "authorized_portal_function",
+	"version": "1.0.0",
+	"main": "index.js",
+	"author": "hr@sspower.com",
+	"dependencies": {
+		"axios": "^1.13.4",
+		"express": "^5.2.1",
+		"xlsx": "^0.18.5",
+		"zcatalyst-sdk-node": "latest"
+	}
+}

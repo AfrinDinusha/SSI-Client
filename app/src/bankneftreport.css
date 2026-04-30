@@ -1,0 +1,21 @@
+/* Bank NEFT Report — extends Bank Format Report (muster-table + bank-report-table) */
+
+.bank-neft-report-table td.bank-neft-amount-cell,
+.bank-neft-report-table th:first-child {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* NEFT LINE: one continuous row (scroll horizontally via .muster-table-scroll) */
+.bank-neft-report-table td.bank-neft-line-cell,
+.bank-neft-report-table th:last-child {
+  white-space: nowrap;
+  max-width: none;
+  font-family: ui-monospace, 'Cascadia Code', 'Consolas', monospace;
+  font-size: 0.8rem;
+}
+
+.bank-neft-report-table.bank-report-table th,
+.bank-neft-report-table.bank-report-table td {
+  vertical-align: middle;
+}

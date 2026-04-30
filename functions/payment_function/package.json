@@ -1,0 +1,9 @@
+{
+	"name": "payment_function",
+	"version": "1.0.0",
+	"main": "index.js",
+	"author": "hr@sspower.com",
+	"dependencies": {
+		"zcatalyst-sdk-node": "latest"
+	}
+}

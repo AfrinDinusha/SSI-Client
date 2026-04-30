@@ -1,0 +1,11 @@
+{
+	"deployment": {
+		"name": "paysliptemplte_function",
+		"stack": "node20",
+		"type": "advancedio",
+		"env_variables": {}
+	},
+	"execution": {
+		"main": "index.js"
+	}
+}

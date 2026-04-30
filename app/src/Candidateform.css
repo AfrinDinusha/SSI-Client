@@ -1,0 +1,1697 @@
+@import './App.css';
+@import './employeeManagement.css';
+
+.form-container {
+  max-width: 1400px;
+  margin: 40px auto;
+  padding: 32px 24px 40px 24px;
+  font-family: 'Segoe UI', 'Roboto', Arial, sans-serif;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.07);
+}
+
+h2, h3 {
+  text-align: center;
+  color: #333;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 20px;
+}
+
+.form-grid div {
+  display: flex;
+  flex-direction: column;
+}
+
+label {
+  margin-bottom: 5px;
+  font-weight: bold;
+}
+
+input[type="text"],
+input[type="email"],
+input[type="tel"],
+input[type="date"],
+select {
+  padding: 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+select[multiple] {
+  height: 100px;
+}
+
+input[type="radio"] {
+  margin-right: 5px;
+}
+
+input[type="file"] {
+  padding: 5px;
+}
+
+button[type="submit"], .toolbar-btn.add-btn {
+  background-color: #3f51b5;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 10px 18px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+button[type="submit"]:hover, .toolbar-btn.add-btn:hover {
+  background: #283593;
+}
+
+button[type="button"] {
+  background-color: #6c757d;
+  color: white;
+}
+
+button[type="button"]:hover {
+  background-color: #5a6268;
+}
+
+.candidates-list {
+  margin-top: 30px;
+}
+
+.candidates-list ul {
+  list-style: none;
+  padding: 0;
+}
+
+.candidates-list li {
+  padding: 10px;
+  border-bottom: 1px solid #eee;
+}
+
+.candidate-table-container {
+  overflow-x: auto;
+  margin-top: 24px;
+  border: none;
+  border-radius: 18px;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.08), 0 1.5px 4px rgba(0,0,0,0.04);
+  background: linear-gradient(120deg, #f8fafc 0%, #f4f6f8 100%);
+  padding: 0 0 12px 0;
+}
+
+.candidate-table {
+  width: 100%;
+  border-collapse: separate; /* Changed from collapse to separate for better spacing */
+  border-spacing: 0;
+  background: #fff;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  margin-top: 20px;
+  border: 1px solid #e5e7eb;
+}
+
+.candidate-table th,
+.candidate-table td {
+  padding: 16px 20px; /* Increased padding for better spacing */
+  text-align: left;
+  border-bottom: 1px solid #e5e7eb;
+  vertical-align: middle;
+  font-size: 14px;
+  line-height: 1.4;
+  word-wrap: break-word;
+  min-width: 120px; /* Minimum width for columns */
+}
+
+.candidate-table th {
+  background: #f8fafc;
+  font-weight: 600;
+  color: #374151;
+  padding: 18px 20px; /* Slightly more padding for headers */
+  text-align: left;
+  border-bottom: 2px solid #e5e7eb;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.candidate-table th:last-child,
+.candidate-table td:last-child {
+  border-right: none;
+}
+
+.candidate-table th:first-child,
+.candidate-table td:first-child {
+  border-left: 4px solid #6366f1;
+  border-radius: 12px 0 0 12px;
+}
+
+.candidate-table th:last-child,
+.candidate-table td:last-child {
+  border-radius: 0 12px 12px 0;
+}
+
+.candidate-table tbody tr {
+  border-bottom: 1.5px solid #e5e7eb;
+  transition: background-color 0.2s ease;
+}
+
+.candidate-table tbody tr:nth-of-type(even) {
+  background-color: #f3f4f6;
+}
+
+.candidate-table tbody tr:hover {
+  background: #e0e7ff;
+  box-shadow: 0 2px 8px rgba(99,102,241,0.08);
+}
+
+.candidate-table td {
+  color: #23272f;
+  font-size: 1.04rem;
+  padding: 16px 14px;
+  border-bottom: 1px solid #f0f1f3;
+  background: transparent;
+  vertical-align: middle;
+  white-space: normal;
+  word-wrap: break-word;
+  word-break: break-word;
+  min-height: 60px;
+  line-height: 1.4;
+  max-width: 200px;
+}
+
+.candidate-table .btn-icon {
+  padding: 5px 10px;
+  margin-right: 5px;
+}
+
+/* Responsive improvements */
+@media (max-width: 1200px) {
+  .candidate-table th,
+  .candidate-table td {
+    padding: 14px 16px;
+    font-size: 13px;
+    min-width: 100px;
+  }
+}
+
+@media (max-width: 900px) {
+  .candidate-table th,
+  .candidate-table td {
+    padding: 12px 14px;
+    font-size: 12px;
+    min-width: 80px;
+  }
+}
+/* Address section improvements for Candidateform.js */
+.candidate-address-section {
+  display: flex;
+  gap: 32px;
+  margin-bottom: 8px;
+}
+.candidate-address-block {
+  flex: 1;
+  /* background: #f8fafc; */
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 18px 18px 10px 18px;
+  margin-bottom: 0;
+}
+.candidate-address-block label {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1e293b;
+  margin-bottom: 10px;
+  display: block;
+}
+.candidate-address-block .input {
+  margin-bottom: 10px;
+  width: 100%;
+  min-width: 0;
+}
+.candidate-address-block .form-row {
+  gap: 8px;
+  margin-bottom: 0;
+}
+.candidate-address-checkbox-row {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Feedback message styles */
+.candidate-feedback {
+  margin: 16px 0;
+}
+
+.feedback-message {
+  padding: 16px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  line-height: 1.5;
+  border-left: 4px solid;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.success-message {
+  border-left-color: #10b981;
+  background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%);
+  color: #065f46;
+}
+
+.error-message {
+  border-left-color: #ef4444;
+  background: linear-gradient(135deg, #fef2f2 0%, #fef2f2 100%);
+  color: #991b1b;
+}
+
+.feedback-message div {
+  font-family: 'Segoe UI', 'Arial', sans-serif;
+  font-weight: 500;
+}
+
+/* Search dropdown styles */
+.search-dropdown {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.1), 0 4px 10px rgba(0,0,0,0.05);
+  padding: 24px;
+  margin-top: 12px;
+  z-index: 1000;
+}
+
+.search-dropdown h4 {
+  margin: 0 0 20px 0;
+  color: #1e293b;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.search-dropdown .close-button {
+  background: white;
+  border: 1px solid #e5e7eb;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 4px 8px;
+  color: #ef4444;
+  border-radius: 4px;
+  transition: background-color 0.2s, color 0.2s, border-color 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+}
+
+.search-dropdown .close-button:hover {
+  background-color: #fef2f2;
+  color: #dc2626;
+  border-color: #fecaca;
+}
+
+.search-dropdown .close-button:active {
+  background-color: #fee2e2;
+  color: #b91c1c;
+}
+
+.search-dropdown label {
+  display: flex;
+  align-items: center;
+  font-weight: 500;
+  color: #374151;
+  cursor: pointer;
+  min-width: 140px;
+}
+
+.search-dropdown input[type="checkbox"] {
+  margin-right: 8px;
+  width: 16px;
+  height: 16px;
+  accent-color: #6366f1;
+}
+
+.search-dropdown select,
+.search-dropdown input[type="text"] {
+  padding: 8px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 14px;
+  background: white;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.search-dropdown select:focus,
+.search-dropdown input[type="text"]:focus {
+  outline: none;
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+
+.search-dropdown select {
+  min-width: 100px;
+}
+
+.search-dropdown input[type="text"] {
+  min-width: 180px;
+}
+
+/* Filter summary styles */
+.filter-summary-modern {
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin: 16px 0;
+  font-size: 14px;
+  color: #475569;
+}
+
+.filter-chip {
+  display: inline-block;
+  background: #6366f1;
+  color: white;
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  margin: 2px 4px;
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .candidate-address-section {
+    flex-direction: column;
+    gap: 12px;
+  }
+  .candidate-address-block {
+    padding: 12px 8px 8px 8px;
+  }
+  
+  .feedback-message {
+    padding: 12px 16px;
+    font-size: 13px;
+  }
+  
+  .search-dropdown {
+    padding: 16px;
+    margin-top: 8px;
+  }
+  
+  .search-dropdown label {
+    min-width: 120px;
+    font-size: 13px;
+  }
+  
+  .search-dropdown select,
+  .search-dropdown input[type="text"] {
+    padding: 6px 10px;
+    font-size: 13px;
+  }
+  
+  .search-dropdown input[type="text"] {
+    min-width: 140px;
+  }
+}
+
+.candidate-modal-content {
+  max-width: 1200px;
+  width: 100%;
+  min-width: 350px;
+  overflow-y: auto;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(60,72,88,0.15);
+  background: #fff;
+  padding: 32px 24px;
+  position: relative;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 24px;
+}
+
+.form-row {
+  display: flex;
+  gap: 20px;
+}
+
+.form-group {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.form-group .input {
+  max-width: 350px;
+  width: 100%;
+}
+
+.candidate-mgmt-modal .modal-content {
+  max-width: 1200px;
+  width: 100%;
+}
+
+.form-actions button {
+  padding: 12px 28px;
+  min-width: 140px;
+  font-size: 1rem;
+  font-weight: 600;
+  border-radius: 8px;
+  white-space: normal;
+  text-align: center;
+  margin: 0 8px;
+  box-sizing: border-box;
+  word-break: break-word;
+}
+
+.candidate-mgmt-modal .candidate-modal-content {
+  max-width: 1200px;
+  width: 100%;
+}
+
+.employee-form .form-actions,
+.form-actions {
+  display: flex !important;
+  justify-content: center !important;
+  gap: 16px !important;
+  margin-top: 24px !important;
+  flex-wrap: nowrap !important;
+}
+
+/* --- Toolbar Buttons --- */
+.toolbar-btn {
+  border: none;
+  border-radius: 8px;
+  padding: 10px 20px;
+  font-size: 16px;
+  font-family: 'Segoe UI', 'Roboto', Arial, sans-serif;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, box-shadow 0.2s;
+  margin-right: 8px;
+  box-shadow: 0 2px 8px rgba(60,72,88,0.04);
+  background: #f5f7fa;
+  color: #3f51b5;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.toolbar-btn:last-child { margin-right: 0; }
+.toolbar-btn.add-btn {
+  display: none; /* Hide the old add button, use FAB instead */
+}
+.toolbar-btn.export-btn { color: #38a169; }
+.toolbar-btn.filter-btn { color: #d69e2e; }
+.toolbar-btn.import-btn { color: #3182ce; }
+
+/* --- Blue Theme for Candidate Table --- */
+.candidate-table-container {
+  width: 100%;
+  max-width: 100%;
+  margin: 32px auto 0 auto;
+  overflow-x: auto;
+  background: #fff;
+  border-radius: 18px;
+  box-shadow: 0 4px 24px rgba(44,62,80,0.07);
+  padding: 0 0 18px 0;
+  min-width: 0;
+}
+
+.candidate-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: #fff;
+  border-radius: 18px;
+  overflow: hidden;
+  font-family: 'Segoe UI', 'Arial', sans-serif;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.08), 0 1.5px 4px rgba(0,0,0,0.04);
+  margin-top: 20px;
+  border: 1px solid #e5e7eb;
+}
+
+.candidate-table thead tr {
+  background: #f7f8fa;
+}
+
+.candidate-table th {
+  background: linear-gradient(90deg, #c7d2fe 0%, #e0e7ff 100%);
+  font-weight: 700;
+  color: #1e293b;
+  white-space: normal;
+  min-width: 80px;
+  font-size: 16px;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  border-bottom: 3px solid #6366f1;
+  letter-spacing: 0.02em;
+  word-wrap: break-word;
+  word-break: break-word;
+  min-height: 50px;
+  line-height: 1.3;
+  max-width: 200px;
+  padding: 18px 20px;
+  text-align: left;
+  text-transform: none;
+}
+
+.candidate-table tbody tr {
+  background: #fff;
+  transition: background 0.15s;
+}
+
+.candidate-table tbody tr:nth-child(even) {
+  background: #fafbfc;
+}
+
+.candidate-table tbody tr:hover {
+  background: #f3f6fa;
+}
+
+.candidate-table td {
+  color: #232323;
+  font-size: 1.04rem;
+  padding: 16px 14px;
+  border-bottom: 1px solid #f0f1f3;
+  background: transparent;
+  vertical-align: middle;
+  white-space: normal;
+  word-wrap: break-word;
+  word-break: break-word;
+  min-height: 60px;
+  line-height: 1.4;
+  max-width: 200px;
+}
+
+/* --- Blue Theme for Form Elements --- */
+.form-group .input {
+  max-width: 250px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  height: 38px;
+  min-height: unset;
+  box-sizing: border-box;
+  background: #fff;
+}
+
+.form-group .input:focus {
+  outline: none;
+  border-color: #2196f3;
+  box-shadow: 0 0 0 3px rgba(33, 150, 243, 0.1);
+}
+
+/* --- Blue Theme for Buttons --- */
+.btn-primary {
+  background-color: #2196f3;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 12px 20px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btn-primary:hover {
+  background-color: #1769aa;
+}
+
+/* --- Blue Theme for Section Titles --- */
+.candidate-section-title {
+  font-size: 2.4rem;
+  font-weight: 700;
+  color: #2196f3;
+  margin-bottom: 0.5rem;
+  letter-spacing: 0.5px;
+}
+
+.candidate-section-subtitle {
+  color: #6b7a90;
+  font-size: 1.15rem;
+  margin-bottom: 2.2rem;
+}
+
+.input--small {
+  width: 280px;
+}
+
+.education-input {
+  width: 100%;
+  min-width: 100px;
+  box-sizing: border-box;
+  height: 36px;         /* Match your form input height */
+  padding: 6px 10px;    /* Match your form input padding */
+  font-size: 15px;
+  vertical-align: middle;
+}
+.education-remove-btn {
+  color: #888;
+  background: none;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  vertical-align: middle;
+  padding: 0 8px 0 0;
+  height: 36px;         /* Match input height */
+  display: flex;
+  align-items: center;
+}
+
+.ehs-comments-textarea {
+  width: 350px;
+  min-width: 200px;
+  max-width: 100%;
+  height: 80px;
+  min-height: 60px;
+  max-height: 200px;
+  font-size: 15px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+  resize: vertical;
+}
+
+/* Removed old search-sidebar styles to prevent conflicts */
+/* Removed old search-sidebar related styles to prevent conflicts */
+
+/* --- Filter Sidebar --- */
+.filter-sidebar-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0,0,0,0.18);
+  z-index: 1200;
+  transition: background 0.2s;
+}
+
+.filter-sidebar {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 370px;
+  max-width: 95vw;
+  height: 100vh;
+  background: #fff;
+  box-shadow: -2px 0 16px rgba(44,62,80,0.13);
+  z-index: 1300;
+  padding: 32px 28px 24px 28px;
+  overflow-y: auto;
+  border-radius: 12px 0 0 12px;
+  display: flex;
+  flex-direction: column;
+  animation: filterSidebarSlideIn 0.25s cubic-bezier(0.4,0,0.2,1);
+}
+
+@keyframes filterSidebarSlideIn {
+  from { right: -400px; opacity: 0; }
+  to { right: 0; opacity: 1; }
+}
+.filter-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: #888;
+  transition: color 0.2s;
+}
+
+.close-btn:hover {
+  color: #2196f3;
+}
+
+.filter-fields {
+  margin-bottom: 18px;
+  display: grid;
+  gap: 16px;
+}
+
+.filter-field {
+  margin-bottom: 12px;
+}
+
+/* Blue theme styling for filter sidebar elements */
+.filter-sidebar label {
+  color: #374151;
+  font-weight: 500;
+  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.filter-sidebar input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #2196f3;
+}
+
+.filter-sidebar select {
+  padding: 8px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  background: #fff;
+  color: #374151;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.filter-sidebar select:focus {
+  outline: none;
+  border-color: #2196f3;
+  box-shadow: 0 0 0 3px rgba(33, 150, 243, 0.1);
+}
+
+.filter-sidebar input[type="text"] {
+  padding: 8px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  background: #fff;
+  color: #374151;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.filter-sidebar input[type="text"]:focus {
+  outline: none;
+  border-color: #2196f3;
+  box-shadow: 0 0 0 3px rgba(33, 150, 243, 0.1);
+}
+
+.btn.btn-primary {
+  width: 100%;
+  background: #2196f3;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 12px 20px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btn.btn-primary:hover {
+  background: #1769aa;
+}
+
+.candidate-pagination {
+  display: flex;
+  justify-content: center;   /* Center the controls horizontally */
+  align-items: center;
+  margin: 24px 0 0 0;
+  width: 100%;
+  position: relative;        /* For absolute positioning of info */
+  min-height: 60px;
+}
+
+.candidate-pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 32px;                 /* More space between buttons and page info */
+  background: #fafbfc;
+  border-radius: 8px;
+  padding: 12px 32px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.03);
+}
+
+.candidate-pagination-info {
+  position: absolute;
+  right: 32px;
+  color: #444;
+  font-size: 15px;
+  min-width: 180px;
+  text-align: right;
+}
+
+.candidate-pagination-controls span {
+  white-space: nowrap;      /* Prevents line break */
+  font-size: 18px;
+  font-weight: 500;
+  margin: 0 12px;
+  display: flex;
+  align-items: center;      /* Vertically center with buttons */
+  height: 100%;
+}
+
+.candidate-pagination-controls .btn.btn-primary {
+  background: #6366f1;      /* Blue background */
+  color: #fff;              /* White text */
+  border: none;
+  font-weight: 600;
+  min-width: 120px;
+  font-size: 18px;
+  border-radius: 8px;
+  box-shadow: none;
+  transition: background 0.2s;
+}
+
+.candidate-pagination-controls .btn.btn-primary:disabled {
+  opacity: 0.5;
+  color: #fff;
+  background: #a5b4fc;      /* Lighter blue for disabled */
+}
+
+.candidate-mgmt-modal .form-actions .btn.btn-primary[type="submit"] {
+  padding: 6px 18px;
+  font-size: 15px;
+  min-width: 90px;
+  border-radius: 6px;
+}
+
+.candidate-mgmt-modal .form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 16px;
+  margin-top: 24px;
+}
+
+.candidate-mgmt-modal .form-actions .btn {
+  min-width: 90px;
+  padding: 6px 18px;
+  font-size: 15px;
+  border-radius: 6px;
+}
+
+.candidate-mgmt-modal .form-actions .btn.btn-primary[type="submit"] {
+  background: #6366f1;
+  color: #fff;
+}
+
+.candidate-mgmt-modal .form-actions .btn.btn-danger {
+  background: #6b7280;
+  color: #fff;
+}
+
+/* Make filter sidebar checkboxes smaller */
+.filter-sidebar input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #6366f1; /* Optional: keep your theme color */
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.filter-sidebar label {
+  font-size: 15px;
+}
+
+.candidate-mgmt-modal {
+  max-height: 90vh;
+  overflow-y: auto;
+}
+.candidate-modal-content {
+  max-height: 85vh;
+  overflow-y: auto;
+}
+
+@media (max-width: 600px) {
+  .candidate-modal-content {
+    width: 98vw;
+    padding: 8px;
+  }
+}
+
+/* --- Custom fixes for Candidate Table --- */
+.candidate-table .btn-outline-primary {
+  background: #fff;
+  color: #3f51b5;
+  border: 1.5px solid #3f51b5;
+  border-radius: 4px;
+  padding: 4px 12px;
+  font-weight: 600;
+  font-size: 15px;
+  transition: background 0.2s, color 0.2s;
+  cursor: pointer;
+}
+.candidate-table .btn-outline-primary:hover {
+  background: #3f51b5;
+  color: #fff;
+}
+
+.candidate-status-badge {
+  display: inline-block;
+  padding: 4px 16px;
+  border-radius: 16px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  background: #e0e7ef;
+  color: #333;
+  min-width: 70px;
+  text-align: center;
+}
+.candidate-status-badge[data-status="Pending"] {
+  background: #e0e7ef;
+  color: #3f51b5;
+}
+.candidate-status-badge[data-status="Rejected"] {
+  background: #fed7d7;
+  color: #c53030;
+}
+.candidate-status-badge[data-status="Approved"] {
+  background: #c6f6d5;
+  color: #276749;
+}
+
+/* --- Modal size and compactness improvements --- */
+.candidate-mgmt-modal {
+  max-width: 100vw;
+  max-height: 90vh;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2001;
+}
+.candidate-modal-content {
+  max-width: 600px;
+  width: 95vw;
+  max-height: 80vh;
+  overflow-y: auto;
+  margin: 0 auto;
+  padding: 24px 16px;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(60,72,88,0.18);
+  background: #fff;
+  position: relative;
+}
+.form-section {
+  margin-bottom: 18px;
+  padding-bottom: 8px;
+}
+.form-row {
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+/* --- Candidate Table Column Widths --- */
+.candidate-table th:nth-child(1), /* Approval/Reject column */
+.candidate-table td:nth-child(1) {
+  width: 180px;
+  min-width: 180px;
+  max-width: 180px;
+  text-align: center;
+  padding: 12px 8px !important;
+}
+
+.candidate-table th:nth-child(2), /* Approval Status column */
+.candidate-table td:nth-child(2) {
+  width: 120px;
+  min-width: 120px;
+  max-width: 120px;
+  text-align: center;
+  padding: 12px 8px !important;
+}
+
+/* Ensure the approval/reject button fits properly */
+.candidate-table td:nth-child(1) .btn-outline-primary {
+  width: 100%;
+  max-width: 160px;
+  white-space: nowrap;
+  font-size: 0.9rem;
+  padding: 8px 12px;
+}
+
+/* Ensure the status badge fits properly */
+.candidate-table td:nth-child(2) .candidate-status-badge {
+  width: 100%;
+  max-width: 100px;
+  white-space: nowrap;
+  font-size: 0.85rem;
+  padding: 4px 8px;
+  text-align: center;
+  display: inline-block;
+}
+
+/* Enhanced Approval/Reject button styling */
+.candidate-table td:nth-child(1) .btn-outline-primary {
+  width: 100%;
+  max-width: 160px;
+  white-space: nowrap;
+  font-size: 0.9rem;
+  padding: 8px 12px;
+  overflow: visible !important;
+  text-overflow: unset !important;
+  word-wrap: normal !important;
+  word-break: normal !important;
+  min-width: 140px;
+}
+
+/* Ensure button text is always visible */
+.candidate-table td:nth-child(1) .btn-outline-primary {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  text-align: center !important;
+  box-sizing: border-box !important;
+}
+
+/* Responsive adjustments for smaller screens */
+@media (max-width: 1200px) {
+  .candidate-table th:nth-child(1),
+  .candidate-table td:nth-child(1) {
+    width: 160px;
+    min-width: 160px;
+    max-width: 160px;
+  }
+  
+  .candidate-table th:nth-child(2),
+  .candidate-table td:nth-child(2) {
+    width: 100px;
+    min-width: 100px;
+    max-width: 100px;
+  }
+  
+  .candidate-table td:nth-child(1) .btn-outline-primary {
+    max-width: 140px;
+    font-size: 0.85rem;
+  }
+}
+
+@media (max-width: 900px) {
+  .candidate-table th:nth-child(1),
+  .candidate-table td:nth-child(1) {
+    width: 140px;
+    min-width: 140px;
+    max-width: 140px;
+  }
+  
+  .candidate-table th:nth-child(2),
+  .candidate-table td:nth-child(2) {
+    width: 80px;
+    min-width: 80px;
+    max-width: 80px;
+  }
+  
+  .candidate-table td:nth-child(1) .btn-outline-primary {
+    max-width: 120px;
+    font-size: 0.8rem;
+    padding: 6px 8px;
+  }
+  
+  .candidate-table td:nth-child(2) .candidate-status-badge {
+    font-size: 0.75rem;
+    padding: 3px 6px;
+  }
+}
+
+/* Mobile-specific adjustments for Approval/Reject button */
+@media (max-width: 480px) {
+  .candidate-table th:nth-child(1),
+  .candidate-table td:nth-child(1) {
+    width: 120px;
+    min-width: 120px;
+    max-width: 120px;
+  }
+  
+  .candidate-table td:nth-child(1) .btn-outline-primary {
+    max-width: 100px;
+    font-size: 0.75rem;
+    padding: 4px 6px;
+    min-width: 90px;
+  }
+}
+
+/* --- Candidate Form Page Layout --- */
+.candidate-form-page {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: #f8fafc;
+  z-index: 1000;
+  overflow-y: auto;
+  padding: 20px;
+  box-sizing: border-box;
+  animation: candidateFormPageSlideIn 0.3s ease-out;
+}
+
+@keyframes candidateFormPageSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.candidate-form-container {
+  max-width: 100%;
+  margin: 0 auto;
+  background: #fff;
+  border-radius: 20px;
+  box-shadow: 0 8px 32px rgba(44, 62, 80, 0.12);
+  overflow: hidden;
+  position: relative;
+}
+
+.candidate-form-header {
+  background: linear-gradient(135deg, #2196f3, #1976d2);
+  color: white;
+  padding: 24px 32px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.candidate-form-header h1 {
+  margin: 0;
+  font-size: 1.8rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.candidate-form-header .close-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  color: white;
+  border-radius: 8px;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-size: 1.2rem;
+}
+
+.candidate-form-header .close-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+  transform: scale(1.05);
+}
+
+.candidate-form-content {
+  padding: 32px;
+  max-height: calc(100vh - 200px);
+  overflow-y: auto;
+}
+
+/* Enhanced form actions for page layout */
+.candidate-form-page .form-actions {
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border-radius: 16px;
+  padding: 24px;
+  margin-top: 32px;
+  border: 1px solid rgba(33, 150, 243, 0.1);
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+}
+
+.candidate-form-page .form-actions button {
+  padding: 14px 32px;
+  min-width: 160px;
+  font-size: 1rem;
+  font-weight: 600;
+  border-radius: 12px;
+  white-space: normal;
+  text-align: center;
+  margin: 0;
+  box-sizing: border-box;
+  word-break: break-word;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.candidate-form-page .form-actions .btn-primary {
+  background: linear-gradient(135deg, #2196f3, #1976d2);
+  color: white;
+  border: none;
+  box-shadow: 0 4px 16px rgba(33, 150, 243, 0.3);
+}
+
+.candidate-form-page .form-actions .btn-primary:hover {
+  background: linear-gradient(135deg, #1976d2, #1565c0);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(33, 150, 243, 0.4);
+}
+
+.candidate-form-page .form-actions .btn-danger {
+  background: linear-gradient(135deg, #f44336, #d32f2f);
+  color: white;
+  border: none;
+  box-shadow: 0 4px 16px rgba(244, 67, 54, 0.3);
+}
+
+.candidate-form-page .form-actions .btn-danger:hover {
+  background: linear-gradient(135deg, #d32f2f, #c62828);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(244, 67, 54, 0.4);
+}
+
+/* Ensure form works well within main content area */
+.cms-main-content .candidate-form-page {
+  position: relative;
+  width: 100%;
+  height: auto;
+  min-height: 100%;
+  background: transparent;
+}
+
+.cms-main-content .candidate-form-container {
+  background: #fff;
+  border-radius: 20px;
+  box-shadow: 0 8px 32px rgba(44, 62, 80, 0.12);
+  margin-bottom: 20px;
+}
+
+/* Adjust form content height for main content area */
+.cms-main-content .candidate-form-content {
+  max-height: none;
+  overflow-y: visible;
+}
+
+/* Optimize form sections for sidebar layout */
+.cms-main-content .candidate-form .form-section-card {
+  margin-bottom: 24px;
+  padding: 24px;
+}
+
+.cms-main-content .candidate-form .form-section-card .form-grid {
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 16px;
+}
+
+/* Ensure form actions work well in constrained space */
+.cms-main-content .candidate-form-page .form-actions {
+  position: relative;
+  bottom: auto;
+  margin-top: 24px;
+  margin-bottom: 20px;
+}
+
+/* Responsive design for candidate form page */
+@media (max-width: 1200px) {
+  .candidate-form-page {
+    padding: 15px;
+  }
+  
+  .candidate-form-header {
+    padding: 20px 24px;
+  }
+  
+  .candidate-form-header h1 {
+    font-size: 1.6rem;
+  }
+  
+  .candidate-form-content {
+    padding: 24px;
+  }
+  
+  .cms-main-content .candidate-form .form-section-card .form-grid {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .candidate-form-page {
+    padding: 10px;
+  }
+  
+  .candidate-form-container {
+    border-radius: 16px;
+  }
+  
+  .candidate-form-header {
+    padding: 16px 20px;
+  }
+  
+  .candidate-form-header h1 {
+    font-size: 1.3rem;
+  }
+  
+  .candidate-form-content {
+    padding: 16px;
+  }
+  
+  .cms-main-content .candidate-form .form-section-card {
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  
+  .cms-main-content .candidate-form .form-section-card .form-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  
+  .candidate-form-page .form-actions {
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px;
+  }
+  
+  .candidate-form-page .form-actions button {
+    min-width: 100%;
+    padding: 12px 20px;
+  }
+}
+
+@media (max-width: 480px) {
+  .candidate-form-page {
+    padding: 5px;
+  }
+  
+  .candidate-form-header {
+    padding: 12px 16px;
+  }
+  
+  .candidate-form-content {
+    padding: 12px;
+  }
+}
+
+/* Total Candidates Button Styles */
+.candidate-total-button {
+  background: #3f51b5 !important;
+  color: #fff !important;
+  border: none !important;
+  border-radius: 8px !important;
+  padding: 12px 32px !important;
+  font-size: 16px !important;
+  font-weight: 600 !important;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12) !important;
+  cursor: pointer !important;
+  min-width: 180px !important;
+  white-space: nowrap !important;
+  text-align: center !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  word-wrap: normal !important;
+  overflow: visible !important;
+  transition: all 0.2s ease !important;
+}
+
+.candidate-total-button:hover {
+  background: #303f9f !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
+}
+
+.candidate-total-count {
+  margin-left: 16px !important;
+  font-size: 17px !important;
+  font-weight: 500 !important;
+  color: #111 !important;
+  background: #fff !important;
+  border-radius: 8px !important;
+  padding: 8px 18px !important;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.10) !important;
+  border: 1px solid #e0e7ff !important;
+  white-space: nowrap !important;
+  overflow: visible !important;
+}
+
+/* Responsive styles for Total Candidates button */
+@media (max-width: 768px) {
+  .candidate-total-button {
+    min-width: 160px !important;
+    padding: 10px 24px !important;
+    font-size: 14px !important;
+  }
+  
+  .candidate-total-count {
+    font-size: 15px !important;
+    padding: 6px 14px !important;
+    margin-left: 12px !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .candidate-total-button {
+    min-width: 140px !important;
+    padding: 8px 20px !important;
+    font-size: 13px !important;
+  }
+  
+  .candidate-total-count {
+    font-size: 14px !important;
+    padding: 5px 12px !important;
+    margin-left: 8px !important;
+  }
+}
+
+/* Candidate Title Section - Matching Employee Style */
+.candidate-header-actions {
+  flex: 1;
+}
+
+.candidate-title-section {
+  flex: 1;
+}
+
+.candidate-title {
+  font-size: 2rem;
+  font-weight: 800;
+  color: var(--primary-dark);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.candidate-subtitle {
+  font-size: 1.1rem;
+  color: var(--secondary-blue);
+  font-weight: 500;
+  margin: 0;
+}
+
+/* Updated Color Palette for CMS */
+:root {
+  --primary-blue: #3B82F6;
+  --primary-dark: #1E40AF;
+  --secondary-blue: #6B7280;
+  --secondary-dark: #4B5563;
+  --danger-red: #EF4444;
+  --danger-dark: #DC2626;
+  --success-green: #10B981;
+  --warning-yellow: #F59E0B;
+  --white: #FFFFFF;
+  --gray-50: #F9FAFB;
+  --gray-100: #F3F4F6;
+  --gray-200: #E5E7EB;
+  --gray-300: #D1D5DB;
+  --gray-400: #9CA3AF;
+  --gray-500: #6B7280;
+  --gray-600: #4B5563;
+  --gray-700: #374151;
+  --gray-800: #1F2937;
+  --gray-900: #111827;
+  --shadow-light: rgba(0, 0, 0, 0.05);
+  --shadow-medium: rgba(0, 0, 0, 0.1);
+  --shadow-heavy: rgba(0, 0, 0, 0.15);
+}
+
+/* --- Candidate Table Edit Column Hiding Logic --- */
+/* When Edit column is hidden, # column becomes 2nd column */
+.candidate-table.edit-column-hidden th:nth-child(2),
+.candidate-table.edit-column-hidden td:nth-child(2) {
+  /* # column takes Edit column position */
+  padding-right: 20px !important;
+  width: 50px !important;
+  min-width: 50px !important;
+  max-width: 50px !important;
+  text-align: center !important;
+  white-space: nowrap !important;
+  overflow: visible !important;
+  text-overflow: unset !important;
+}
+
+.candidate-table.edit-column-hidden th:nth-child(3),
+.candidate-table.edit-column-hidden td:nth-child(3) {
+  /* Approval/Reject column */
+  padding-left: 20px !important;
+  padding-right: 120px !important;
+}
+
+/* Add spacing between Approval/Reject and Approval Status columns when Edit is hidden */
+.candidate-table.edit-column-hidden th:nth-child(4),
+.candidate-table.edit-column-hidden td:nth-child(4) {
+  /* Approval Status column */
+  padding-left: 120px !important;
+}
+
+/* Ensure proper spacing for all columns when Edit is hidden */
+.candidate-table.edit-column-hidden th:nth-child(n+4),
+.candidate-table.edit-column-hidden td:nth-child(n+4) {
+  padding-left: 20px !important;
+}
+
+/* Normal table layout spacing */
+.candidate-table th:nth-child(3), /* # column */
+.candidate-table td:nth-child(3) {
+  padding-right: 20px !important;
+  width: 50px !important;
+  min-width: 50px !important;
+  max-width: 50px !important;
+  text-align: center !important;
+  white-space: nowrap !important;
+  overflow: visible !important;
+  text-overflow: unset !important;
+}
+
+.candidate-table th:nth-child(4), /* Approval/Reject column */
+.candidate-table td:nth-child(4) {
+  padding-left: 20px !important;
+  padding-right: 120px !important;
+}
+
+.candidate-table th:nth-child(5), /* Approval Status column */
+.candidate-table td:nth-child(5) {
+  padding-left: 120px !important;
+}
+
+/* General spacing for all other columns */
+.candidate-table th:nth-child(n+5),
+.candidate-table td:nth-child(n+5) {
+  padding-left: 35px !important;
+}
+
+/* Center alignment for all table cells */
+.candidate-table td {
+  text-align: center !important;
+  vertical-align: middle !important;
+}
+
+/* Specific styling for Select and Edit columns */
+.candidate-table th:nth-child(1), /* Select column */
+.candidate-table td:nth-child(1) {
+  width: 60px;
+  min-width: 60px;
+  max-width: 60px;
+  text-align: center !important;
+  padding: 14px 8px !important;
+}
+
+.candidate-table th:nth-child(2), /* Edit column */
+.candidate-table td:nth-child(2) {
+  width: 60px;
+  min-width: 60px;
+  max-width: 60px;
+  text-align: center !important;
+  padding: 14px 8px !important;
+}
+
+/* Center checkboxes in Select column */
+.candidate-table td:nth-child(1) input[type="checkbox"] {
+  margin: 0 auto;
+  display: block;
+}
+
+/* Center edit icons in Edit column */
+.candidate-table td:nth-child(2) .btn-icon {
+  margin: 0 auto;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* Fix Approval/Reject button width and text display */
+.candidate-table td:nth-child(4) .btn-outline-primary,
+.candidate-table.edit-column-hidden td:nth-child(3) .btn-outline-primary {
+  min-width: 140px !important;
+  width: auto !important;
+  white-space: nowrap !important;
+  overflow: visible !important;
+  text-overflow: unset !important;
+  padding: 8px 16px !important;
+  font-size: 14px !important;
+  font-weight: 500 !important;
+  text-align: center !important;
+  border-radius: 6px !important;
+  border: 2px solid #2196f3 !important;
+  background: transparent !important;
+  color: #2196f3 !important;
+  transition: all 0.3s ease !important;
+}
+
+.candidate-table td:nth-child(4) .btn-outline-primary:hover,
+.candidate-table.edit-column-hidden td:nth-child(3) .btn-outline-primary:hover {
+  background: #2196f3 !important;
+  color: white !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 4px 12px rgba(33, 150, 243, 0.3) !important;
+}
+
+/* Ensure Approval/Reject column has enough width */
+.candidate-table th:nth-child(4), /* Approval/Reject column */
+.candidate-table td:nth-child(4) {
+  padding-left: 20px !important;
+  padding-right: 120px !important;
+  min-width: 160px !important;
+  width: auto !important;
+}
+
+.candidate-table.edit-column-hidden th:nth-child(3), /* Approval/Reject column when Edit is hidden */
+.candidate-table.edit-column-hidden td:nth-child(3) {
+  padding-left: 20px !important;
+  padding-right: 120px !important;
+  min-width: 160px !important;
+  width: auto !important;
+}
+
+/* Additional fixes for Approval/Reject button display */
+.candidate-table .btn-outline-primary {
+  display: inline-block !important;
+  box-sizing: border-box !important;
+  word-wrap: normal !important;
+  word-break: keep-all !important;
+}
+
+/* Ensure table cells don't truncate content */
+.candidate-table td {
+  overflow: visible !important;
+  text-overflow: unset !important;
+  white-space: normal !important;
+}
+
+/* Specific fix for Approval/Reject column content */
+.candidate-table td:nth-child(4),
+.candidate-table.edit-column-hidden td:nth-child(3) {
+  overflow: visible !important;
+  text-overflow: unset !important;
+  white-space: nowrap !important;
+  min-width: 160px !important;
+  max-width: none !important;
+}

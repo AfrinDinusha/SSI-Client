@@ -1,0 +1,29 @@
+/* Miss Punch Report - extends reports.css */
+.misspunch-wrapper {
+  width: 100%;
+}
+
+.misspunch-filters {
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+}
+
+.misspunch-table th,
+.misspunch-table td {
+  white-space: nowrap;
+  padding: 10px 12px;
+}
+
+.misspunch-table thead th {
+  background: #1e40af;
+  color: #fff;
+  font-weight: 600;
+  text-align: left;
+}
+
+.misspunch-table tbody tr:nth-child(even) {
+  background: #f8fafc;
+}
+
+.misspunch-table tbody tr:hover {
+  background: #eef2ff;
+}

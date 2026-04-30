@@ -1,0 +1,1 @@
+Add a new column named 'EARNINGS_COMPONENTS' (datatype: varchar/text) to the Payslip datastore table to store selected earnings component names.

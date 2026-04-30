@@ -1,0 +1,52 @@
+{
+  "client": {
+    "source": "app",
+    "plugin": "zcatalyst-cli-plugin-react"
+  },
+  "functions": {
+    "targets": [
+      "calendar_function",
+      "newshiftmap_function",
+      "regularization_function",
+      "biomax_function",
+      "cms_function",
+      "candidate_function",
+      "contract_function",
+      "contracters_function",
+      "criticalincident_function",
+      "department_function",
+      "designation_function",
+      "ehs_function",
+      "ehsviolation_function",
+      "getattendancelist",
+      "organization_function",
+      "payment_function",
+      "reports_function",
+      "shift_function",
+      "shiftmap_function",
+      "attendance_function",
+      "attendance_muster_function",
+      "authorized_portal_function",
+      "syncuserroles_function",
+      "statutoryregisters_function",
+      "getuserrole",
+      "getuserrole_function",
+      "auth_function",
+      "payroll_function",
+      "importattendance_function",
+      "grace_function",
+      "onduty_function",
+      "comboff_function",
+      "comboff_functon",
+      "setupconfig",
+      "payslip_function",
+      "paysliptemplte_function",
+      "permission_function",
+      "samplepayroll_function",
+      "sample_function",
+      "attendance_job_function"
+    ],
+    "ignore": [],
+    "source": "functions"
+  }
+}

@@ -1,0 +1,25 @@
+/* Late In Report - extends reports.css */
+.latein-filters {
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+}
+
+.latein-table th,
+.latein-table td {
+  white-space: nowrap;
+  padding: 10px 12px;
+}
+
+.latein-table thead th {
+  background: #1e40af;
+  color: #fff;
+  font-weight: 600;
+  text-align: left;
+}
+
+.latein-table tbody tr:nth-child(even) {
+  background: #f8fafc;
+}
+
+.latein-table tbody tr:hover {
+  background: #eef2ff;
+}

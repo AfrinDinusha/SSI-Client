@@ -1,0 +1,343 @@
+.monthly-ot-container {
+  padding: 0;
+  margin: 0;
+  background: transparent;
+}
+
+.monthly-ot-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.monthly-ot-title {
+  margin-right: 1rem;
+  font-size: 2rem;
+  font-weight: 600;
+}
+
+.monthly-ot-regenerate {
+  margin-left: auto;
+  padding: 0.5rem 1.2rem;
+  background: #f5f5f5;
+  border: 1px solid #d1d1d1;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background 0.2s;
+}
+.monthly-ot-regenerate:hover {
+  background: #e0e0e0;
+}
+
+.monthly-ot-card {
+  background: #fff;
+  border-radius: 8px;
+  padding: 2rem;
+  box-shadow: 0 2px 8px #eee;
+}
+
+.monthly-ot-filters {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(180px, 1fr));
+  gap: 1rem 1.5rem;
+  margin-bottom: 1.5rem;
+  align-items: flex-start; /* Align filter labels and inputs at top */
+}
+
+.monthly-ot-filters > div {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 0.25rem; /* Space between label and input/select */
+}
+
+@media (max-width: 1200px) {
+  .monthly-ot-filters {
+    grid-template-columns: repeat(3, minmax(180px, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .monthly-ot-filters {
+    grid-template-columns: repeat(2, minmax(180px, 1fr));
+  }
+}
+
+@media (max-width: 600px) {
+  .monthly-ot-filters {
+    grid-template-columns: 1fr;
+  }
+}
+
+.monthly-ot-filters label {
+  font-weight: 700;
+  color: #1e40af; /* Blue color */
+  text-transform: uppercase;
+  font-size: 0.85rem;
+  margin-bottom: 0.25rem;
+}
+
+.monthly-ot-filters select,
+.monthly-ot-filters input[type="month"],
+.monthly-ot-filters input[type="text"] {
+  height: 38px; /* Slightly taller for better alignment */
+  padding: 0 0.75rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  color: #1e293b;
+  outline-offset: 2px;
+  transition: border-color 0.2s ease-in-out;
+  box-sizing: border-box;
+  vertical-align: middle;
+  display: flex;
+  align-items: center;
+}
+
+/* Ensure react-select container height matches inputs */
+.react-select__control {
+  min-height: 38px !important;
+  height: 38px !important;
+  box-sizing: border-box;
+  vertical-align: middle;
+  padding: 0 4px;
+  display: flex;
+  align-items: center;
+}
+
+/* Center the single value text inside react-select */
+.react-select__single-value {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  line-height: 1.2;
+}
+
+/* Fix native select vertical alignment */
+.monthly-ot-filters select {
+  display: flex;
+  align-items: center;
+  height: 38px;
+  padding-left: 0.75rem;
+  box-sizing: border-box;
+}
+
+.monthly-ot-filters select:focus,
+.monthly-ot-filters input[type="month"]:focus,
+.monthly-ot-filters input[type="text"]:focus {
+  border-color: #2563eb;
+  outline: none;
+}
+
+.monthly-ot-filters label {
+  font-weight: 500;
+  margin-bottom: 0.2rem;
+  display: block;
+}
+
+.monthly-ot-filters select,
+.monthly-ot-filters input[type="date"] {
+  padding: 0.3rem 0.7rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  margin-top: 0.2rem;
+}
+
+.monthly-ot-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.monthly-ot-actions button {
+  padding: 0.4rem 1rem;
+  border: 1px solid #d1d1d1;
+  border-radius: 4px;
+  background: #f5f5f5;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background 0.2s;
+}
+.monthly-ot-actions button:hover {
+  background: #e0e0e0;
+}
+
+/* Updated table styling to match employeeManagement.css */
+.monthly-ot-table-container {
+  width: 100%;
+  max-width: 100%;
+  margin: 32px auto 0 auto;
+  overflow-x: auto;
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 4px 24px rgba(44,62,80,0.08);
+  padding: 0 0 16px 0;
+  min-width: 0;
+}
+
+/* Fix for text visibility in employee-table */
+.employee-table th,
+.employee-table td {
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  word-wrap: normal !important;
+  word-break: normal !important;
+  max-width: none !important;
+  min-width: 150px !important;
+}
+
+.employee-table th {
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  word-wrap: normal !important;
+  word-break: normal !important;
+  max-width: none !important;
+  min-width: 150px !important;
+}
+
+.monthly-ot-table-container::-webkit-scrollbar {
+  height: 8px;
+}
+
+.monthly-ot-table-container::-webkit-scrollbar-track {
+  background: #f8fafc;
+  border-radius: 8px;
+}
+
+.monthly-ot-table-container::-webkit-scrollbar-thumb {
+  background-color: #2196f3;
+  border-radius: 8px;
+  border: 2px solid #f8fafc;
+}
+
+.monthly-ot-table {
+  width: 100% !important;
+  min-width: 800px;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 2px 12px rgba(44,62,80,0.07);
+  overflow: hidden;
+  font-family: 'Segoe UI', 'Roboto', Arial, sans-serif;
+  word-break: break-word;
+  text-align: center; /* Center align all text in table */
+}
+
+.monthly-ot-table thead tr {
+  background: #f1f5fb !important;
+}
+
+.monthly-ot-table th {
+  color: #1a237e !important;
+  background: #f1f5fb !important;
+  font-weight: 700 !important;
+  font-size: 1.08rem !important;
+  padding: 16px 12px !important;
+  text-align: center;
+  border-bottom: 2px solid #e3e8ee;
+  white-space: nowrap;
+  min-width: 80px;
+}
+
+.monthly-ot-table tbody tr {
+  transition: background-color 0.2s;
+}
+
+.monthly-ot-table tbody tr:nth-child(even) {
+  background-color: #fafbfc;
+}
+
+.monthly-ot-table tbody tr:hover {
+  background-color: #f1f5fb;
+}
+
+.monthly-ot-table td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: normal;
+  padding: 14px 12px;
+  border-bottom: 1px solid #e3e8ee;
+  font-size: 1rem;
+  color: #2a4365;
+  max-width: 180px;
+  word-wrap: break-word;
+  text-align: center;
+}
+
+.monthly-ot-table-empty {
+  text-align: center;
+  padding: 2rem;
+  color: #888;
+}
+
+/* --- Toolbar Buttons --- */
+.toolbar-btn {
+  border: none;
+  border-radius: 8px;
+  padding: 10px 20px;
+  font-size: 16px;
+  font-family: 'Segoe UI', 'Roboto', Arial, sans-serif;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, box-shadow 0.2s;
+  margin-right: 8px;
+  box-shadow: 0 2px 8px rgba(60,72,88,0.04);
+  background: #f5f7fa;
+  color: #3f51b5;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.toolbar-btn:last-child { 
+  margin-right: 0; 
+}
+
+.toolbar-btn.export-btn { 
+  color: #38a169; 
+}
+
+.toolbar-btn.filter-btn { 
+  color: #d69e2e; 
+}
+
+.toolbar-btn.import-btn { 
+  color: #3182ce; 
+}
+
+/* Monthly OT report: adjustment looks like plain text (no input box chrome) */
+.monthly-ot-adjust-input {
+  width: 100%;
+  max-width: 6rem;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  text-align: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  color: inherit;
+  min-width: 0;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.monthly-ot-adjust-input::-webkit-outer-spin-button,
+.monthly-ot-adjust-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.monthly-ot-adjust-input:focus {
+  outline: none;
+  background: rgba(63, 81, 181, 0.07);
+  border-radius: 2px;
+}
+.monthly-ot-adjust-input::placeholder {
+  color: inherit;
+  opacity: 0.45;
+}
