@@ -10,11 +10,19 @@ import HeaderBranding from './HeaderBranding';
 import { getSidebarModulesForUser, resolveSidebarUserEmail } from './modulesConfig';
 import {
   extractPayrollFormulaeRows,
-  normalizePayrollRowLikePayrollFetch,
   parsePayrollComponentsFromApi,
   parsePayrollFormulaeFromApi,
-  payrollDisplayAlignedWithPayrollGrid,
 } from './payrollBankReportNetPay';
+import {
+  bankReportNetPayEarnedGrossMinusTd,
+  buildPayrollByEmployeeCode,
+  buildRunPayrollTableMapFromApi,
+  mergeBankFormatRowsWithPayroll,
+  parsePayrollAmountLoose,
+  payrollMonthToFromToDates,
+  pickBackendSalaryOrNetColumn,
+  preferPayrollAlignedThenBankApi,
+} from './bankReportPayrollShared';
 
 function formatSalaryForBankReport(val) {
   if (val === null || val === undefined || val === '') return '-';
@@ -22,123 +30,6 @@ function formatSalaryForBankReport(val) {
   const n = parseFloat(s);
   if (Number.isFinite(n)) return n.toFixed(2);
   return String(val).trim() || '-';
-}
-
-/** True when bank-format API (reports_function) sent a usable amount, including 0. */
-function bankApiFieldHasNumericValue(v) {
-  if (v === null || v === undefined) return false;
-  if (typeof v === 'number' && Number.isFinite(v)) return true;
-  const s = String(v).replace(/,/g, '').trim();
-  if (s === '' || s === '-') return false;
-  const n = parseFloat(s);
-  return Number.isFinite(n);
-}
-
-/** Prefer payroll-aligned values (same pipeline as Payroll grid); else bank-format API / employee master. */
-function preferPayrollAlignedThenBankApi(payrollVal, bankApiVal) {
-  if (payrollVal !== null && payrollVal !== undefined && payrollVal !== '') {
-    if (typeof payrollVal === 'number' && Number.isFinite(payrollVal)) return payrollVal;
-    const s = String(payrollVal).replace(/,/g, '').trim();
-    if (s !== '' && s !== '-' && Number.isFinite(parseFloat(s))) return payrollVal;
-  }
-  if (bankApiFieldHasNumericValue(bankApiVal)) return bankApiVal;
-  return '';
-}
-
-function pickBackendSalaryOrNetColumn(row) {
-  if (bankApiFieldHasNumericValue(row?.salaryAmount)) return row.salaryAmount;
-  if (bankApiFieldHasNumericValue(row?.netPay)) return row.netPay;
-  return '';
-}
-
-/** Same as payroll_function/index.js — match "00123", leading zeros, "123.0". */
-function normalizeEmployeeCode(code) {
-  const raw = String(code ?? '').trim();
-  if (!raw) return '';
-  const withoutDecimalZero = raw.endsWith('.0') ? raw.slice(0, -2) : raw;
-  return withoutDecimalZero.replace(/^0+(?=\d)/, '') || raw;
-}
-
-/** Normalized id variants for matching bank rows to payroll GET /payroll rows. */
-function candidateEmployeeCodesFromRow(row) {
-  if (!row || typeof row !== 'object') return [];
-  const raw = [
-    row.employeeCode,
-    row.EmployeeCode,
-    row.employeeID,
-    row.EmployeeID,
-    row.EmployeeId,
-    row.employeeId,
-  ];
-  const out = new Set();
-  for (const v of raw) {
-    if (v == null || v === '') continue;
-    const s = String(v).trim();
-    if (!s) continue;
-    out.add(s);
-    const norm = normalizeEmployeeCode(s);
-    if (norm && norm !== s) out.add(norm);
-    if (/^\d+$/.test(s)) out.add(String(parseInt(s, 10)));
-    if (norm && /^\d+$/.test(norm)) out.add(String(parseInt(norm, 10)));
-  }
-  return [...out];
-}
-
-/** Catalyst / ZCQL sometimes wraps row data under `Payroll`; merge so employeeCode / NetPay match Payroll.js. */
-function flattenPayrollRowIfNeeded(raw) {
-  if (!raw || typeof raw !== 'object') return raw;
-  const inner = raw.Payroll;
-  if (inner && typeof inner === 'object') {
-    return { ...raw, ...inner };
-  }
-  return raw;
-}
-
-function buildPayrollByEmployeeCode(rows) {
-  const map = new Map();
-  for (const raw of rows || []) {
-    const r = flattenPayrollRowIfNeeded(raw);
-    for (const c of candidateEmployeeCodesFromRow(r)) {
-      map.set(c, r);
-    }
-  }
-  return map;
-}
-
-function getPayrollRowForBank(map, bankRow) {
-  for (const c of candidateEmployeeCodesFromRow(bankRow)) {
-    if (map.has(c)) return map.get(c);
-  }
-  return undefined;
-}
-
-/** Map from GET payroll_function/run-payroll-table (RunPayroll snapshot). */
-function buildRunPayrollTableMapFromApi(rows) {
-  const map = new Map();
-  for (const raw of rows || []) {
-    if (!raw || typeof raw !== 'object') continue;
-    const code = raw.employeeCode ?? raw.EmployeeCode;
-    if (code == null || String(code).trim() === '') continue;
-    const synthetic = {
-      employeeCode: String(code).trim(),
-      earnedSalaryGross: raw.earnedSalaryGross ?? raw.earned_gross ?? null,
-      netPay: raw.netPay ?? raw.net_pay ?? null,
-    };
-    for (const c of candidateEmployeeCodesFromRow({
-      employeeCode: synthetic.employeeCode,
-      EmployeeCode: synthetic.employeeCode,
-    })) {
-      map.set(c, synthetic);
-    }
-  }
-  return map;
-}
-
-function getRunPayrollTableRowForBank(map, bankRow) {
-  for (const c of candidateEmployeeCodesFromRow(bankRow)) {
-    if (map.has(c)) return map.get(c);
-  }
-  return undefined;
 }
 
 function reportMonthEndAsDDMMYYYY(monthStr) {
@@ -152,23 +43,21 @@ function reportMonthEndAsDDMMYYYY(monthStr) {
   return `${dd}.${mm}.${y}`;
 }
 
-/** First and last calendar day of YYYY-MM (for payroll fromDate / toDate). */
-function payrollMonthToFromToDates(monthStr) {
-  const parts = String(monthStr || '').trim().split('-').map(Number);
-  const y = parts[0];
-  const m = parts[1];
-  if (!y || !m || m < 1 || m > 12) return { fromDate: '', toDate: '' };
-  const mm = String(m).padStart(2, '0');
-  const fromDate = `${y}-${mm}-01`;
-  const lastDay = new Date(y, m, 0).getDate();
-  const toDate = `${y}-${mm}-${String(lastDay).padStart(2, '0')}`;
-  return { fromDate, toDate };
-}
-
 function salaryDisplayToNumber(display) {
   if (display == null || display === '' || display === '-') return null;
   const n = parseFloat(String(display).replace(/,/g, '').trim());
   return Number.isFinite(n) ? n : null;
+}
+
+/** Payroll-aligned numeric from merged row (number or parsable string). */
+function formatMergedMoneyMaybe(...sources) {
+  for (const v of sources) {
+    if (v === null || v === undefined || v === '') continue;
+    if (typeof v === 'number' && Number.isFinite(v)) return formatSalaryForBankReport(v);
+    const n = parseFloat(String(v).replace(/,/g, '').trim());
+    if (Number.isFinite(n)) return formatSalaryForBankReport(n);
+  }
+  return '-';
 }
 
 const thinBorder = {
@@ -220,11 +109,12 @@ function buildBankLetterExcelSheet(filteredRows, reportMonth) {
   }
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
+  const lastTableCol = 6;
   ws['!merges'] = [
-    { s: { r: 0, c: 1 }, e: { r: 0, c: 9 } },
-    { s: { r: 2, c: 1 }, e: { r: 2, c: 9 } },
-    { s: { r: 4, c: 2 }, e: { r: 4, c: 9 } },
-    { s: { r: 6, c: 1 }, e: { r: 6, c: 9 } },
+    { s: { r: 0, c: 1 }, e: { r: 0, c: lastTableCol } },
+    { s: { r: 2, c: 1 }, e: { r: 2, c: lastTableCol } },
+    { s: { r: 4, c: 2 }, e: { r: 4, c: lastTableCol } },
+    { s: { r: 6, c: 1 }, e: { r: 6, c: lastTableCol } },
   ];
   ws['!cols'] = [
     { wch: 6 },
@@ -283,6 +173,7 @@ function buildBankLetterExcelSheet(filteredRows, reportMonth) {
       }
       const isHeader = r === headerRow;
       const isSalaryCol = c === 6;
+      const isNumericAmountCol = c === 6;
       const isSnoCol = c === 0;
       const base = {
         border: thinBorder,
@@ -294,21 +185,22 @@ function buildBankLetterExcelSheet(filteredRows, reportMonth) {
           font: { bold: true },
           alignment: { ...base.alignment, horizontal: 'center' },
         };
-      } else if (isSalaryCol) {
+      } else if (isNumericAmountCol) {
         const v = ws[addr].v;
         const isNum = typeof v === 'number' && Number.isFinite(v);
+        const boldAmount = isSalaryCol;
         if (isNum) {
           ws[addr].t = 'n';
           ws[addr].s = {
             ...base,
-            font: { bold: true },
+            ...(boldAmount ? { font: { bold: true } } : {}),
             alignment: { ...base.alignment, horizontal: 'right' },
             numFmt: '#,##0.00',
           };
         } else {
           ws[addr].s = {
             ...base,
-            font: { bold: true },
+            ...(boldAmount ? { font: { bold: true } } : {}),
             alignment: { ...base.alignment, horizontal: 'right' },
           };
         }
@@ -530,83 +422,12 @@ function BankFormatReport({ userRole = 'App Administrator', userEmail = null }) 
         );
       }
 
-      const merged = bankRows.map((row) => {
-        const p = getPayrollRowForBank(payrollMap, row);
-        const masterBranch = String(row.bankBranch ?? row.BankBranch ?? '').trim();
-        const masterBank = String(row.bankName ?? row.BankName ?? '').trim();
-        let next = {
-          ...row,
-          actualBasicPayroll: null,
-          earnedBasicPayroll: null,
-          earnedGrossPayroll: null,
-          totalDeductionPayroll: null,
-          netPayPayroll: null,
-        };
-        const rpTbl = getRunPayrollTableRowForBank(runPayrollTableMap, row);
-        let rpEg = row.runPayrollOverrideEarnedGross === true;
-        let rpNp = row.runPayrollOverrideNetPay === true;
-        if (rpTbl) {
-          if (rpTbl.netPay != null && Number.isFinite(Number(rpTbl.netPay))) {
-            const npv = Number(rpTbl.netPay);
-            next.netPay = npv;
-            next.salaryAmount = npv.toFixed(2);
-            rpNp = true;
-          }
-          if (rpTbl.earnedSalaryGross != null && Number.isFinite(Number(rpTbl.earnedSalaryGross))) {
-            next.earnedGross = Number(rpTbl.earnedSalaryGross);
-            rpEg = true;
-          }
-        }
-        /** Same pipeline as Payroll grid (payrollBankReportNetPay + Setup formulae). Overrides bank-format API so amounts match Payroll. */
-        /** When RunPayroll snapshot or API set runPayrollOverride*, keep Earned Gross / Net Pay from RunPayroll / bank-format response. */
-        if (p && payrollLoadedOk) {
-          const normalized = normalizePayrollRowLikePayrollFetch(flattenPayrollRowIfNeeded(p));
-          const d = payrollDisplayAlignedWithPayrollGrid(normalized, bankReportPayrollOpts);
-          if (d) {
-            next.actualBasicPayroll = Number.isFinite(d.actualBasic) ? d.actualBasic.toFixed(2) : null;
-            next.earnedBasicPayroll = Number.isFinite(d.earnedBasic) ? d.earnedBasic.toFixed(2) : null;
-            if (!rpEg) {
-              next.earnedGrossPayroll = d.earnedGross;
-            } else {
-              next.earnedGrossPayroll = null;
-            }
-            next.totalDeductionPayroll = d.totalDeduction;
-            if (!rpNp) {
-              next.netPayPayroll = d.netPay;
-              next.salaryAmount = d.netPay;
-            } else {
-              next.netPayPayroll = null;
-            }
-            if (Number.isFinite(d.actualBasic)) {
-              next.actualBasic = d.actualBasic.toFixed(2);
-            }
-            if (Number.isFinite(d.earnedBasic)) {
-              next.earnedBasic = d.earnedBasic.toFixed(2);
-            }
-            if (!rpEg && Number.isFinite(d.earnedGross)) {
-              next.earnedGross = d.earnedGross;
-            }
-            if (Number.isFinite(d.totalDeduction)) {
-              next.totalDeduction = d.totalDeduction;
-            }
-            if (!rpNp && Number.isFinite(d.netPay)) {
-              next.netPay = d.netPay;
-            }
-          }
-          const pb = String(p.bankBranch || '').trim();
-          if (pb && (!masterBranch || masterBranch === '-')) {
-            next.bankBranch = pb;
-          }
-          const pbn = String(p.bankName || '').trim();
-          if (pbn && (!masterBank || masterBank === '-')) {
-            next.bankName = pbn;
-          }
-          const pifsc = String(p.ifscCode || '').trim();
-          if (pifsc && !(String(next.ifscCode || next.IFSCCode || '').trim())) {
-            next.ifscCode = pifsc;
-          }
-        }
-        return next;
+      const merged = mergeBankFormatRowsWithPayroll({
+        bankRows,
+        payrollMap,
+        payrollLoadedOk,
+        bankReportPayrollOpts,
+        runPayrollTableMap,
       });
 
       setRecords(merged);
@@ -631,15 +452,56 @@ function BankFormatReport({ userRole = 'App Administrator', userEmail = null }) 
       bankBranch: row.bankBranch || row.BankBranch || '-',
       accountNumber: row.accountNumber || row.AccountNumber || '-',
       ifscCode: row.ifscCode || row.IFSCCode || '-',
+      pf: formatMergedMoneyMaybe(row.pfPayroll),
+      esi: formatMergedMoneyMaybe(row.esiPayroll),
+      loanAllowance: formatMergedMoneyMaybe(row.loanAllowancePayroll, row.loanAllowance, row.LoanAllowance),
+      uniformDeduction: formatMergedMoneyMaybe(
+        row.uniformDeductionPayroll,
+        row.uniformDeduction,
+        row.UniformDeduction
+      ),
+      attendanceDeduction: formatMergedMoneyMaybe(row.attendanceDeductionPayroll),
+      late: formatMergedMoneyMaybe(row.latePayroll, row.late, row.Late),
+      earnedGrossSalary: formatMergedMoneyMaybe(
+        row.earnedGrossPayroll,
+        row.earnedGross,
+        row.EarnedGrossSalary,
+        row.earnedSalaryCross,
+        row.EarnedSalaryCross
+      ),
+      totalDeduction: formatSalaryForBankReport(
+        (() => {
+          const td =
+            parsePayrollAmountLoose(row.totalDeductionPayroll) ??
+            parsePayrollAmountLoose(row.totalDeduction) ??
+            parsePayrollAmountLoose(row.TotalDeduction);
+          if (td != null && Number.isFinite(td)) return td;
+          return '';
+        })()
+      ),
       salaryAmount: formatSalaryForBankReport(
-        preferPayrollAlignedThenBankApi(
-          row.netPayPayroll,
-          pickBackendSalaryOrNetColumn(row) ||
-            row.salaryAmount ||
-            row.SalaryAmount ||
-            row.totalSalary ||
-            row.TotalSalary
-        )
+        (() => {
+          const netEgTd = bankReportNetPayEarnedGrossMinusTd(row);
+          const preferredNet = preferPayrollAlignedThenBankApi(
+            row.netPayPayroll,
+            pickBackendSalaryOrNetColumn(row) ||
+              row.salaryAmount ||
+              row.SalaryAmount ||
+              row.totalSalary ||
+              row.TotalSalary
+          );
+          const preferredNetNum = parsePayrollAmountLoose(preferredNet);
+          if (preferredNetNum != null && Number.isFinite(preferredNetNum) && preferredNetNum > 0) {
+            return preferredNetNum;
+          }
+          if (netEgTd != null && Number.isFinite(netEgTd)) {
+            return Math.max(0, netEgTd);
+          }
+          if (preferredNetNum != null && Number.isFinite(preferredNetNum)) {
+            return Math.max(0, preferredNetNum);
+          }
+          return '';
+        })()
       ),
     }));
   }, [records]);
@@ -655,6 +517,13 @@ function BankFormatReport({ userRole = 'App Administrator', userEmail = null }) 
         row.bankBranch,
         row.accountNumber,
         row.ifscCode,
+        row.pf,
+        row.esi,
+        row.loanAllowance,
+        row.uniformDeduction,
+        row.attendanceDeduction,
+        row.late,
+        row.totalDeduction,
         row.salaryAmount,
       ]
         .join(' ')
@@ -836,7 +705,7 @@ function BankFormatReport({ userRole = 'App Administrator', userEmail = null }) 
                 <input
                   type="text"
                   className="bank-report-search"
-                  placeholder="Search by employee code, name, bank, branch, account, IFSC, salary amount"
+                  placeholder="Search by employee, bank, account, IFSC, salary…"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                 />

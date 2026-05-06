@@ -14,6 +14,23 @@ function skipNorm(arr) {
   return new Set((arr || []).map((x) => normalizeFormulaVariable(x)).filter(Boolean));
 }
 
+/**
+ * TD sum is PF + … + Uniform Deduction + … . If Setup PF formula references "Uniform Deduction",
+ * it would be counted again in uniformV — skip uniform while evaluating PF for this sum only.
+ */
+const BANK_REPORT_TD_PF_SKIP_UNIFORM_VARS = [
+  'Uniform Deduction',
+  'uniform deduction',
+  'uniformDeduction',
+  'UniformDeduction',
+];
+
+/** Labels skipped when resolving TD line items (avoid circular TD reference). */
+const BANK_REPORT_TD_SKIP_SELF = ['Total Deduction', 'Total Deductions', 'total deduction'];
+
+/** PF evaluation for bank TD / PF column: TD skip + uniform not embedded in PF amount. */
+const BANK_REPORT_TD_PF_EVAL_SKIP = [...BANK_REPORT_TD_SKIP_SELF, ...BANK_REPORT_TD_PF_SKIP_UNIFORM_VARS];
+
 function pickNum(row, ...keys) {
   for (const k of keys) {
     const v = row[k];
@@ -32,6 +49,40 @@ function calendarDaysInMonthFromReportMonth(reportMonth) {
   const m = parts[1];
   if (!y || !m || m < 1 || m > 12) return 0;
   return new Date(y, m, 0).getDate();
+}
+
+/**
+ * Same rule as Payroll.js getAttendanceBonusNumericForRow and payroll_function calcAttendanceBonus:
+ * days in month = days present → 0; otherwise flat 1200 if DOJ ≤ one year before payroll month-end, else 800.
+ * Returns null if days/DOJ/month cannot drive the rule (caller may fall back to stored AttendanceBonus).
+ */
+function attendanceBonusDeductionFlatFromDaysAndDoj(row, reportMonth) {
+  if (!row || typeof row !== 'object') return null;
+  let daysInMonth = pickNum(
+    row,
+    'daysInMonth',
+    'DaysInMonth',
+    'daysInMonthForCalc',
+    'Days_In_Month',
+    'DAYS_IN_MONTH'
+  );
+  if (daysInMonth <= 0 && reportMonth) {
+    daysInMonth = calendarDaysInMonthFromReportMonth(reportMonth);
+  }
+  const daysPresent = pickNum(row, 'daysPresent', 'DaysPresent', 'days_present', 'DAYS_PRESENT');
+  const dojRaw =
+    row.dateOfJoining ?? row.DateofJoining ?? row.DateOfJoining ?? row.date_of_joining ?? '';
+  const m = String(reportMonth || '').trim();
+  if (!dojRaw || daysInMonth <= 0 || !m) return null;
+  if (Number(daysPresent) === Number(daysInMonth)) return 0;
+  const doj = new Date(dojRaw);
+  if (isNaN(doj.getTime())) return null;
+  const parts = m.split('-').map(Number);
+  if (parts.length < 2 || isNaN(parts[0]) || isNaN(parts[1])) return null;
+  const lastDayOfMonth = new Date(parts[0], parts[1], 0);
+  const oneYearBefore = new Date(lastDayOfMonth);
+  oneYearBefore.setFullYear(oneYearBefore.getFullYear() - 1);
+  return doj <= oneYearBefore ? 1200 : 800;
 }
 
 /** Earned Basic = (Actual Basic ÷ days in month) × days present — dim/dp from payroll row. */
@@ -224,13 +275,31 @@ function isPfNorm(n) {
   );
 }
 
-function builtInOtAmount(row) {
-  let dim = Number(row.daysInMonth ?? row.DaysInMonth ?? 0) || 0;
-  if (dim <= 0) dim = 31;
-  const oth = Number(row.otHours ?? row.OTHours ?? 0) || 0;
-  const eb = Number(row.earnedBasic ?? row.EarnedBasic ?? 0) || 0;
-  if (dim <= 0 || oth <= 0) return 0;
-  return Math.round(((eb / dim) / 8) * oth * 2);
+/**
+ * Bank report OT Amount / Incentive (fixed rules; Actual Basic = post–Setup Actual Basic on row):
+ * OT Amount = if (OT Hours <= 20) then (Actual Basic / Days in month / 8 * OT Hours * 2) else (Actual Basic / Days in month / 8 * 20 * 2)
+ * Incentive = if (OT Hours > 20) then (Actual Basic / Days in month / 8) * (OT Hours - 20) else 0
+ */
+function computeBankReportOtAmountIncentive(actualBasic, daysInMonth, otHoursRaw) {
+  const dim = Number(daysInMonth);
+  let oth = Number(otHoursRaw);
+  if (!Number.isFinite(oth) || oth < 0) oth = 0;
+  if (!Number.isFinite(dim) || dim <= 0 || !Number.isFinite(actualBasic) || actualBasic <= 0) {
+    return { otAmount: 0, incentive: 0 };
+  }
+  const hourly = actualBasic / dim / 8;
+  let otAmount;
+  let incentive = 0;
+  if (oth <= 20) {
+    otAmount = hourly * oth * 2;
+  } else {
+    otAmount = hourly * 20 * 2;
+    incentive = hourly * (oth - 20);
+  }
+  return {
+    otAmount: Math.round(otAmount * 100) / 100,
+    incentive: Math.round(incentive * 100) / 100,
+  };
 }
 
 function rowVariantNumber(row, componentName) {
@@ -262,6 +331,10 @@ function rowVariantNumber(row, componentName) {
     camel,
     camelAcronym,
   ];
+  if (camel && camel.length) {
+    const pascalFromCamel = camel.charAt(0).toUpperCase() + camel.slice(1);
+    if (!variants.includes(pascalFromCamel)) variants.push(pascalFromCamel);
+  }
   for (const key of variants) {
     if (row[key] !== undefined && row[key] !== null && row[key] !== '') {
       const val = row[key];
@@ -270,6 +343,21 @@ function rowVariantNumber(row, componentName) {
     }
   }
   return null;
+}
+
+/**
+ * Bank report Uniform Deduction = No of days without uniforms × 25 (₹25 per day without uniform).
+ */
+function uniformDeductionForBankReport(row) {
+  if (!row || typeof row !== 'object') return 0;
+  const nu = pickNum(
+    row,
+    'noOfDaysWithoutUniforms',
+    'NoOfDaysWithoutUniforms',
+    'noofdayswithoutuniforms',
+    'Noofdayswithoutuniforms'
+  );
+  return Math.round(Math.max(0, nu) * 25);
 }
 
 /**
@@ -459,7 +547,7 @@ export function pickNetPayFromPayrollRow(p) {
 
 /**
  * Same construction as payroll_function/index.js Earned Gross (travel + OT + incentive + bonus + washing +
- * food + uniform + earned basic/HRA/special). Used when stored EarnedSalaryCross is inflated vs line items.
+ * food + earned basic/HRA/special). Used when stored EarnedSalaryCross is inflated vs line items.
  */
 function earnedGrossFromBackendComponentSum(row) {
   if (!row || typeof row !== 'object') return 0;
@@ -473,7 +561,6 @@ function earnedGrossFromBackendComponentSum(row) {
     pickNum(row, 'attendanceBonus', 'AttendanceBonus') +
     pickNum(row, 'washingAllowance', 'WashingAllowance') +
     pickNum(row, 'foodAllowance', 'FoodAllowance') +
-    pickNum(row, 'uniformAllowance', 'UniformAllowance') +
     pickNum(row, 'earnedBasic', 'EarnedBasic') +
     pickNum(row, 'earnedHRA', 'EarnedHRA') +
     pickNum(row, 'earnedSpecialAllowance', 'EarnedSpecialAllowance');
@@ -482,16 +569,13 @@ function earnedGrossFromBackendComponentSum(row) {
 
 /**
  * Core payroll amounts using the same Setup formulae / resolution as Payroll.js (Earned Gross Salary formula,
- * Total Deduction formula / payslip keys, then gridNet = round(EGS − TD)).
+ * Total Deduction when Setup defines it, else fixed PF+ESI+… sum; then gridNet = round(EGS − TD)).
  */
 function computeBankReportPayrollAmounts(row, options) {
   if (!row || typeof row !== 'object') return null;
   row = normalizePayrollRowLikePayrollFetch({ ...row });
   const payrollFormulae = options?.payrollFormulae || [];
   const payrollComponents = options?.payrollComponents || [];
-  const deductionKeys = Array.isArray(options?.payslipTemplateConfig?.deductionKeys)
-    ? options.payslipTemplateConfig.deductionKeys
-    : [];
   const reportMonth = options?.reportMonth || '';
 
   row = applyActualBasicFormulaToBankRow(row, payrollFormulae);
@@ -553,18 +637,27 @@ function computeBankReportPayrollAmounts(row, options) {
     if (n.includes('ot hours') || n === 'ot') return pickNum(row, 'otHours', 'OTHours');
 
     if (n === 'ot amount' || (n.includes('ot') && n.includes('amount') && !n.includes('hours') && !n.includes('arrear'))) {
-      const o = pickNum(row, 'otAmount', 'OTAmount');
-      if (o > 0) return o;
-      return builtInOtAmount(row);
+      const { otAmount } = computeBankReportOtAmountIncentive(
+        abForEarned,
+        dimForEb,
+        pickNum(row, 'otHours', 'OTHours')
+      );
+      return otAmount;
+    }
+
+    if (n === 'incentive') {
+      const { incentive } = computeBankReportOtAmountIncentive(
+        abForEarned,
+        dimForEb,
+        pickNum(row, 'otHours', 'OTHours')
+      );
+      return incentive;
     }
 
     if (n.includes('food') && (n.includes('allowance') || n.includes('allownace'))) {
       return Math.round(pickNum(row, 'foodAllowance', 'FoodAllowance'));
     }
     if (n.includes('loan') && n.includes('allowance')) return Math.round(pickNum(row, 'loanAllowance', 'LoanAllowance'));
-    if (n.includes('uniform') && (n.includes('allowance') || n.includes('allownace'))) {
-      return Math.round(pickNum(row, 'uniformAllowance', 'UniformAllowance'));
-    }
     if (n.includes('washing') && (n.includes('allowance') || n.includes('allownace'))) {
       const w = pickNum(row, 'washingAllowance', 'WashingAllowance');
       if (w > 0) return w;
@@ -573,32 +666,27 @@ function computeBankReportPayrollAmounts(row, options) {
       return Math.round(25 * Math.max(0, dp - nu));
     }
 
+    if (
+      n === 'uniform deduction' ||
+      (n.includes('uniform') && n.includes('deduction') && !n.includes('allowance') && !n.includes('allownace'))
+    ) {
+      return uniformDeductionForBankReport(row);
+    }
+    if (
+      n.includes('uniform') &&
+      (n.includes('allowance') || n.includes('allownace')) &&
+      !n.includes('deduction')
+    ) {
+      return Math.round(pickNum(row, 'uniformAllowance', 'UniformAllowance'));
+    }
+
     if (n === 'esi' || ((n.includes('esi') && (n.includes('0.75') || n.includes('%'))) && !n.includes('employer'))) {
       if (isYashaswi(row) || !esiEnabled()) return 0;
-      const esiForm = findForm(
-        (v) =>
-          (v === 'esi' || v === 'esi 0.75%' || (v.includes('esi') && v.includes('0.75'))) && !v.includes('employer')
-      );
-      if (esiForm?.expression) {
-        const ev = evaluatePayrollMoneyExpression(
-          esiForm.expression,
-          (nm) => resolveValue(nm, [...skipList, esiForm.variable, 'ESI', 'ESI 0.75%']),
-          {
-            components: payrollComponents,
-            formulae: payrollFormulae,
-            skipVariables: [...skipList, esiForm.variable],
-            row,
-          }
-        );
-        if (Number.isFinite(ev)) return ev;
-      }
-      const base =
-        earnedBasicPayslip +
-        pickNum(row, 'earnedHRA', 'EarnedHRA') +
-        pickNum(row, 'earnedSpecialAllowance', 'EarnedSpecialAllowance') +
-        resolveValue('OT Amount', skipList) +
-        resolveValue('Travel Charges', skipList);
-      return base > 0 ? Math.ceil(base * 0.0075) : 0;
+      // Bank report ESI rule: ESI = (Earned Basic + OT Amount + Incentive) * 0.75%
+      const otAmt = resolveValue('OT Amount', skipList);
+      const incentiveAmt = resolveValue('Incentive', skipList);
+      const base = earnedBasicPayslip + otAmt + incentiveAmt;
+      return base > 0 ? Math.round(base * 0.0075) : 0;
     }
 
     if (isPfNorm(n)) {
@@ -619,11 +707,9 @@ function computeBankReportPayrollAmounts(row, options) {
         );
         if (Number.isFinite(ev)) return ev;
       }
-      const earnedPlusSpecial =
-        earnedBasicPayslip + pickNum(row, 'earnedSpecialAllowance', 'EarnedSpecialAllowance');
-      if (earnedPlusSpecial <= 0) return 0;
-      if (earnedPlusSpecial > 15000) return 1800;
-      return Math.round(earnedPlusSpecial * 0.12);
+      if (earnedBasicPayslip <= 0) return 0;
+      if (earnedBasicPayslip > 15000) return 1800;
+      return Math.round(earnedBasicPayslip * 0.12);
     }
 
     if (n === 'pt' || n.includes('professional tax')) {
@@ -653,7 +739,30 @@ function computeBankReportPayrollAmounts(row, options) {
     if (n.includes('travel') && n.includes('charge')) {
       return Math.round(pickNum(row, 'travelChargers', 'TravelChargers', 'travelCharges', 'TravelCharges'));
     }
-    if (n === 'late') return Math.round(pickNum(row, 'late', 'Late'));
+    if (n === 'late') {
+      if (isYashaswi(row)) return 0;
+      // Bank report Late: 0 if LOH ≤ 1.5; else Actual Basic ÷ days in month ÷ 8 × 2 × (LOH − 1.5)
+      const lohVal = pickNum(row, 'loh', 'LOH');
+      if (!Number.isFinite(lohVal) || lohVal <= 1.5) return 0;
+      let dimLate = dimForEb;
+      if (dimLate <= 0) {
+        dimLate = pickNum(
+          row,
+          'daysInMonth',
+          'DaysInMonth',
+          'daysInMonthForCalc',
+          'Days_In_Month',
+          'DAYS_IN_MONTH'
+        );
+        if (dimLate <= 0 && reportMonth) dimLate = calendarDaysInMonthFromReportMonth(reportMonth);
+      }
+      if (dimLate <= 0 || !Number.isFinite(abForEarned)) {
+        return Math.round(pickNum(row, 'late', 'Late'));
+      }
+      const lateHoursAfterGrace = Math.max(0, lohVal - 1.5);
+      const lateAmt = (abForEarned / dimLate / 8) * 2 * lateHoursAfterGrace;
+      return Math.round(lateAmt);
+    }
 
     if (n.includes('earned') && n.includes('gross') && (n.includes('salary') || n.includes('cross'))) {
       return Math.round(
@@ -662,33 +771,17 @@ function computeBankReportPayrollAmounts(row, options) {
     }
 
     if (n === 'total deduction' || n === 'total deductions') {
-      const tdForm = findForm((v) => v === 'total deduction' || v === 'total deductions');
-      if (tdForm?.expression) {
-        const ev = evaluatePayrollMoneyExpression(
-          tdForm.expression,
-          (nm) =>
-            resolveValue(nm, [...skipList, tdForm.variable, 'Total Deduction', 'Total Deductions', 'total deduction']),
-          {
-            components: payrollComponents,
-            formulae: payrollFormulae,
-            skipVariables: [...skipList, tdForm.variable],
-            row,
-          }
-        );
-        if (Number.isFinite(ev)) return ev;
-      }
-      if (deductionKeys.length > 0) {
-        let sum = 0;
-        for (const k of deductionKeys) {
-          const lk = String(k || '')
-            .trim()
-            .toLowerCase();
-          if (!lk || lk.includes('total deduction') || lk.includes('net pay')) continue;
-          sum += resolveValue(k, [...skipList, 'Total Deduction', 'Total Deductions']);
-        }
-        return Math.round(sum);
-      }
-      return Math.round(pickNum(row, 'totalDeduction', 'TotalDeduction'));
+      const skipTd = [...skipList, ...BANK_REPORT_TD_SKIP_SELF];
+      const skipTdPf = [...skipTd, ...BANK_REPORT_TD_PF_SKIP_UNIFORM_VARS];
+      // Always component sum (ignore Setup "Total Deduction" formula so Late and every line item is included).
+      // Total Deduction = PF + ESI + Loan Allowance + Uniform Deduction + Attendance Deduction + Late
+      const pfV = resolveValue('PF', skipTdPf);
+      const esiV = Math.round(resolveValue('ESI', skipTd));
+      const loanV = Math.round(pickNum(row, 'loanAllowance', 'LoanAllowance'));
+      const uniformV = uniformDeductionForBankReport(row);
+      const attDedV = Math.round(resolveValue('Attendance Deduction', skipTd));
+      const lateV = Math.round(resolveValue('Late', skipTd));
+      return Math.round(pfV + esiV + loanV + uniformV + attDedV + lateV);
     }
 
     if (n === 'earned basic') return earnedBasicPayslip;
@@ -699,25 +792,18 @@ function computeBankReportPayrollAmounts(row, options) {
     }
 
     if (n.includes('attendance') && n.includes('bonus')) {
+      const flat = attendanceBonusDeductionFlatFromDaysAndDoj(row, reportMonth);
+      if (flat !== null) return flat;
       const v = pickNum(row, 'attendanceBonus', 'AttendanceBonus');
-      if (v > 0) return Math.round(v);
-      const daysInMonth = pickNum(row, 'daysInMonth', 'DaysInMonth');
-      const daysPresent = pickNum(row, 'daysPresent', 'DaysPresent');
-      const dojRaw =
-        row.dateOfJoining ?? row.DateofJoining ?? row.DateOfJoining ?? row.date_of_joining ?? '';
-      if (dojRaw && daysInMonth > 0 && daysPresent === daysInMonth && reportMonth) {
-        const doj = new Date(dojRaw);
-        if (!isNaN(doj.getTime())) {
-          const parts = String(reportMonth).split('-').map(Number);
-          if (parts.length >= 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
-            const lastDayOfMonth = new Date(parts[0], parts[1], 0);
-            const oneYearBefore = new Date(lastDayOfMonth);
-            oneYearBefore.setFullYear(oneYearBefore.getFullYear() - 1);
-            return doj <= oneYearBefore ? 1200 : 800;
-          }
-        }
-      }
-      return 0;
+      return Number.isFinite(v) ? Math.round(v) : 0;
+    }
+
+    // Attendance Deduction: same rule as Attendance Bonus / calcAttendanceBonus (partial month → 1200 or 800 by tenure).
+    if (n.includes('attendance') && n.includes('deduction')) {
+      const flat = attendanceBonusDeductionFlatFromDaysAndDoj(row, reportMonth);
+      if (flat !== null) return flat;
+      const v = pickNum(row, 'attendanceBonus', 'AttendanceBonus');
+      return Number.isFinite(v) ? Math.round(v) : 0;
     }
 
     if (n === 'other allowance' || n === 'other allowances') {
@@ -806,50 +892,22 @@ function computeBankReportPayrollAmounts(row, options) {
   const totalDedPayslip = resolveValue('Total Deduction', []);
   const tdStored = pickNum(row, 'totalDeduction', 'TotalDeduction');
 
-  // Setup & Configuration: evaluate "Net Pay" formula when present (Components → Formulae, variable Net Pay).
-  // Bind Earned Gross Salary / Total Deduction tokens to the same computed values as above (not raw API EGS).
-  const netPayFormula = findForm((v) => {
-    const nv = normalizeFormulaVariable(v);
-    return nv === 'net pay' || nv === 'netpay';
-  });
-  let gridNet = Math.round(earnedGrossPayslip - totalDedPayslip);
-  if (netPayFormula?.expression) {
-    const npSkip = [
-      netPayFormula.variable,
-      'Net Pay',
-      'NetPay',
-      'netPay',
-      'net_pay',
-      'netpay',
-    ].filter(Boolean);
-    const resolveForNetPay = (name) => {
-      const nn = normalizeFormulaVariable(name);
-      if (
-        nn.includes('earned') &&
-        nn.includes('gross') &&
-        (nn.includes('salary') || nn.includes('cross'))
-      ) {
-        return Math.round(earnedGrossPayslip);
-      }
-      if (nn === 'total deduction' || nn === 'total deductions') {
-        return Math.round(totalDedPayslip);
-      }
-      return resolveValue(name, [...npSkip, netPayFormula.variable]);
-    };
-    const evNp = evaluatePayrollMoneyExpression(
-      netPayFormula.expression,
-      resolveForNetPay,
-      {
-        components: payrollComponents,
-        formulae: payrollFormulae,
-        skipVariables: npSkip,
-        row,
-      }
-    );
-    if (Number.isFinite(evNp)) {
-      gridNet = Math.round(evNp);
-    }
-  }
+  // Bank report / salary amount: Net Pay = Earned Gross Salary − Total Deduction (no Setup "Net Pay" override).
+  const gridNet = Math.round(earnedGrossPayslip - totalDedPayslip);
+
+  const otHoursBank = pickNum(row, 'otHours', 'OTHours');
+  const { otAmount: bankOtComputed, incentive: bankIncentiveComputed } =
+    computeBankReportOtAmountIncentive(abForEarned, dimForEb, otHoursBank);
+
+  // Line items that sum to totalDedPayslip (same rules as resolveValue Total Deduction branch).
+  const pfPayslip = Math.round(resolveValue('PF', BANK_REPORT_TD_PF_EVAL_SKIP));
+  const esiPayslip = Math.round(resolveValue('ESI', BANK_REPORT_TD_SKIP_SELF));
+  const loanPayslip = Math.round(pickNum(row, 'loanAllowance', 'LoanAllowance'));
+  const uniformDeductionPayslip = uniformDeductionForBankReport(row);
+  const attendanceDeductionPayslip = Math.round(resolveValue('Attendance Deduction', BANK_REPORT_TD_SKIP_SELF));
+  const latePayslip = Math.round(resolveValue('Late', BANK_REPORT_TD_SKIP_SELF));
+  const otAmountPayslip = Math.round(bankOtComputed);
+  const incentivePayslip = Math.round(bankIncentiveComputed);
 
   return {
     row,
@@ -859,12 +917,19 @@ function computeBankReportPayrollAmounts(row, options) {
     earnedGrossPayslip,
     totalDedPayslip,
     gridNet,
+    pfPayslip,
+    esiPayslip,
+    loanPayslip,
+    uniformDeductionPayslip,
+    attendanceDeductionPayslip,
+    latePayslip,
+    otAmountPayslip,
+    incentivePayslip,
   };
 }
 
 /**
- * Bank Format columns: Earned Gross and Total Deduction from Setup resolution; Net Pay from Setup "Net Pay"
- * formula when defined, otherwise round(Earned Gross − Total Deduction) like the Payroll grid.
+ * Bank Format columns: Net Pay = round(Earned Gross Salary − Total Deduction); other amounts from bank pipeline.
  */
 export function payrollDisplayAlignedWithPayrollGrid(row, options) {
   const c = computeBankReportPayrollAmounts(row, options);
@@ -894,6 +959,14 @@ export function payrollDisplayAlignedWithPayrollGrid(row, options) {
     earnedGross: c.earnedGrossPayslip,
     totalDeduction: c.totalDedPayslip,
     netPay: c.gridNet,
+    pf: c.pfPayslip,
+    esi: c.esiPayslip,
+    loanAllowance: c.loanPayslip,
+    uniformDeduction: c.uniformDeductionPayslip,
+    attendanceDeduction: c.attendanceDeductionPayslip,
+    late: c.latePayslip,
+    otAmount: c.otAmountPayslip,
+    incentive: c.incentivePayslip,
   };
 }
 

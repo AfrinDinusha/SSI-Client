@@ -26,7 +26,6 @@ const DEFAULT_PAYROLL_KEY_TO_HEADER_LABEL = {
   lop: 'LOP',
   otHours: 'OT Hours',
   foodAllowance: 'Food Allowance',
-  uniformAllowance: 'Uniform Allowance',
   washingAllowance: 'Washing Allowance',
   actualBasic: 'Actual Basic',
   actualDA: 'Actual DA',
@@ -277,11 +276,9 @@ export function createPayrollSetupFormulaeEngine(opts) {
       if (Number.isFinite(n)) return n;
     }
     const earnedBasic = Number(record?.earnedBasic ?? record?.EarnedBasic ?? 0) || 0;
-    const earnedSpecialAllowance = Number(record?.earnedSpecialAllowance ?? record?.EarnedSpecialAllowance ?? 0) || 0;
-    const earnedPlusSpecial = earnedBasic + earnedSpecialAllowance;
-    if (earnedPlusSpecial <= 0) return 0;
-    if (earnedPlusSpecial > 15000) return 1800;
-    return Math.round(earnedPlusSpecial * 0.12);
+    if (earnedBasic <= 0) return 0;
+    if (earnedBasic > 15000) return 1800;
+    return Math.round(earnedBasic * 0.12);
   };
 
   const getEsiDisplayValue = (record) => {
@@ -386,11 +383,6 @@ export function createPayrollSetupFormulaeEngine(opts) {
       const v = employee.loanAllowance ?? employee.LoanAllowance ?? '';
       const n = Number(v);
       return Number.isFinite(n) ? n : 0;
-    }
-    if (lower.includes('uniform') && (lower.includes('allowance') || lower.includes('allownace'))) {
-      const v = employee.uniformAllowance ?? employee.UniformAllowance ?? '';
-      const n = Number(v);
-      return Number.isFinite(n) ? n : v !== '' && v !== null && v !== undefined ? v : 0;
     }
     if (lower.includes('washing') && (lower.includes('allowance') || lower.includes('allownace'))) {
       return getWashingAllowanceDisplayFromEmployee(employee);

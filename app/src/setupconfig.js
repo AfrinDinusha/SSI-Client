@@ -27,7 +27,8 @@ import {
   CalendarDays,
   Settings,
   GripVertical,
-  Trash2
+  Trash2,
+  Pencil
 } from 'lucide-react';
 
 const PAYROLL_AUTOMATIC_MODE_OPTIONS = ['Automatic', 'Manual'];
@@ -52,6 +53,7 @@ function SetupConfig({ userRole, userEmail }) {
   const [selectedOperator, setSelectedOperator] = useState('+');
   const [selectedCondition, setSelectedCondition] = useState('');
   const [formulaExpression, setFormulaExpression] = useState('');
+  const [editingFormulaId, setEditingFormulaId] = useState(null);
   const [message, setMessage] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [savedDrag, setSavedDrag] = useState(null); // { listKey: 'AllFields' | 'Deduction', index: number }
@@ -129,7 +131,7 @@ function SetupConfig({ userRole, userEmail }) {
     try {
       const [componentsRes, formulaeRes] = await Promise.all([
         api('/server/setupconfig/payroll/components'),
-        api('/server/setupconfig/payroll/formulae')
+        api(`/server/setupconfig/payroll/formulae?_=${Date.now()}`)
       ]);
       // Separate components by Deduction column (or other truthy flags)
       const allFields = [];
@@ -160,6 +162,12 @@ function SetupConfig({ userRole, userEmail }) {
   useEffect(() => {
     loadSaved();
   }, []);
+
+  useEffect(() => {
+    if (activeSubModule !== 'formulae') {
+      setEditingFormulaId(null);
+    }
+  }, [activeSubModule]);
 
   const selectionsFromAutomaticDatastoreRow = (row) => {
     const next = new Set();
@@ -423,22 +431,6 @@ function SetupConfig({ userRole, userEmail }) {
     setComponentInput('');
   };
 
-  const removeStaged = (index) => {
-    setStagedComponents((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const moveStaged = (fromIndex, toIndex) => {
-    setStagedComponents((prev) => {
-      if (fromIndex === toIndex) return prev;
-      if (fromIndex < 0 || toIndex < 0) return prev;
-      if (fromIndex >= prev.length || toIndex >= prev.length) return prev;
-      const next = [...prev];
-      const [moved] = next.splice(fromIndex, 1);
-      next.splice(toIndex, 0, moved);
-      return next;
-    });
-  };
-
   const reorderArray = (arr, fromIndex, toIndex) => {
     if (fromIndex === toIndex) return arr;
     if (fromIndex < 0 || toIndex < 0) return arr;
@@ -564,25 +556,72 @@ function SetupConfig({ userRole, userEmail }) {
     setFormulaExpression((prev) => `${prev}${prev ? ' ' : ''}${condition}`.trim());
   };
 
+  const beginEditFormula = (row) => {
+    const full = String(row?.expression || '').trim();
+    const eqIdx = full.indexOf('=');
+    if (eqIdx > 0) {
+      setVariableName(full.slice(0, eqIdx).trim());
+      setFormulaExpression(full.slice(eqIdx + 1).trim());
+    } else {
+      setVariableName('');
+      setFormulaExpression(full);
+    }
+    setEditingFormulaId(row?.id ?? null);
+    setFlash('Editing formula — save to apply changes or cancel');
+  };
+
+  const cancelFormulaEdit = () => {
+    setEditingFormulaId(null);
+    setVariableName('');
+    setFormulaExpression('');
+    setSelectedComponent('');
+    setSelectedOperator('+');
+    setSelectedCondition('');
+  };
+
+  /** Same rules as setupconfig function buildFinalFormulaExpression (variable + RHS). */
+  const buildDisplayFormula = (variable, expression) => {
+    const v = String(variable || '').trim();
+    const e = String(expression || '').trim();
+    if (!e) return '';
+    return v && e.includes('=') ? e : (v ? `${v} = ${e}` : e);
+  };
+
   const saveFormula = async () => {
     const finalExpr = formulaExpression.trim();
     if (!finalExpr) {
       setFlash('Enter formula expression');
       return;
     }
+    const editRowId = editingFormulaId;
     try {
       setIsSaving(true);
-      await api('/server/setupconfig/payroll/formulae/save', {
-        method: 'POST',
-        body: JSON.stringify({
-          variable: variableName.trim(),
-          expression: finalExpr
-        })
-      });
+      const payload = {
+        variable: variableName.trim(),
+        expression: finalExpr
+      };
+      if (editRowId != null) {
+        const updateRes = await api('/server/setupconfig/payroll/formulae/update', {
+          method: 'POST',
+          body: JSON.stringify({ ...payload, rowId: editRowId })
+        });
+        const updatedExpr =
+          updateRes.data?.formula?.expression || buildDisplayFormula(payload.variable, payload.expression);
+        setSavedFormulae((prev) =>
+          prev.map((r) => (String(r.id) === String(editRowId) ? { ...r, expression: updatedExpr } : r))
+        );
+        setFlash('Formula updated successfully');
+      } else {
+        await api('/server/setupconfig/payroll/formulae/save', {
+          method: 'POST',
+          body: JSON.stringify(payload)
+        });
+        setFlash('Formula saved successfully');
+      }
       setFormulaExpression('');
       setVariableName('');
+      setEditingFormulaId(null);
       await loadSaved();
-      setFlash('Formula saved successfully');
     } catch (error) {
       setFlash(error.message || 'Formula save failed');
     } finally {
@@ -598,6 +637,9 @@ function SetupConfig({ userRole, userEmail }) {
         method: 'POST',
         body: JSON.stringify({ id: rowId })
       });
+      if (String(editingFormulaId) === String(rowId)) {
+        cancelFormulaEdit();
+      }
       await loadSaved();
       setFlash('Formula deleted');
     } catch (error) {
@@ -744,7 +786,6 @@ function SetupConfig({ userRole, userEmail }) {
                       <tr>
                         <th>Pending Components</th>
                         <th>Category</th>
-                        <th>Action</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -752,29 +793,6 @@ function SetupConfig({ userRole, userEmail }) {
                         <tr key={`${item.name}-${idx}`}>
                           <td>{item.name}</td>
                           <td>{item.category}</td>
-                          <td>
-                            <div className="setup-action-btns">
-                              <button
-                                type="button"
-                                className="move-btn"
-                                onClick={() => moveStaged(idx, idx - 1)}
-                                disabled={idx === 0}
-                              >
-                                Up
-                              </button>
-                              <button
-                                type="button"
-                                className="move-btn"
-                                onClick={() => moveStaged(idx, idx + 1)}
-                                disabled={idx === stagedComponents.length - 1}
-                              >
-                                Down
-                              </button>
-                              <button type="button" className="remove-btn" onClick={() => removeStaged(idx)}>
-                                Remove
-                              </button>
-                            </div>
-                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -955,23 +973,49 @@ function SetupConfig({ userRole, userEmail }) {
 
                     <div className="setup-save-wrap">
                       <button type="button" onClick={saveFormula} disabled={isSaving}>
-                        {isSaving ? 'Saving...' : 'Save'}
+                        {isSaving ? 'Saving...' : (editingFormulaId != null ? 'Update' : 'Save')}
                       </button>
+                      {editingFormulaId != null ? (
+                        <button type="button" className="cancel-btn" onClick={cancelFormulaEdit} disabled={isSaving}>
+                          Cancel edit
+                        </button>
+                      ) : null}
                     </div>
                   </div>
 
                   <h3>Saved Formulae</h3>
-                  <table className="setup-table">
+                  <table className="setup-table setup-saved-formulae-table">
+                    <colgroup>
+                      <col />
+                      <col style={{ width: 56 }} />
+                      <col style={{ width: 100 }} />
+                    </colgroup>
                     <thead>
                       <tr>
                         <th>Formula Expression</th>
+                        <th className="setup-edit-col">Edit</th>
                         <th className="setup-delete-col" aria-label="Delete">Delete</th>
                       </tr>
                     </thead>
                     <tbody>
                       {savedFormulae.map((row) => (
-                        <tr key={row.id}>
+                        <tr
+                          key={row.id}
+                          className={editingFormulaId != null && String(editingFormulaId) === String(row.id) ? 'setup-formula-row-editing' : ''}
+                        >
                           <td>{row.expression}</td>
+                          <td className="setup-edit-col">
+                            <button
+                              type="button"
+                              className="setup-edit-btn"
+                              onClick={() => beginEditFormula(row)}
+                              disabled={isSaving}
+                              title="Edit formula"
+                              aria-label="Edit formula"
+                            >
+                              <Pencil size={16} strokeWidth={2} className="setup-edit-icon" aria-hidden />
+                            </button>
+                          </td>
                           <td className="setup-delete-col">
                             <button
                               type="button"

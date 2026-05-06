@@ -61,6 +61,41 @@ async function downloadBlobWithAxios(downloadUrl, fallbackName) {
   }
 }
 
+/**
+ * Directory / table: show Actual Total Salary from stored `totalSalary` when present; otherwise the same
+ * sum as the employee form (Actual Basic + Actual HRA + Actual DA + Actual Special Allowance).
+ */
+function getActualTotalSalaryDisplay(employee) {
+  if (!employee) return '-';
+  const stored = employee.totalSalary ?? employee.TotalSalary;
+  if (stored != null && stored !== '' && String(stored).trim() !== '') {
+    const n = Number(stored);
+    return Number.isFinite(n) ? String(n) : String(stored);
+  }
+  const parseComp = (v) => {
+    if (v == null || v === '') return null;
+    const x = parseFloat(v);
+    return Number.isFinite(x) ? x : null;
+  };
+  const basic = parseComp(employee.actualBasic ?? employee.ActualBasic) ?? 0;
+  const hra = parseComp(employee.actualHRA ?? employee.ActualHRA) ?? 0;
+  const da = parseComp(employee.actualDA ?? employee.ActualDA) ?? 0;
+  const special = parseComp(employee.actualSpecialAllowance ?? employee.ActualSpecialAllowance) ?? 0;
+  const hasAnyComponent = [
+    employee.actualBasic,
+    employee.actualHRA,
+    employee.actualDA,
+    employee.actualSpecialAllowance,
+    employee.ActualBasic,
+    employee.ActualHRA,
+    employee.ActualDA,
+    employee.ActualSpecialAllowance
+  ].some((v) => v != null && v !== '' && String(v).trim() !== '');
+  const sum = Math.round((basic + hra + da + special) * 100) / 100;
+  if (!hasAnyComponent && sum === 0) return '-';
+  return String(sum);
+}
+
 // Employee Row Component
 function EmployeeRow({ employee, index, removeEmployee, editEmployee, isSelected, onSelect, selectedEmployees }) {
   // Debug: Log emergency contact fields for first few rows
@@ -313,13 +348,13 @@ function EmployeeRow({ employee, index, removeEmployee, editEmployee, isSelected
       <td>{employee.actualBasic != null && employee.actualBasic !== '' ? employee.actualBasic : '-'}</td>
       <td>{employee.actualHRA != null && employee.actualHRA !== '' ? employee.actualHRA : '-'}</td>
       <td>{employee.actualSpecialAllowance != null && employee.actualSpecialAllowance !== '' ? employee.actualSpecialAllowance : '-'}</td>
-      <td>{employee.actualDA || '-'}</td>
+      <td>{employee.actualDA != null && employee.actualDA !== '' ? employee.actualDA : '-'}</td>
       <td>{employee.attendanceAllowance != null && employee.attendanceAllowance !== '' ? employee.attendanceAllowance : '-'}</td>
-      <td>{employee.otherAllowance || '-'}</td>
+      <td>{employee.otherAllowance != null && employee.otherAllowance !== '' ? employee.otherAllowance : '-'}</td>
       <td>{employee.travelChargers != null && employee.travelChargers !== '' ? employee.travelChargers : '-'}</td>
       <td>{employee.foodAllowance != null && employee.foodAllowance !== '' ? employee.foodAllowance : '-'}</td>
       <td>{employee.uniformAllowance != null && employee.uniformAllowance !== '' ? employee.uniformAllowance : '-'}</td>
-      <td>{employee.totalSalary != null && employee.totalSalary !== '' ? employee.totalSalary : '-'}</td>
+      <td>{getActualTotalSalaryDisplay(employee)}</td>
       <td>{formatDate(employee.dateOfBirth)}</td>
       <td>{employee.fathersName || '-'}</td>
       <td>{employee.age || '-'}</td>
@@ -1201,7 +1236,7 @@ function EmployeeManagement({ userRole = 'App Administrator', userEmail = null }
     { label: 'Date of Joining', field: 'dateOfJoining' },
     { label: 'Date of Exit', field: 'dateOfExit' },
     { label: 'Overall Experience', field: 'overallExperience' },
-    { label: 'SSPSE Experience', field: 'relevantExperience' },
+    { label: 'Unit', field: 'relevantExperience' },
     { label: 'Source of Hire', field: 'sourceOfHire' },
     { label: 'Department', field: 'department' },
     { label: 'Designation', field: 'designation' },
@@ -1338,7 +1373,7 @@ function EmployeeManagement({ userRole = 'App Administrator', userEmail = null }
    
     // Professional Information
     { label: 'Overall Experience', field: 'overallExperience' },
-    { label: 'SSPSE Experience', field: 'relevantExperience' },
+    { label: 'Unit', field: 'relevantExperience' },
     { label: 'Source of Hire', field: 'sourceOfHire' },
   ];
 
@@ -2451,7 +2486,7 @@ function EmployeeManagement({ userRole = 'App Administrator', userEmail = null }
              dateOfJoining: convertDateValue(row['Date of Joining']),
              dateOfExit: convertDateValue(row['Date of Exit']),
              overallExperience: safeToString(row['Overall Experience']),
-             relevantExperience: safeToString(row['SSPSE Experience']),
+             relevantExperience: safeToString(row['Unit'] ?? row['SSPSE Experience']),
              sourceOfHire: safeToString(row['Source of Hire']),
              department: (safeToString(row['Department']) || '').trim() ? (safeToString(row['Department']) || '').trim().toUpperCase() : safeToString(row['Department']),
              designation: (safeToString(row['Designation']) || '').trim() ? (safeToString(row['Designation']) || '').trim().toUpperCase() : safeToString(row['Designation']),
@@ -2798,7 +2833,7 @@ function EmployeeManagement({ userRole = 'App Administrator', userEmail = null }
           'Employment Type': emp.employmentType || '',
           'Employee Status': emp.employeeStatus || '',
           'Overall Experience': emp.overallExperience || '',
-          'SSPSE Experience': emp.relevantExperience || '',
+          'Unit': emp.relevantExperience || '',
           'Source of Hire': emp.sourceOfHire || '',
           'Department': emp.department || '',
           'Designation': emp.designation || '',
@@ -2849,7 +2884,11 @@ function EmployeeManagement({ userRole = 'App Administrator', userEmail = null }
           'TravelChargers': emp.travelChargers || '',
           'Food Allowance': emp.foodAllowance || '',
           'Uniform Allowance': emp.uniformAllowance || '',
-          'Total Salary': emp.totalSalary || '',
+          // Match directory column "Actual Total Salary": stored totalSalary, else sum of salary components (same as getActualTotalSalaryDisplay).
+          'Total Salary': (() => {
+            const v = getActualTotalSalaryDisplay(emp);
+            return v === '-' ? '' : v;
+          })(),
           'Revised Actual Basic': emp.revisedActualBasic || '',
           'Revised Actual HRA': emp.revisedActualHRA || '',
           'Revised Actual DA': emp.revisedActualDA || '',
@@ -3067,19 +3106,6 @@ function EmployeeManagement({ userRole = 'App Administrator', userEmail = null }
   const actualDARef = useRef('');
   const otherAllowanceRef = useRef('');
 
-  const computeSalaryComponentsFromTotal = useCallback((totalStr) => {
-    const total = parseFloat(totalStr) || 0;
-    if (total <= 0) return { actualBasic: '', actualHRA: '', actualSpecialAllowance: '' };
-    const actualBasic = Math.round(total * 0.55 * 100) / 100;
-    const actualHRA = Math.round(actualBasic * 0.4 * 100) / 100;
-    const actualSpecialAllowance = Math.max(0, Math.round((total - actualBasic - actualHRA) * 100) / 100);
-    return {
-      actualBasic: String(actualBasic),
-      actualHRA: String(actualHRA),
-      actualSpecialAllowance: String(actualSpecialAllowance)
-    };
-  }, []);
-
   // Function to calculate age from date of birth
   const calculateAge = useCallback((dateOfBirth) => {
     if (!dateOfBirth) return '';
@@ -3117,17 +3143,24 @@ function EmployeeManagement({ userRole = 'App Administrator', userEmail = null }
     return { isValid: true, message: '' };
   }, []);
 
-  // Keep Actual Basic, Actual HRA, Actual Special Allowance in sync with Actual Total Salary (load, import, and edits)
+  // Actual Total Salary = Actual Basic + Actual HRA + Actual DA + Actual Special Allowance (read-only total).
   useEffect(() => {
-    const { actualBasic, actualHRA, actualSpecialAllowance } = computeSalaryComponentsFromTotal(form.totalSalary);
+    const basicRaw = String(form.actualBasic ?? '').trim();
+    const hraRaw = String(form.actualHRA ?? '').trim();
+    const daRaw = String(form.actualDA ?? '').trim();
+    const specialRaw = String(form.actualSpecialAllowance ?? '').trim();
+    const allEmpty = basicRaw === '' && hraRaw === '' && daRaw === '' && specialRaw === '';
+    const basic = parseFloat(basicRaw) || 0;
+    const hra = parseFloat(hraRaw) || 0;
+    const da = parseFloat(daRaw) || 0;
+    const special = parseFloat(specialRaw) || 0;
+    const sum = Math.round((basic + hra + da + special) * 100) / 100;
+    const totalStr = allEmpty ? '' : String(sum);
     setForm((prev) => {
-      const pb = String(prev.actualBasic ?? '');
-      const ph = String(prev.actualHRA ?? '');
-      const ps = String(prev.actualSpecialAllowance ?? '');
-      if (pb === String(actualBasic) && ph === String(actualHRA) && ps === String(actualSpecialAllowance)) return prev;
-      return { ...prev, actualBasic, actualHRA, actualSpecialAllowance };
+      if (String(prev.totalSalary ?? '') === totalStr) return prev;
+      return { ...prev, totalSalary: totalStr };
     });
-  }, [form.totalSalary, computeSalaryComponentsFromTotal]);
+  }, [form.actualBasic, form.actualHRA, form.actualDA, form.actualSpecialAllowance]);
 
   const onChange = useCallback((e) => {
     const { name, value } = e.target;
@@ -3181,19 +3214,15 @@ function EmployeeManagement({ userRole = 'App Administrator', userEmail = null }
         setAgeValid(false);
       }
     }
-    // Actual Total Salary drives Actual Basic (55%) and Actual HRA (40% of Basic) via useEffect
-    else if (name === 'totalSalary') {
-      const today = new Date();
-      const currentDate = today.toISOString().split('T')[0];
-      setForm((prev) => ({
-        ...prev,
-        totalSalary: value,
-        dateData: currentDate
-      }));
-      setFormError('');
-    }
-    // Other salary components (Actual Basic / Actual HRA are derived from Actual Total Salary)
-    else if (name === 'actualDA' || name === 'attendanceAllowance' || name === 'otherAllowance' || name === 'travelChargers') {
+    else if (
+      name === 'actualBasic' ||
+      name === 'actualHRA' ||
+      name === 'actualDA' ||
+      name === 'actualSpecialAllowance' ||
+      name === 'attendanceAllowance' ||
+      name === 'otherAllowance' ||
+      name === 'travelChargers'
+    ) {
       // Get current date in YYYY-MM-DD format
       const today = new Date();
       const currentDate = today.toISOString().split('T')[0];
@@ -5273,24 +5302,24 @@ function EmployeeManagement({ userRole = 'App Administrator', userEmail = null }
                   <h2 className="section-title">Salary Info</h2>
                   <div className="form-grid">
                       <div className="form-group">
-                        <label>Actual Total Salary</label>
-                        <input className="input input-no-spinner" type="number" name="totalSalary" value={form.totalSalary} onChange={onChange} placeholder="0.00" step="0.01" />
+                        <label>Actual Basic</label>
+                        <input className="input input-no-spinner" type="number" name="actualBasic" value={form.actualBasic} onChange={onChange} placeholder="0.00" step="0.01" onFocus={() => { actualBasicRef.current = form.actualBasic; }} onBlur={() => { if (form.actualBasic !== actualBasicRef.current) setForm(prev => ({ ...prev, revisedActualBasic: actualBasicRef.current })); }} />
                       </div>
                       <div className="form-group">
-                        <label>Actual Basic (55% of Actual Total Salary)</label>
-                        <input className="input input-no-spinner" type="number" name="actualBasic" value={form.actualBasic} readOnly style={{ backgroundColor: '#f5f5f5', cursor: 'not-allowed' }} placeholder="0.00" step="0.01" onFocus={() => { actualBasicRef.current = form.actualBasic; }} onBlur={() => { if (form.actualBasic !== actualBasicRef.current) setForm(prev => ({ ...prev, revisedActualBasic: actualBasicRef.current })); }} />
-                      </div>
-                      <div className="form-group">
-                        <label>Actual HRA (40% of Actual Basic)</label>
-                        <input className="input input-no-spinner" type="number" name="actualHRA" value={form.actualHRA} readOnly style={{ backgroundColor: '#f5f5f5', cursor: 'not-allowed' }} placeholder="0.00" step="0.01" onFocus={() => { actualHRARef.current = form.actualHRA; }} onBlur={() => { if (form.actualHRA !== actualHRARef.current) setForm(prev => ({ ...prev, revisedActualHRA: actualHRARef.current })); }} />
-                      </div>
-                      <div className="form-group">
-                        <label>Actual Special Allowance (Actual Total Salary − (Actual Basic + Actual HRA))</label>
-                        <input className="input input-no-spinner" type="number" name="actualSpecialAllowance" value={form.actualSpecialAllowance} readOnly style={{ backgroundColor: '#f5f5f5', cursor: 'not-allowed' }} placeholder="0.00" step="0.01" />
+                        <label>Actual HRA</label>
+                        <input className="input input-no-spinner" type="number" name="actualHRA" value={form.actualHRA} onChange={onChange} placeholder="0.00" step="0.01" onFocus={() => { actualHRARef.current = form.actualHRA; }} onBlur={() => { if (form.actualHRA !== actualHRARef.current) setForm(prev => ({ ...prev, revisedActualHRA: actualHRARef.current })); }} />
                       </div>
                       <div className="form-group">
                         <label>Actual DA</label>
-                        <input className="input" name="actualDA" value={form.actualDA} onChange={onChange} onFocus={() => actualDARef.current = form.actualDA} onBlur={() => { if (form.actualDA !== actualDARef.current) setForm(prev => ({ ...prev, revisedActualDA: actualDARef.current })); }} />
+                        <input className="input input-no-spinner" type="number" name="actualDA" value={form.actualDA} onChange={onChange} placeholder="0.00" step="0.01" onFocus={() => actualDARef.current = form.actualDA} onBlur={() => { if (form.actualDA !== actualDARef.current) setForm(prev => ({ ...prev, revisedActualDA: actualDARef.current })); }} />
+                      </div>
+                      <div className="form-group">
+                        <label>Actual Special Allowance</label>
+                        <input className="input input-no-spinner" type="number" name="actualSpecialAllowance" value={form.actualSpecialAllowance} onChange={onChange} placeholder="0.00" step="0.01" />
+                      </div>
+                      <div className="form-group">
+                        <label>Actual Total Salary (Basic + HRA + DA + Special Allowance)</label>
+                        <input className="input input-no-spinner" type="number" name="totalSalary" value={form.totalSalary} readOnly style={{ backgroundColor: '#f5f5f5', cursor: 'not-allowed' }} placeholder="0.00" step="0.01" tabIndex={-1} aria-readonly="true" />
                       </div>
                       <div className="form-group">
                         <label>Attendance Allowance</label>
@@ -5313,7 +5342,7 @@ function EmployeeManagement({ userRole = 'App Administrator', userEmail = null }
                         <input className="input" name="uniformAllowance" value={form.uniformAllowance} onChange={onChange} />
                       </div>
                       <div className="form-group">
-                        <label>SSPSE Experience</label>
+                        <label>Unit</label>
                         <input className="input" name="relevantExperience" value={form.relevantExperience} onChange={onChange} />
                       </div>
                       <div className="form-group">

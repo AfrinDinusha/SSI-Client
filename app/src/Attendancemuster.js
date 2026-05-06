@@ -223,6 +223,26 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
     return isAbsentStatus(statuses[left]) && isAbsentStatus(statuses[right]);
   };
 
+  /**
+   * Total present for muster: do not count Sundays (calendar) or WO / Week Off as present days.
+   * halfDayWeight — table uses 1 (half day counts as 1); Excel export uses 0.5 to match prior export.
+   */
+  const countPresentDaysForMusterRow = (rowStatuses, dates, { halfDayWeight = 1 } = {}) => {
+    if (!Array.isArray(rowStatuses)) return 0;
+    return rowStatuses.reduce((sum, s, idx) => {
+      if (Array.isArray(dates) && isSundayDate(dates[idx])) return sum;
+      const ns = normalizeStatus(s);
+      if (ns === 'WO' || ns === 'Week Off') return sum;
+      if (s === 'Present' || s === 'P') return sum + 1;
+      if (s === 'Half Day Present' || s === '0.5' || s === 0.5) return sum + halfDayWeight;
+      if (s === 'CO') return sum + 1;
+      if (s === 'H' && isSandwichedWoOrH(rowStatuses, idx)) return sum;
+      if (s === 'H') return sum + 1;
+      if (s === 'OD' || s === 'OD-0.5') return sum + 1;
+      return sum;
+    }, 0);
+  };
+
   const modulesToShow = useMemo(
     () => getSidebarModulesForUser(resolveSidebarUserEmail(userEmail), userRole),
     [userEmail, userRole]
@@ -494,16 +514,7 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
       const formattedDateOfJoining = dateOfJoining ? new Date(dateOfJoining).toLocaleDateString('en-GB') : '-';
       const formattedDateOfExit = dateOfExit ? new Date(dateOfExit).toLocaleDateString('en-GB') : '-';
       
-      const totalPresent = rowStatuses.reduce((sum, s, idx) => {
-        if (s === 'Present' || s === 'P') return sum + 1;
-        if (s === 'Half Day Present' || s === '0.5' || s === 0.5) return sum + 0.5;
-        if (s === 'CO') return sum + 1; // Comp Off counts as 1 day present
-        if ((s === 'H' || s === 'WO') && isSandwichedWoOrH(rowStatuses, idx)) return sum;
-        if (s === 'H') return sum + 1; // Holiday counts as 1 day present (unless sandwiched)
-        if (s === 'WO') return sum + 1; // Week Off counts as 1 day present (unless sandwiched)
-        if (s === 'OD' || s === 'OD-0.5') return sum + 1; // On Duty counts as 1 day present (both full and half day)
-        return sum;
-      }, 0);
+      const totalPresent = countPresentDaysForMusterRow(rowStatuses, data.dates, { halfDayWeight: 0.5 });
       const totalAbsent = calculateTotalAbsentExcludingSundays(rowStatuses, data.dates);
       
       const totalHoursSum = rowTotalHours.reduce((sum, hoursValue) => {
@@ -999,18 +1010,7 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
                         const formattedDateOfJoining = dateOfJoining ? new Date(dateOfJoining).toLocaleDateString('en-GB') : '-';
                         // Format date of exit for display (DD/MM/YYYY)
                         const formattedDateOfExit = dateOfExit ? new Date(dateOfExit).toLocaleDateString('en-GB') : '-';
-                        const totalPresent = (rowStatuses && Array.isArray(rowStatuses)) ? rowStatuses.reduce((sum, s, idx) => {
-                          // Count "Present" (>= 4 hours) as 1, and "Half Day Present" as 1 (changed from 0.5 to match >= 4 hours = Present rule)
-                          // CO (Comp Off), H (Holiday), WO (Week Off), and OD (On Duty) should be counted as present (1 day each)
-                          if (s === 'Present' || s === 'P') return sum + 1;
-                          if (s === 'Half Day Present' || s === '0.5' || s === 0.5) return sum + 1; // Changed from 0.5 to 1 to match >= 4 hours = Present rule
-                          if (s === 'CO') return sum + 1; // Comp Off counts as 1 day present
-                          if ((s === 'H' || s === 'WO') && isSandwichedWoOrH(rowStatuses, idx)) return sum;
-                          if (s === 'H') return sum + 1; // Holiday counts as 1 day present (unless sandwiched)
-                          if (s === 'WO') return sum + 1; // Week Off counts as 1 day present (unless sandwiched)
-                          if (s === 'OD' || s === 'OD-0.5') return sum + 1; // On Duty counts as 1 day present (both full and half day)
-                          return sum;
-                        }, 0) : 0;
+                        const totalPresent = countPresentDaysForMusterRow(rowStatuses, data.dates, { halfDayWeight: 1 });
                         const totalAbsent = calculateTotalAbsentExcludingSundays(rowStatuses, data.dates);
                         // Calculate total hours for the period (sum of all days)
                         const totalHoursSum = (rowTotalHours && Array.isArray(rowTotalHours)) ? rowTotalHours.reduce((sum, hoursValue) => {
@@ -1299,21 +1299,14 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
                         {/* Total Present and Absent columns */}
                         <td className="total-cell">
                           <strong>
-                            {(data.muster && Array.isArray(data.muster)) ? data.muster.reduce((sum, rowStatuses) => {
-                              if (!rowStatuses || !Array.isArray(rowStatuses)) return sum;
-                              return sum + rowStatuses.reduce((rowSum, s, idx) => {
-                                // Count "Present" (>= 8 hours) as 1, and "Half Day Present" as 0.5
-                                // CO (Comp Off), H (Holiday), WO (Week Off), and OD (On Duty) should be counted as present (1 day each)
-                                if (s === 'Present' || s === 'P') return rowSum + 1;
-                                if (s === 'Half Day Present' || s === '0.5' || s === 0.5) return rowSum + 0.5;
-                                if (s === 'CO') return rowSum + 1; // Comp Off counts as 1 day present
-                                if ((s === 'H' || s === 'WO') && isSandwichedWoOrH(rowStatuses, idx)) return rowSum;
-                                if (s === 'H') return rowSum + 1; // Holiday counts as 1 day present (unless sandwiched)
-                                if (s === 'WO') return rowSum + 1; // Week Off counts as 1 day present (unless sandwiched)
-                                if (s === 'OD' || s === 'OD-0.5') return rowSum + 1; // On Duty counts as 1 day present (both full and half day)
-                                return rowSum;
-                              }, 0);
-                            }, 0) : 0}
+                            {(data.muster && Array.isArray(data.muster))
+                              ? data.muster.reduce(
+                                  (sum, rowStatuses) =>
+                                    sum +
+                                    countPresentDaysForMusterRow(rowStatuses, data.dates, { halfDayWeight: 0.5 }),
+                                  0
+                                )
+                              : 0}
                           </strong>
                         </td>
                         <td className="total-cell">

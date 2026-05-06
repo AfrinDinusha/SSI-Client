@@ -1,4 +1,5 @@
-import html2pdf from 'html2pdf.js';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
 
 const STORAGE_KEY = 'payslipTemplateConfig_v1';
 
@@ -61,16 +62,21 @@ const amountForEarningsEarnedColumn = (value, label) => {
   return hideZero(value);
 };
 
-/** Food allowance is shown under EARNINGS; do not list it again under DEDUCTIONS (often placed near/below Total Deduction in templates). */
-const isFoodAllowancePayslipLabel = (lbl) => {
+/** Hide allowances that should not appear on payslip rows. */
+const isHiddenPayslipAllowanceLabel = (lbl) => {
   const n = normalizeLabelForMatch(String(lbl || '').trim().toLowerCase());
-  return n.includes('food') && (n.includes('allowance') || n.includes('allownace'));
+  const isAllowance = n.includes('allowance') || n.includes('allownace');
+  if (!isAllowance) return false;
+  if (n.includes('food')) return true;
+  if (n.includes('washing')) return true;
+  if (n.includes('uniform')) return true;
+  return false;
 };
 
-/** Remove Food Allowance from the deductions table (keep only statutory/other real deductions + Total Deduction). */
+/** Remove hidden allowance rows from deductions table. */
 const filterDeductionRowsForPayslip = (rows) => {
   if (!Array.isArray(rows) || !rows.length) return rows;
-  return rows.filter((r) => !isFoodAllowancePayslipLabel(r.label));
+  return rows.filter((r) => !isHiddenPayslipAllowanceLabel(r.label));
 };
 
 /** Template deduction row labeled "Late" — append total LOH in label: "Late | &lt;hours&gt;". */
@@ -89,6 +95,14 @@ const formatLohHoursForPayslipCell = (raw) => {
   return String(Math.round(n * 100) / 100);
 };
 
+const getPayslipLateHoursFromLoh = (rawLoh) => {
+  if (rawLoh == null || rawLoh === '') return null;
+  const loh = Number(String(rawLoh).replace(/,/g, '').trim());
+  if (!Number.isFinite(loh)) return null;
+  if (loh <= 1.5) return 0;
+  return Math.round((loh - 1.5) * 100) / 100;
+};
+
 const getLohRawForPayslipLate = (emp, getVal) => {
   let raw =
     getPayslipValue(emp, 'loh', 'Loss of Hours', getVal) ?? getPayslipValue(emp, 'loh', 'LOH', getVal);
@@ -103,7 +117,8 @@ const getLohRawForPayslipLate = (emp, getVal) => {
 const deductionDisplayLabel = (rowLabel, emp, getVal) => {
   if (!isPayslipLateDeductionLabel(rowLabel)) return rowLabel;
   const raw = getLohRawForPayslipLate(emp, getVal);
-  const formatted = formatLohHoursForPayslipCell(raw);
+  const lateHours = getPayslipLateHoursFromLoh(raw);
+  const formatted = formatLohHoursForPayslipCell(lateHours);
   if (formatted === null) return String(rowLabel).trim();
   return `${String(rowLabel).trim()} | ${formatted}`;
 };
@@ -123,7 +138,7 @@ const isOtherAllowancePayslipEarningsLabel = (lblOrKey) => {
 
 const stripOtherAllowanceFromEarningsKeys = (keys) => {
   if (!Array.isArray(keys)) return [];
-  return keys.filter((k) => !isOtherAllowancePayslipEarningsLabel(k));
+  return keys.filter((k) => !isOtherAllowancePayslipEarningsLabel(k) && !isHiddenPayslipAllowanceLabel(k));
 };
 
 const getComponentDisplayValue = (employee, componentName) => {
@@ -150,9 +165,6 @@ const getComponentDisplayValue = (employee, componentName) => {
   // Explicit fallbacks for common payroll keys (API may use PascalCase)
   if (lower.includes('food') && (lower.includes('allowance') || lower.includes('allownace'))) {
     return employee.foodAllowance ?? employee.FoodAllowance ?? '';
-  }
-  if (lower.includes('uniform') && (lower.includes('allowance') || lower.includes('allownace'))) {
-    return employee.uniformAllowance ?? employee.UniformAllowance ?? '';
   }
   if (lower.includes('loan') && lower.includes('allowance')) {
     const v = employee.loanAllowance ?? employee.LoanAllowance ?? '';
@@ -248,7 +260,7 @@ const isNetPayField = (key, label) => {
 const getPayslipValue = (employee, key, label, getDisplayValueOverride) => {
   if (!employee) return '';
   // Total Deduction / Net Pay: must use live display logic (formulae + template) when provided —
-  // raw employee.totalDeduction is often stale vs line items (PF + Uniform + …).
+  // raw employee.totalDeduction is often stale vs line items (PF + …).
   if (
     getDisplayValueOverride &&
     (isTotalDeductionField(key, label) || isNetPayField(key, label))
@@ -359,6 +371,40 @@ const monthLabel = (yyyyMm) => {
   if (!Number.isFinite(y) || !Number.isFinite(m)) return '';
   const dt = new Date(Date.UTC(y, m - 1, 1));
   return dt.toLocaleString(undefined, { month: 'long', year: 'numeric' }).toUpperCase();
+};
+
+/** html2pdf.js can leave overlay/container on body; drop stray payslip capture divs after errors. */
+export const removePayslipPdfGenerationArtifacts = () => {
+  if (typeof document === 'undefined') return;
+  document.querySelectorAll('.html2pdf__overlay, .html2pdf__container').forEach((node) => {
+    try {
+      node.parentNode?.removeChild(node);
+    } catch {
+      /* ignore */
+    }
+  });
+  document.querySelectorAll('[id^="payslip-pdf-wrapper-"]').forEach((node) => {
+    try {
+      node.parentNode?.removeChild(node);
+    } catch {
+      /* ignore */
+    }
+  });
+};
+
+/** Prevent a wide fixed capture node from introducing horizontal scroll / layout shift on the main app. */
+const lockViewportScrollX = () => {
+  if (typeof document === 'undefined') return () => {};
+  const html = document.documentElement;
+  const body = document.body;
+  const prevHtml = html.style.overflowX;
+  const prevBody = body.style.overflowX;
+  html.style.overflowX = 'hidden';
+  body.style.overflowX = 'hidden';
+  return () => {
+    html.style.overflowX = prevHtml;
+    body.style.overflowX = prevBody;
+  };
 };
 
 const PRINT_STYLES = `
@@ -652,9 +698,9 @@ const buildPayslipSheetHtml = ({
         <div class="payslip-box">
           <div class="payslip-kv">
             <div class="k">UAN NO</div>
-            <div class="v payslip-v-right">${escapeHtml(String(emp.uanNo ?? emp.uan ?? ''))}</div>
+            <div class="v payslip-v-right">${escapeHtml(String(emp.uanNo ?? emp.UANNo ?? emp.uan ?? emp.uanNumber ?? ''))}</div>
             <div class="k">ESIC NO</div>
-            <div class="v payslip-v-right">${escapeHtml(String(emp.esicNo ?? emp.esic ?? ''))}</div>
+            <div class="v payslip-v-right">${escapeHtml(String(emp.esicNo ?? emp.ESICNo ?? emp.esic ?? emp.esicNumber ?? ''))}</div>
             <div class="k">Actual Days</div>
             <div class="v payslip-v-right">${escapeHtml(String(emp.daysPresent ?? ''))}</div>
             <div class="k">No of Working Days</div>
@@ -796,21 +842,14 @@ export const openPayslipPreviewWindow = ({
   return true;
 };
 
-/**
- * Build scoped HTML markup for showing payslip inside the current page.
- * Returns a string containing a <style> tag plus the payslip HTML.
- */
-export const buildPayslipPreviewMarkup = ({
-  employee,
-  selectedMonth,
+/** Resolve company name and earnings/deduction keys (same rules as in-page preview). */
+const resolvePayslipSheetKeysAndCompany = ({
   payrollKeyToHeaderLabel,
   preferStoredTemplate = true,
   strictTemplate = false,
   earningKeysOverride,
   deductionKeysOverride,
   companyNameOverride,
-  logoUrl,
-  getDisplayValue,
 }) => {
   const derived = deriveKnownKeys(payrollKeyToHeaderLabel);
   const stored = preferStoredTemplate ? getTemplateConfigFromStorage() : null;
@@ -833,6 +872,34 @@ export const buildPayslipPreviewMarkup = ({
   const earningKeys = earningKeysOverride ? normalizeKeyList(earningKeysOverride) : resolvedEarningKeys;
   const deductionKeys = deductionKeysOverride ? normalizeKeyList(deductionKeysOverride) : resolvedDeductionKeys;
 
+  return { companyName, earningKeys, deductionKeys };
+};
+
+/**
+ * Build scoped HTML markup for showing payslip inside the current page.
+ * Returns a string containing a <style> tag plus the payslip HTML.
+ */
+export const buildPayslipPreviewMarkup = ({
+  employee,
+  selectedMonth,
+  payrollKeyToHeaderLabel,
+  preferStoredTemplate = true,
+  strictTemplate = false,
+  earningKeysOverride,
+  deductionKeysOverride,
+  companyNameOverride,
+  logoUrl,
+  getDisplayValue,
+}) => {
+  const { companyName, earningKeys, deductionKeys } = resolvePayslipSheetKeysAndCompany({
+    payrollKeyToHeaderLabel,
+    preferStoredTemplate,
+    strictTemplate,
+    earningKeysOverride,
+    deductionKeysOverride,
+    companyNameOverride,
+  });
+
   const sheetHtml = buildPayslipSheetHtml({
     employee,
     selectedMonth,
@@ -847,25 +914,29 @@ export const buildPayslipPreviewMarkup = ({
   return `<style>${PREVIEW_STYLES}</style><div class="payslip-preview-scope">${sheetHtml}</div>`;
 };
 
-/**
- * Directly download payslip as PDF (one-click, no print dialog).
- * Uses html2pdf.js to generate and trigger browser download.
- * Note: Element must be in viewport for html2canvas to capture it.
- */
-export const downloadPayslipPdf = ({
+const runPayslipPdfWorker = ({
   employee,
   selectedMonth,
   payrollKeyToHeaderLabel,
   preferStoredTemplate = true,
+  strictTemplate = false,
+  earningKeysOverride,
+  deductionKeysOverride,
+  companyNameOverride,
+  logoUrl,
+  getDisplayValue,
+  filename,
+  output,
 }) => {
-  const derived = deriveKnownKeys(payrollKeyToHeaderLabel);
-  const stored = preferStoredTemplate ? getTemplateConfigFromStorage() : null;
+  const { companyName, earningKeys, deductionKeys } = resolvePayslipSheetKeysAndCompany({
+    payrollKeyToHeaderLabel,
+    preferStoredTemplate,
+    strictTemplate,
+    earningKeysOverride,
+    deductionKeysOverride,
+    companyNameOverride,
+  });
 
-  const companyName = stored?.companyName || 'S S INDUSTRIES';
-  const earningKeys = (stored?.earningKeys && stored.earningKeys.length ? stored.earningKeys : derived.earningKeys) || [];
-  const deductionKeys = (stored?.deductionKeys && stored.deductionKeys.length ? stored.deductionKeys : derived.deductionKeys) || [];
-
-  const filename = `Payslip_${employee?.employeeCode || 'employee'}_${selectedMonth || ''}.pdf`;
   const sheetHtml = buildPayslipSheetHtml({
     employee,
     selectedMonth,
@@ -873,44 +944,188 @@ export const downloadPayslipPdf = ({
     companyName,
     earningKeys,
     deductionKeys,
+    logoUrl,
+    getDisplayValue,
   });
 
+  removePayslipPdfGenerationArtifacts();
+  const unlockViewportScrollX = lockViewportScrollX();
+
+  // Off-screen on the main document (fixed does not widen layout like wide right-edge nodes).
+  // html2canvas onclone moves the *clone* to the origin so capture matches View (iframe/srcdoc often stayed blank).
+  const wrapperId = `payslip-pdf-wrapper-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
   const wrapper = document.createElement('div');
+  wrapper.id = wrapperId;
+  wrapper.setAttribute('aria-hidden', 'true');
   wrapper.innerHTML = `<style>${PRINT_STYLES}</style>${sheetHtml}`;
-  wrapper.id = 'payslip-pdf-wrapper';
-  wrapper.style.cssText = 'position:fixed;left:0;top:0;width:900px;min-height:400px;background:#fff;z-index:99999;overflow:hidden;';
+  wrapper.style.cssText = [
+    'position:fixed',
+    'left:-14000px',
+    'top:0',
+    'width:900px',
+    'min-height:400px',
+    'background:#ffffff',
+    'overflow:visible',
+    'opacity:1',
+    'pointer-events:none',
+    'box-sizing:border-box',
+    'margin:0',
+    'padding:0',
+  ].join(';');
   document.body.appendChild(wrapper);
 
-  const opt = {
-    margin: 8,
-    filename,
-    image: { type: 'jpeg', quality: 0.98 },
-    html2canvas: { scale: 2, useCORS: true, logging: false },
-    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-  };
+  const resolvedFilename = filename || `Payslip_${employee?.employeeCode || 'employee'}_${selectedMonth || ''}.pdf`;
 
   const cleanup = () => {
-    const el = document.getElementById('payslip-pdf-wrapper');
-    if (el && el.parentNode) el.parentNode.removeChild(el);
+    unlockViewportScrollX();
+    const el = document.getElementById(wrapperId);
+    if (el?.parentNode) el.parentNode.removeChild(el);
+    removePayslipPdfGenerationArtifacts();
+  };
+
+  const buildPdfFromCanvas = (canvas) => {
+    const marginMm = 8;
+    const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+    const pageW = pdf.internal.pageSize.getWidth();
+    const pageH = pdf.internal.pageSize.getHeight();
+    const usableW = pageW - marginMm * 2;
+    const usableH = pageH - marginMm * 2;
+    const imgData = canvas.toDataURL('image/jpeg', 0.92);
+    const imgW = usableW;
+    const imgH = (canvas.height * imgW) / canvas.width;
+
+    let heightLeft = imgH;
+    let y = marginMm;
+    pdf.addImage(imgData, 'JPEG', marginMm, y, imgW, imgH);
+    heightLeft -= usableH;
+
+    while (heightLeft > 0) {
+      y = marginMm - (imgH - heightLeft);
+      pdf.addPage();
+      pdf.addImage(imgData, 'JPEG', marginMm, y, imgW, imgH);
+      heightLeft -= usableH;
+    }
+
+    return pdf;
   };
 
   return new Promise((resolve) => {
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        html2pdf()
-          .set(opt)
-          .from(wrapper)
-          .save()
-          .then(() => {
-            cleanup();
-            resolve(true);
-          })
-          .catch((err) => {
-            console.error('Payslip PDF download failed:', err);
-            cleanup();
-            resolve(false);
-          });
-      });
-    });
+    (async () => {
+      try {
+        await new Promise((r) => {
+          requestAnimationFrame(() => requestAnimationFrame(r));
+        });
+        await new Promise((r) => setTimeout(r, 40));
+
+        await Promise.all(
+          Array.from(wrapper.querySelectorAll('img')).map(
+            (img) =>
+              new Promise((res) => {
+                if (img.complete) res();
+                else {
+                  img.onload = () => res();
+                  img.onerror = () => res();
+                  setTimeout(res, 12000);
+                }
+              })
+          )
+        );
+
+        const canvas = await html2canvas(wrapper, {
+          scale: 2,
+          useCORS: true,
+          logging: false,
+          backgroundColor: '#ffffff',
+          imageTimeout: 20000,
+          onclone: (clonedDoc) => {
+            const node = clonedDoc.getElementById(wrapperId);
+            if (!node) return;
+            node.style.cssText = [
+              'position:relative',
+              'left:0',
+              'top:0',
+              'width:900px',
+              'min-height:400px',
+              'background:#ffffff',
+              'overflow:visible',
+              'opacity:1',
+              'pointer-events:none',
+              'box-sizing:border-box',
+              'margin:0',
+              'padding:0',
+            ].join(';');
+            const b = clonedDoc.body;
+            if (b) {
+              b.style.margin = '0';
+              b.style.padding = '0';
+              b.style.backgroundColor = '#ffffff';
+            }
+          },
+        });
+
+        if (!canvas || canvas.width < 80 || canvas.height < 80) {
+          throw new Error('Payslip capture produced an empty canvas');
+        }
+
+        const pdf = buildPdfFromCanvas(canvas);
+
+        if (output === 'blob') {
+          const blob = pdf.output('blob');
+          cleanup();
+          resolve(blob);
+        } else {
+          pdf.save(resolvedFilename);
+          cleanup();
+          resolve(true);
+        }
+      } catch (err) {
+        console.error('Payslip PDF generation failed:', err);
+        cleanup();
+        resolve(output === 'blob' ? null : false);
+      }
+    })();
   });
 };
+
+/**
+ * Directly download payslip as PDF (one-click, no print dialog).
+ * Uses html2canvas + jsPDF (avoids html2pdf.js blank pages in Chrome).
+ * Optional overrides match {@link buildPayslipPreviewMarkup} so PDF matches View / template.
+ */
+export const downloadPayslipPdf = ({
+  employee,
+  selectedMonth,
+  payrollKeyToHeaderLabel,
+  preferStoredTemplate = true,
+  strictTemplate = false,
+  earningKeysOverride,
+  deductionKeysOverride,
+  companyNameOverride,
+  logoUrl,
+  getDisplayValue,
+}) => {
+  const filename = `Payslip_${employee?.employeeCode || 'employee'}_${selectedMonth || ''}.pdf`;
+  return runPayslipPdfWorker({
+    employee,
+    selectedMonth,
+    payrollKeyToHeaderLabel,
+    preferStoredTemplate,
+    strictTemplate,
+    earningKeysOverride,
+    deductionKeysOverride,
+    companyNameOverride,
+    logoUrl,
+    getDisplayValue,
+    filename,
+    output: 'save',
+  });
+};
+
+/**
+ * Same rendering as download; returns a PDF Blob (e.g. for ZIP) or null on failure.
+ */
+export const generatePayslipPdfBlob = (opts) =>
+  runPayslipPdfWorker({
+    ...opts,
+    output: 'blob',
+  });

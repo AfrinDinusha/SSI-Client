@@ -4584,11 +4584,13 @@ body {
   pointer-events: none;
 }
 
-/* Ensure checkboxes, edit buttons, and payslip View button work properly */
+/* Ensure checkboxes, edit buttons, and payslip actions work (row td uses pointer-events: none) */
 .clickable-row input[type="checkbox"],
 .clickable-row .btn-icon,
 .clickable-row .btn-outline-primary,
-.clickable-row .payslip-view-btn {
+.clickable-row .payslip-view-btn,
+.clickable-row .payslip-download-pdf-btn,
+.clickable-row .payslip-checkbox-wrap {
   pointer-events: auto;
   position: relative;
   z-index: 1;

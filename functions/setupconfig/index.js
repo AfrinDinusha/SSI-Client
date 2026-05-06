@@ -10,12 +10,29 @@ const POSITION_COL = 'Position';
 const json = (res, statusCode, payload) => {
   res.writeHead(statusCode, {
     'Content-Type': 'application/json',
+    'Cache-Control': 'no-store, no-cache, must-revalidate',
+    'Pragma': 'no-cache',
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization'
   });
   res.end(JSON.stringify(payload));
 };
+
+/** Catalyst may invoke this function with a pathname that still includes the client /server/... prefix. */
+function normalizeSetupPathname(pathname) {
+  if (!pathname) return '/';
+  let p = pathname.split('?')[0];
+  const stripPrefixes = ['/server/setupconfig', '/setupconfig'];
+  for (const prefix of stripPrefixes) {
+    if (p === prefix) return '/';
+    if (p.startsWith(`${prefix}/`)) {
+      p = p.slice(prefix.length);
+      break;
+    }
+  }
+  return p.startsWith('/') ? p : `/${p}`;
+}
 
 const parseBody = async (req) => new Promise((resolve) => {
   let body = '';
@@ -213,15 +230,52 @@ async function listFormulae(catalyst) {
   }
 }
 
+function buildFinalFormulaExpression(variable, expression) {
+  const v = String(variable || '').trim();
+  const e = String(expression || '').trim();
+  if (!e) return '';
+  return v && e.includes('=') ? e : (v ? `${v} = ${e}` : e);
+}
+
 async function saveFormula(catalyst, variable, expression) {
+  const finalExpression = buildFinalFormulaExpression(variable, expression);
   try {
     const table = catalyst.datastore().table(COMPONENTS_TABLE);
-    const finalExpression = variable && expression.includes('=') ? expression : (variable ? `${variable} = ${expression}` : expression);
     await table.insertRow({ Formulas: finalExpression });
   } catch (error) {
-    const finalExpression = variable && expression.includes('=') ? expression : (variable ? `${variable} = ${expression}` : expression);
-    formulaeFallback.push({ variable, expression: finalExpression });
+    formulaeFallback.push({ variable: String(variable || '').trim(), expression: finalExpression });
   }
+}
+
+async function updateFormulaRow(catalyst, rowId, variable, expression) {
+  const finalExpression = buildFinalFormulaExpression(variable, expression);
+  if (!finalExpression) {
+    const err = new Error('Formula expression is required.');
+    err.code = 'VALIDATION';
+    throw err;
+  }
+  try {
+    const table = catalyst.datastore().table(COMPONENTS_TABLE);
+    const id = coerceRowId(rowId);
+    await table.updateRow({
+      ROWID: id,
+      Formulas: finalExpression
+    });
+  } catch (error) {
+    const m = /^fmem_(\d+)$/.exec(String(rowId));
+    if (m) {
+      const idx = Number(m[1]);
+      if (Number.isFinite(idx) && idx >= 0 && idx < formulaeFallback.length) {
+        formulaeFallback[idx] = {
+          variable: String(variable || '').trim(),
+          expression: finalExpression
+        };
+        return finalExpression;
+      }
+    }
+    throw error;
+  }
+  return finalExpression;
 }
 
 async function deleteFormulaRow(catalyst, rowId) {
@@ -248,7 +302,7 @@ module.exports = async (req, res) => {
 
     const catalyst = catalystSDK.initialize(req);
     const fullUrl = new URL(req.url, `http://${(req.headers && req.headers.host) || 'localhost'}`);
-    const pathname = fullUrl.pathname;
+    const pathname = normalizeSetupPathname(fullUrl.pathname);
 
     if (pathname === '/payroll/components' && req.method === 'GET') {
       const components = await listComponents(catalyst);
@@ -353,6 +407,33 @@ module.exports = async (req, res) => {
       return json(res, 200, {
         status: 'success',
         message: 'Formula saved successfully'
+      });
+    }
+
+    if (pathname === '/payroll/formulae/update' && req.method === 'POST') {
+      const body = await parseBody(req);
+      const rowId = body.rowId ?? body.id ?? body.ROWID;
+      const variable = String(body.variable || '').trim();
+      const expression = String(body.expression || '').trim();
+      if (rowId == null || String(rowId).trim() === '') {
+        return json(res, 400, {
+          status: 'failure',
+          message: 'Formula id is required.'
+        });
+      }
+      if (!expression) {
+        return json(res, 400, {
+          status: 'failure',
+          message: 'Formula expression is required.'
+        });
+      }
+      const finalExpression = await updateFormulaRow(catalyst, rowId, variable, expression);
+      return json(res, 200, {
+        status: 'success',
+        message: 'Formula updated successfully',
+        data: {
+          formula: { id: rowId, expression: finalExpression }
+        }
       });
     }
 

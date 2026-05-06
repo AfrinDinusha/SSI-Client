@@ -312,8 +312,7 @@
 }
 
 .setup-input-row button,
-.setup-save-wrap button,
-.remove-btn {
+.setup-save-wrap button {
   border: 0;
   border-radius: 8px;
   padding: 11px 14px;
@@ -327,34 +326,6 @@
 
 .add-component-btn {
   min-width: 170px;
-}
-
-.remove-btn {
-  background: #dc2626;
-  padding: 6px 10px;
-}
-
-.setup-action-btns {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.move-btn {
-  border: 0;
-  border-radius: 8px;
-  padding: 6px 10px;
-  background: #2563eb;
-  color: #ffffff;
-  font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.move-btn:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
 }
 
 .setup-save-wrap {
@@ -374,6 +345,18 @@
   border: 1px solid #e5e7eb;
   border-radius: 8px;
   overflow: hidden;
+}
+
+.setup-table.setup-saved-formulae-table {
+  table-layout: fixed;
+  overflow: visible;
+}
+
+.setup-saved-formulae-table th:first-child,
+.setup-saved-formulae-table td:first-child {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  vertical-align: top;
 }
 
 .setup-table th,
@@ -397,6 +380,57 @@
 .setup-delete-col {
   width: 110px;
   text-align: right;
+}
+
+.setup-edit-col {
+  width: 56px;
+  min-width: 56px;
+  max-width: 56px;
+  text-align: center;
+  vertical-align: middle;
+  box-sizing: border-box;
+}
+
+.setup-edit-btn {
+  border: 0;
+  border-radius: 6px;
+  padding: 2px 4px;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  box-sizing: border-box;
+  background: transparent;
+  color: #6b7280;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.setup-edit-btn .setup-edit-icon,
+.setup-edit-btn svg {
+  flex-shrink: 0;
+  width: 16px !important;
+  height: 16px !important;
+  min-width: 16px !important;
+  min-height: 16px !important;
+  display: block;
+}
+
+.setup-edit-btn:hover {
+  color: #2563eb;
+  background: #f3f4f6;
+}
+
+.setup-edit-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.setup-table tr.setup-formula-row-editing td {
+  background: #eff6ff;
 }
 
 .setup-delete-btn {
@@ -449,6 +483,11 @@
   border-radius: 10px;
   padding: 12px;
   background: #fff;
+  box-sizing: border-box;
+  width: calc(100% + 5px);
+  max-width: calc(100% + 5px);
+  margin-left: -2.5px;
+  margin-right: -2.5px;
 }
 
 .formula-row {

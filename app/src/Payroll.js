@@ -15,58 +15,50 @@ import {
   Activity, Plus, CheckCircle, Bell, Settings, LayoutDashboard, Home as HomeIcon,
   Shield, AlertOctagon, CreditCard, FileSignature, Search, Clock3, CalendarDays, Database
 } from 'lucide-react';
-import { buildPayslipPreviewMarkup } from './payslipPrint';
+import {
+  buildPayslipPreviewMarkup,
+  downloadPayslipPdf,
+  generatePayslipPdfBlob,
+  removePayslipPdfGenerationArtifacts,
+} from './payslipPrint';
+import JSZip from 'jszip';
 import { getSidebarModulesForUser } from './modulesConfig';
 
 const PAYROLL_AUTOMATIC_MODE_OPTIONS = ['Automatic', 'Manual'];
 
-/**
- * Two Uniform Allowance columns (same field / display value): first after "No of days without uniforms",
- * second after "Late". Strips any existing uniform columns and re-inserts at those anchors. Late is not moved.
- */
-function ensureTwoUniformAllowancePlacements(columns) {
+/** Remove columns not shown on the payroll grid (Setup may still list legacy / duplicate labels). */
+function stripPayrollGridExcludedColumns(columns) {
   if (!Array.isArray(columns) || columns.length === 0) return columns;
-  const arr = columns.map((c) => String(c ?? '').trim()).filter(Boolean);
-  const isUniformHeader = (h) => {
-    const s = h.toLowerCase();
-    return s.includes('uniform') && (s.includes('allowance') || s.includes('allownace'));
-  };
-  const isLateHeader = (h) => String(h).toLowerCase().trim() === 'late';
-  const isNoUniformDaysHeader = (h) => {
-    const s = h.toLowerCase().trim();
-    return (
-      s.includes('no of days without uniform') ||
-      s.includes('no.of days without uniform') ||
-      s === 'noofdayswithoutuniforms'
-    );
-  };
+  return columns
+    .map((c) => String(c ?? '').trim())
+    .filter(Boolean)
+    .filter((h) => {
+      const s = h.toLowerCase();
+      if (s.includes('uniform') && (s.includes('allowance') || s.includes('allownace'))) return false;
+      if (s.includes('washing') && (s.includes('allowance') || s.includes('allownace'))) return false;
+      if (s.includes('attendance') && s.includes('bonus')) return false;
+      return true;
+    });
+}
 
-  const uniformLabels = [];
-  for (const h of arr) {
-    if (isUniformHeader(h)) uniformLabels.push(h);
-  }
-  const u1 = uniformLabels[0] || 'Uniform Allowance';
-  const u2 = uniformLabels[1] || uniformLabels[0] || 'Uniform Allowance';
+/**
+ * Payload key for a Setup column / formula variable label (same rules as applyPayrollFormulaeToEmployee).
+ * Used so custom columns (e.g. Dummy) map to one editFormData key and persist on save.
+ */
+function componentLabelToPayloadKey(label) {
+  const base = String(label || '').trim();
+  if (!base) return '';
+  const camel = base
+    .toLowerCase()
+    .split(/\s+/)
+    .map((word, index) => (index === 0 ? word : word.charAt(0).toUpperCase() + word.slice(1)))
+    .join('');
+  return camel || base.replace(/\s+/g, '') || base.replace(/\s+/g, '_').toLowerCase();
+}
 
-  const rest = arr.filter((h) => !isUniformHeader(h));
-  let working = [...rest];
-
-  const noDaysIdx = working.findIndex(isNoUniformDaysHeader);
-  if (noDaysIdx >= 0) {
-    working.splice(noDaysIdx + 1, 0, u1);
-  } else {
-    const atgIdx = working.findIndex((h) => String(h).toLowerCase().includes('actual total gross'));
-    if (atgIdx >= 0) working.splice(atgIdx, 0, u1);
-    else working.push(u1);
-  }
-
-  const lateIdx = working.findIndex(isLateHeader);
-  if (lateIdx >= 0) {
-    working.splice(lateIdx + 1, 0, u2);
-  } else {
-    working.push(u2);
-  }
-  return working;
+/** Match Data Store / API field names to Setup labels (Price vs price, Foo Bar vs fooBar). */
+function normPayrollFieldKeyForLookup(s) {
+  return String(s ?? '').replace(/[\s_]/g, '').toLowerCase();
 }
 
 /** Show employees with designation MANAGING PARTNER first; case-insensitive; stable order within each group. */
@@ -83,6 +75,23 @@ function sortPayrollManagingPartnerFirst(rows) {
     const db = isManagingPartner(b) ? 0 : 1;
     return da - db;
   });
+}
+
+/**
+ * Built-in OT amount: (effective daily basic ÷ 8) × OT hours × 2.
+ * Daily basic = earnedBasic ÷ days present when both are set (so OT does not re-scale with present days);
+ * otherwise actual basic ÷ days in month. Avoids OT exploding when "No. of Days Present" is edited manually.
+ */
+function computeDefaultOtAmountFromEarnedAndActual({ earnedBasic, actualBasic, daysInMonth, daysPresent, otHours }) {
+  const dim = Number(daysInMonth) || 0;
+  const dp = Number(daysPresent) || 0;
+  const eb = Number(earnedBasic) || 0;
+  const ab = Number(actualBasic) || 0;
+  const oth = Number(otHours) || 0;
+  if (dim <= 0 || oth <= 0) return 0;
+  const dailyBasic = dp > 0 && eb > 0 ? eb / dp : ab / dim;
+  if (dailyBasic <= 0) return 0;
+  return (dailyBasic / 8) * oth * 2;
 }
 
 function isManagingPartnerPayrollRow(emp) {
@@ -140,7 +149,6 @@ const Payroll = () => {
     lop: 'LOP',
     otHours: 'OT Hours',
     foodAllowance: 'Food Allowance',
-    uniformAllowance: 'Uniform Allowance',
     washingAllowance: 'Washing Allowance',
     actualBasic: 'Actual Basic',
     actualDA: 'Actual DA',
@@ -149,7 +157,7 @@ const Payroll = () => {
     otherAllowances: 'Other Allowances',
     travelChargers: 'Travel Chargers',
     specialAllowance: 'Special Allowance',
-    loanAllowance: 'Loan Allowance',
+    loanAllowance: 'Loan',
     noOfDaysWithoutUniforms: 'No of days without uniforms',
     actualTotalSalary: 'Actual Total Gross',
     earnedBasic: 'Earned Basic',
@@ -194,9 +202,8 @@ const Payroll = () => {
     'Other Allowances',
     'Travel Chargers',
     'Special Allowance',
-    'Loan Allowance',
+    'Loan',
     'No of days without uniforms',
-    'Uniform Allowance',
     'Actual Total Gross',
     'Earned Basic',
     'Earned DA',
@@ -216,7 +223,6 @@ const Payroll = () => {
     'PT',
     'Other Deduction',
     'Late',
-    'Uniform Allowance',
     'Total Deduction',
     'Net Pay',
     'ERPF 12%',
@@ -230,38 +236,25 @@ const Payroll = () => {
     'GST 18%',
     'Net Total',
     'Bonus',
-    'Attendance Bonus',
   ]), []);
   const tablePayrollComponents = useMemo(() => {
     // Use SetupConfig columns, or default when empty; always include key editable columns.
     const fromConfig = (payrollComponents || []).map((name) => String(name || '').trim()).filter(Boolean);
     const list = fromConfig.length > 0 ? fromConfig : defaultPayrollComponentHeaders;
     const lowerList = list.map((n) => String(n).toLowerCase().trim());
-    const hasLoanAllowance = lowerList.some((n) => n.includes('loan') && n.includes('allowance'));
+    const hasLoan = lowerList.some((n) => n === 'loan' || (n.includes('loan') && n.includes('allowance')));
     const hasNoOfDaysWithoutUniform = lowerList.some((n) => n.includes('no of days without uniform') || n.includes('no.of days without uniform'));
-    const hasWashingAllowance = lowerList.some(
-      (n) => n.includes('washing') && (n.includes('allowance') || n.includes('allownace'))
-    );
-    const hasAttendanceBonus = lowerList.some(
-      (n) => n.includes('attendance') && n.includes('bonus')
-    );
     const hasTravelChargers = lowerList.some(
       (n) => n.includes('travel') && n.includes('charge')
     );
     const hasLate = lowerList.some((n) => n === 'late');
-    const hasUniformAllowance = lowerList.some(
-      (n) => n.includes('uniform') && (n.includes('allowance') || n.includes('allownace'))
-    );
     const add = [];
-    if (!hasLoanAllowance) add.push('Loan Allowance');
+    if (!hasLoan) add.push(payrollKeyToHeaderLabel.loanAllowance || 'Loan');
     if (!hasNoOfDaysWithoutUniform) add.push('No of days without uniforms');
-    if (!hasWashingAllowance) add.push('Washing Allowance');
-    if (!hasAttendanceBonus) add.push('Attendance Bonus');
     if (!hasTravelChargers) add.push(payrollKeyToHeaderLabel.travelChargers || 'Travel Chargers');
     if (!hasLate) add.push(payrollKeyToHeaderLabel.late || 'Late');
-    if (!hasUniformAllowance) add.push(payrollKeyToHeaderLabel.uniformAllowance || 'Uniform Allowance');
     const merged = add.length > 0 ? [...list, ...add] : list;
-    return ensureTwoUniformAllowancePlacements(merged);
+    return stripPayrollGridExcludedColumns(merged);
   }, [payrollComponents, defaultPayrollComponentHeaders, payrollKeyToHeaderLabel]);
 
   // Map table column label to editFormData key (for edit form and export - only show what's in the table)
@@ -282,10 +275,9 @@ const Payroll = () => {
       if (lower === 'lop') return 'lop';
       if (lower.includes('ot hours')) return 'otHours';
       if (lower.includes('food') && (lower.includes('allowance') || lower.includes('allownace'))) return 'foodAllowance';
-      if (lower.includes('uniform') && (lower.includes('allowance') || lower.includes('allownace'))) return 'uniformAllowance';
       if (lower.includes('washing') && (lower.includes('allowance') || lower.includes('allownace'))) return 'washingAllowance';
       if (lower.includes('travel') && lower.includes('charge')) return 'travelChargers';
-      if (lower.includes('loan') && lower.includes('allowance')) return 'loanAllowance';
+      if (lower === 'loan' || (lower.includes('loan') && lower.includes('allowance'))) return 'loanAllowance';
       if (lower.includes('no of days without uniform') || lower.includes('no.of days without uniform')) return 'noOfDaysWithoutUniforms';
       return null;
     };
@@ -314,26 +306,6 @@ const Payroll = () => {
     return result;
   }, [payrollFormulae, payrollKeyToHeaderLabel]);
 
-  const editFormEditableKeys = useMemo(() => {
-    const keys = new Set(['daysInMonth', 'daysPresent', 'loh', 'otHours', 'arrear', 'arrearForPF', 'incentive', 'otherDeduction', 'otArrearAmount', 'lwf', 'pt', 'advance', 'foodAllowance', 'uniformAllowance', 'travelChargers', 'bonus', 'esiContribution', 'loanAllowance', 'noOfDaysWithoutUniforms']);
-    const hasFoodFormula = (payrollFormulae || []).some((f) => {
-      const v = String(f.variable || '').trim().toLowerCase();
-      return v === 'food allowance' || v === 'food allownace';
-    });
-    if (hasFoodFormula) keys.delete('foodAllowance');
-
-    // Automatic mode (and not Manual): attendance/muster-sourced fields and Setup formulas are view-only in Edit Payroll Data.
-    const automaticLock = automaticSelections.has('Automatic') && !automaticSelections.has('Manual');
-    if (automaticLock) {
-      ['daysInMonth', 'daysPresent', 'loh', 'otHours', 'uniformAllowance'].forEach((k) =>
-        keys.delete(k)
-      );
-      payrollFormulaOptionKeys.forEach((k) => keys.delete(k));
-    }
-
-    return keys;
-  }, [payrollFormulae, automaticSelections, payrollFormulaOptionKeys]);
-
   // Ref so async callbacks (e.g. after fetch) always use latest formulae when applying
   const payrollFormulaeRef = useRef([]);
   payrollFormulaeRef.current = payrollFormulae;
@@ -343,6 +315,37 @@ const Payroll = () => {
       .trim()
       .toLowerCase()
       .replace(/\s+/g, ' ');
+
+  /** Resolve edit-form / save key for a table column label (known map first, else same as formula payload key). */
+  const getPayrollEditFieldKey = useCallback(
+    (compName) => {
+      const mapped = tableColumnToKey(compName);
+      if (mapped) return mapped;
+      return componentLabelToPayloadKey(compName);
+    },
+    [tableColumnToKey]
+  );
+
+  /** True when Setup has a non-empty expression for this column (variable matches label or configured header). */
+  const hasPayrollFormulaForComponent = useCallback(
+    (compName) => {
+      const normComp = normalizeFormulaVariable(compName);
+      if (!normComp) return false;
+      const mappedKey = tableColumnToKey(compName);
+      const mappedLabel =
+        mappedKey && payrollKeyToHeaderLabel ? payrollKeyToHeaderLabel[mappedKey] : null;
+      const normMappedLabel = mappedLabel ? normalizeFormulaVariable(mappedLabel) : '';
+      for (const f of payrollFormulae || []) {
+        const expr = String(f?.expression || '').trim();
+        if (!expr) continue;
+        const normVar = normalizeFormulaVariable(f.variable);
+        if (!normVar) continue;
+        if (normVar === normComp || (normMappedLabel && normVar === normMappedLabel)) return true;
+      }
+      return false;
+    },
+    [payrollFormulae, payrollKeyToHeaderLabel, tableColumnToKey]
+  );
 
   /** Find first Setup & Configuration formula whose variable matches predicate(normalizedName, row). */
   const findPayrollFormula = (predicate) => {
@@ -399,7 +402,7 @@ const Payroll = () => {
     return Number.isFinite(s) ? Math.round(s) : 0;
   };
 
-  /** Built-in OT Amount (same as backend / edit modal): (Earned Basic / days in month / 8) × OT Hours × 2. */
+  /** Built-in OT Amount: same daily-rate rule as computeDefaultOtAmountFromEarnedAndActual (not earnedBasic/dim twice). */
   const getBuiltInOtAmountFromRow = (row) => {
     if (!row) return 0;
     let dim = Number(row.daysInMonth ?? row.DaysInMonth ?? row.daysInMonthForCalc ?? 0) || 0;
@@ -414,13 +417,23 @@ const Payroll = () => {
     dim = dim || 31;
     const oth = Number(row.otHours ?? row.OTHours ?? 0) || 0;
     const eb = Number(row.earnedBasic ?? row.EarnedBasic ?? 0) || 0;
+    const ab = Number(row.actualBasic ?? row.ActualBasic ?? 0) || 0;
+    const dp = Number(row.daysPresent ?? row.DaysPresent ?? 0) || 0;
     if (dim <= 0 || oth <= 0) return 0;
-    return Math.round(((eb / dim) / 8) * oth * 2);
+    return Math.round(
+      computeDefaultOtAmountFromEarnedAndActual({
+        earnedBasic: eb,
+        actualBasic: ab,
+        daysInMonth: dim,
+        daysPresent: dp,
+        otHours: oth
+      })
+    );
   };
 
   /**
-   * Table/display: prefer positive saved OT Amount; else Setup "OT Amount" formula; else built-in when OT Hours > 0.
-   * Matches edit-modal behavior so imported OT hours show amounts without opening save on each row.
+   * Table/display: Setup "OT Amount" formula when valid; else built-in daily-rate OT; else plausible saved value.
+   * Saved OTAmount is ignored when it is far above computed (stale saves from old earnedBasic÷daysInMonth bug or bad edits).
    */
   const getOtAmountDisplayFromEmployee = (employee) => {
     if (!employee) return 0;
@@ -428,13 +441,21 @@ const Payroll = () => {
     const storedRaw = employee.otAmount ?? employee.OTAmount;
     const stored = parseFloat(storedRaw);
     if (oth <= 0) return Number.isFinite(stored) ? Math.round(stored) : 0;
-    if (Number.isFinite(stored) && stored > 0) return Math.round(stored);
+    const builtIn = getBuiltInOtAmountFromRow(employee);
+    const isStaleInflated = (n) =>
+      builtIn > 0 && Number.isFinite(n) && n > 0 && n > builtIn * 1.35;
     const otFormula = findPayrollFormula((norm) => norm === 'ot amount' || norm === 'otamount');
     if (otFormula?.expression) {
       const ev = evaluateFormulaExpression(employee, otFormula.expression);
-      if (Number.isFinite(ev)) return Math.max(0, Math.round(ev));
+      if (Number.isFinite(ev)) {
+        const rounded = Math.max(0, Math.round(ev));
+        if (isStaleInflated(rounded)) return builtIn;
+        return rounded;
+      }
     }
-    return getBuiltInOtAmountFromRow(employee);
+    if (isStaleInflated(stored)) return builtIn;
+    if (Number.isFinite(stored) && stored > 0) return Math.round(stored);
+    return Math.max(0, builtIn);
   };
 
   /**
@@ -444,7 +465,13 @@ const Payroll = () => {
     if (!updated) return;
     const oth = Number(updated.otHours ?? updated.OTHours ?? 0) || 0;
     if (oth <= 0) return;
+    const builtIn = getBuiltInOtAmountFromRow(updated);
     const stored = parseFloat(updated.otAmount ?? updated.OTAmount);
+    if (builtIn > 0 && Number.isFinite(stored) && stored > builtIn * 1.35) {
+      updated.otAmount = builtIn;
+      updated.OTAmount = builtIn;
+      return;
+    }
     if (Number.isFinite(stored) && stored > 0) return;
     const otFormula = findPayrollFormula((norm) => norm === 'ot amount' || norm === 'otamount');
     let next;
@@ -452,7 +479,8 @@ const Payroll = () => {
       const ev = evaluateFormulaExpression(updated, otFormula.expression);
       if (Number.isFinite(ev)) next = Math.max(0, Math.round(ev));
     }
-    if (next === undefined) next = getBuiltInOtAmountFromRow(updated);
+    if (next === undefined) next = builtIn;
+    if (builtIn > 0 && next !== undefined && Number.isFinite(next) && next > builtIn * 1.35) next = builtIn;
     updated.otAmount = next;
     updated.OTAmount = next;
   };
@@ -502,6 +530,10 @@ const Payroll = () => {
   const [showPayslipPreview, setShowPayslipPreview] = useState(false);
   const [payslipPreviewEmployee, setPayslipPreviewEmployee] = useState(null);
   const [payslipTemplateConfig, setPayslipTemplateConfig] = useState(null);
+  const [payslipPdfRowBusyCode, setPayslipPdfRowBusyCode] = useState(null);
+  const [payslipZipBusy, setPayslipZipBusy] = useState(false);
+  /** Manual ZIP link when automatic download is blocked (same-tab blob URL). */
+  const [payslipZipFallback, setPayslipZipFallback] = useState(null);
 
   // Sidebar state
   const [expandedMenus, setExpandedMenus] = useState({});
@@ -556,6 +588,22 @@ const Payroll = () => {
     if (left < 0 || right >= statuses.length) return false;
     return isAbsentStatus(statuses[left]) && isAbsentStatus(statuses[right]);
   };
+  /** YYYY-MM-DD local calendar Sunday (same idea as payroll_function / Attendance Muster). */
+  const isSundayMusterDate = (dateValue) => {
+    if (dateValue == null || dateValue === '') return false;
+    const s = String(dateValue).trim();
+    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) {
+      const y = parseInt(m[1], 10);
+      const mo = parseInt(m[2], 10) - 1;
+      const d = parseInt(m[3], 10);
+      const dt = new Date(y, mo, d);
+      if (!Number.isNaN(dt.getTime())) return dt.getDay() === 0;
+    }
+    const dt = new Date(s);
+    if (Number.isNaN(dt.getTime())) return false;
+    return dt.getDay() === 0;
+  };
   const normalizeEmployeeCode = (code) => {
     const raw = String(code ?? '').trim();
     if (!raw) return '';
@@ -564,18 +612,18 @@ const Payroll = () => {
     // Remove leading zeros but keep at least one digit
     return withoutDecimalZero.replace(/^0+(?=\d)/, '');
   };
-  const calculateDaysPresentFromMusterStatuses = (statuses) => {
+  const calculateDaysPresentFromMusterStatuses = (statuses, dates) => {
     if (!Array.isArray(statuses)) return 0;
-    // Match Attendance Muster UI logic for Total Present
+    // Match Attendance Muster "Total Present": exclude Sundays and WO/Week Off; H uses sandwich rule only.
     return statuses.reduce((sum, s, idx) => {
+      if (Array.isArray(dates) && isSundayMusterDate(dates[idx])) return sum;
       const v = normalizeStatus(s);
+      if (v === 'WO' || v === 'Week Off') return sum;
       if (v === 'Present' || v === 'P') return sum + 1;
-      // Payroll uses >=4 hours rule where Half Day Present counts as 1 (same as Muster UI)
       if (v === 'Half Day Present' || v === '0.5' || v === '0.50' || v === 0.5) return sum + 1;
       if (v === 'CO') return sum + 1;
-      if ((v === 'H' || v === 'WO') && isSandwichedWoOrH(statuses, idx)) return sum;
+      if (v === 'H' && isSandwichedWoOrH(statuses, idx)) return sum;
       if (v === 'H') return sum + 1;
-      if (v === 'WO') return sum + 1;
       if (v === 'OD' || v === 'OD-0.5') return sum + 1;
       return sum;
     }, 0);
@@ -781,11 +829,9 @@ const Payroll = () => {
       if (Number.isFinite(n)) return n;
     }
     const earnedBasic = Number(record?.earnedBasic ?? record?.EarnedBasic ?? 0) || 0;
-    const earnedSpecialAllowance = Number(record?.earnedSpecialAllowance ?? record?.EarnedSpecialAllowance ?? 0) || 0;
-    const earnedPlusSpecial = earnedBasic + earnedSpecialAllowance;
-    if (earnedPlusSpecial <= 0) return 0;
-    if (earnedPlusSpecial > 15000) return 1800;
-    return Math.round(earnedPlusSpecial * 0.12);
+    if (earnedBasic <= 0) return 0;
+    if (earnedBasic > 15000) return 1800;
+    return Math.round(earnedBasic * 0.12);
   };
   const getEsiDisplayValue = (record) => {
     if (isYashaswiContractor(record)) return 0;
@@ -802,6 +848,34 @@ const Payroll = () => {
     }
     const esiValue = record?.esi ?? record?.ESI ?? 0;
     return Math.round(parseFloat(esiValue) || 0);
+  };
+  /** Same rule as backend calcAttendanceBonus / "Attendance Bonus" column (full month present → 0; else DOJ → 1200 or 800). */
+  const getAttendanceBonusNumericForRow = (employee) => {
+    if (!employee) return 0;
+    const daysInMonth = Number(employee.daysInMonth ?? employee.DaysInMonth ?? 0);
+    const daysPresent = Number(employee.daysPresent ?? employee.DaysPresent ?? 0);
+    const dojRaw =
+      employee.dateOfJoining ??
+      employee.DateofJoining ??
+      employee.DateOfJoining ??
+      employee.date_of_joining ??
+      '';
+    if (dojRaw && daysInMonth > 0 && selectedMonth) {
+      if (Number(daysPresent) === Number(daysInMonth)) return 0;
+      const doj = new Date(dojRaw);
+      if (!isNaN(doj.getTime())) {
+        const parts = String(selectedMonth).split('-').map(Number);
+        if (parts.length >= 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+          const lastDayOfMonth = new Date(parts[0], parts[1], 0);
+          const oneYearBefore = new Date(lastDayOfMonth);
+          oneYearBefore.setFullYear(oneYearBefore.getFullYear() - 1);
+          return doj <= oneYearBefore ? 1200 : 800;
+        }
+      }
+    }
+    const v = employee.attendanceBonus ?? employee.AttendanceBonus ?? '';
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.round(n) : 0;
   };
   const getDisplayTotalDeduction = (emp) => {
     const formulae = payrollFormulaeRef.current || [];
@@ -840,6 +914,29 @@ const Payroll = () => {
     }
 
     return Math.round(parseFloat(emp?.totalDeduction ?? emp?.TotalDeduction ?? 0) || 0);
+  };
+
+  /** Same numeric rule as Net Pay column — used after formulae so Run Payroll save / RunPayroll table match the grid. */
+  const getGridAlignedNetPayNumber = (employee) => {
+    if (!employee) return NaN;
+    const earned =
+      parseFloat(
+        employee.earnedSalaryCross ??
+          employee.EarnedSalaryCross ??
+          employee.earnedGrossSalary ??
+          employee.EarnedGrossSalary ??
+          0
+      ) || 0;
+    const totalDed =
+      typeof getDisplayTotalDeduction === 'function'
+        ? getDisplayTotalDeduction(employee)
+        : Math.round(parseFloat(employee.totalDeduction ?? employee.TotalDeduction ?? 0) || 0);
+    if (Number.isFinite(earned) && Number.isFinite(totalDed)) return Math.round(earned - totalDed);
+    const stored = employee.netPay ?? employee.NetPay ?? employee.net_pay;
+    const storedNum = parseFloat(stored);
+    if (Number.isFinite(storedNum)) return Math.round(storedNum);
+    const advance = parseFloat(employee.advance ?? employee.Advance ?? 0) || 0;
+    return Math.round(earned - totalDed - advance);
   };
 
   const getComponentDisplayValue = (employee, componentName) => {
@@ -885,17 +982,11 @@ const Payroll = () => {
       const n = Number(v);
       return Number.isFinite(n) ? n : 0;
     }
-    // Loan Allowance - show 0 when value is missing or zero
-    if (lower.includes('loan') && lower.includes('allowance')) {
+    // Loan / Loan Allowance - show 0 when value is missing or zero
+    if (lower === 'loan' || (lower.includes('loan') && lower.includes('allowance'))) {
       const v = employee.loanAllowance ?? employee.LoanAllowance ?? '';
       const n = Number(v);
       return Number.isFinite(n) ? n : 0;
-    }
-    // Uniform Allowance - from employee form or saved payroll; show 0 when missing so fetched data displays
-    if (lower.includes('uniform') && (lower.includes('allowance') || lower.includes('allownace'))) {
-      const v = employee.uniformAllowance ?? employee.UniformAllowance ?? '';
-      const n = Number(v);
-      return Number.isFinite(n) ? n : (v !== '' && v !== null && v !== undefined ? v : 0);
     }
     // Washing Allowance — align table with edit modal (25× days present − no-uniform days) when no Setup formula
     if (lower.includes('washing') && (lower.includes('allowance') || lower.includes('allownace'))) {
@@ -940,28 +1031,13 @@ const Payroll = () => {
       const n = getTravelChargersFromRecord(employee);
       return Number.isFinite(n) ? Math.round(n) : 0;
     }
-    // Attendance Bonus - show 0 when value is missing or zero (rounded)
+    // Attendance Bonus — same rule as payroll_function calcAttendanceBonus
     if (lower.includes('attendance') && lower.includes('bonus')) {
-      const v = employee.attendanceBonus ?? employee.AttendanceBonus ?? '';
-      const n = Number(v);
-      if (Number.isFinite(n) && n > 0) return Math.round(n);
-      // Fallback: compute from DOJ/full-attendance rule when row doesn't carry persisted value.
-      const daysInMonth = Number(employee.daysInMonth ?? employee.DaysInMonth ?? 0);
-      const daysPresent = Number(employee.daysPresent ?? employee.DaysPresent ?? 0);
-      const dojRaw = employee.dateOfJoining ?? employee.DateofJoining ?? employee.DateOfJoining ?? employee.date_of_joining ?? '';
-      if (dojRaw && daysInMonth > 0 && daysPresent === daysInMonth && selectedMonth) {
-        const doj = new Date(dojRaw);
-        if (!isNaN(doj.getTime())) {
-          const parts = String(selectedMonth).split('-').map(Number);
-          if (parts.length >= 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
-            const lastDayOfMonth = new Date(parts[0], parts[1], 0);
-            const oneYearBefore = new Date(lastDayOfMonth);
-            oneYearBefore.setFullYear(oneYearBefore.getFullYear() - 1);
-            return doj <= oneYearBefore ? 1200 : 800;
-          }
-        }
-      }
-      return 0;
+      return getAttendanceBonusNumericForRow(employee);
+    }
+    // Attendance Deduction (Setup deduction column): show same computed amount as Attendance Bonus for visibility in deductions section
+    if (lower.includes('attendance') && lower.includes('deduction')) {
+      return getAttendanceBonusNumericForRow(employee);
     }
     // Earned Gross Salary: use earnedSalaryCross (synced from formula earnedGrossSalary when present) so edit form and table show same value
     if (lower.includes('earned') && lower.includes('gross') && (lower.includes('salary') || lower.includes('cross'))) {
@@ -980,7 +1056,7 @@ const Payroll = () => {
       const advance = parseFloat(employee.advance ?? employee.Advance ?? 0) || 0;
       return Math.round(earned - totalDed - advance);
     }
-    // Total Deduction: always recalculated (PF + ESI + Loan + Uniform; Food Allowance excluded) so it updates when PF changes
+    // Total Deduction: always recalculated (PF + ESI + Loan; Food Allowance excluded) so it updates when PF changes
     if (lower === 'total deduction' || lower === 'total deductions') {
       return typeof getDisplayTotalDeduction === 'function' ? getDisplayTotalDeduction(employee) : Math.round(parseFloat(employee?.totalDeduction ?? employee?.TotalDeduction ?? 0) || 0);
     }
@@ -1033,12 +1109,31 @@ const Payroll = () => {
       camel,
       camelAcronym,
     ];
+    // Data Store / update path often uses PascalCase from camel payload keys (e.g. price → Price).
+    if (camel && camel.length) {
+      const pascalFromCamel = camel.charAt(0).toUpperCase() + camel.slice(1);
+      if (!variants.includes(pascalFromCamel)) variants.push(pascalFromCamel);
+    }
 
     for (const key of variants) {
-      if (employee[key] !== undefined && employee[key] !== null) {
-        const val = employee[key];
+      if (employee[key] === undefined || employee[key] === null) continue;
+      const val = employee[key];
+      // Do not stop on '' — another variant (e.g. allowance vs OtherAllowance) may hold the saved value.
+      if (val === '') continue;
+      if (typeof val === 'number' && Number.isFinite(val)) return Math.round(val);
+      if (typeof val === 'string' && Number.isFinite(Number(val))) return Math.round(Number(val));
+      return val;
+    }
+    // Fallback: Catalyst / merge may use a key shape not in variants (e.g. only "Price" on row, label "PRICE").
+    const payloadKey = componentLabelToPayloadKey(base);
+    const tgt = payloadKey ? normPayrollFieldKeyForLookup(payloadKey) : '';
+    if (tgt) {
+      for (const k of Object.keys(employee)) {
+        if (normPayrollFieldKeyForLookup(k) !== tgt) continue;
+        const val = employee[k];
+        if (val === undefined || val === null || val === '') continue;
         if (typeof val === 'number' && Number.isFinite(val)) return Math.round(val);
-        if (typeof val === 'string' && val !== '' && Number.isFinite(Number(val))) return Math.round(Number(val));
+        if (typeof val === 'string' && Number.isFinite(Number(val))) return Math.round(Number(val));
         return val;
       }
     }
@@ -1245,18 +1340,7 @@ const Payroll = () => {
       const base = String(variable).trim();
       if (!base) return;
 
-      const camel = base
-        .toLowerCase()
-        .split(/\s+/)
-        .map((word, index) =>
-          index === 0 ? word : word.charAt(0).toUpperCase() + word.slice(1)
-        )
-        .join('');
-
-      const key =
-        camel ||
-        base.replace(/\s+/g, '') ||
-        base.replace(/\s+/g, '_').toLowerCase();
+      const key = componentLabelToPayloadKey(base);
 
       // When ESI Status is No, do not apply ESI formulae (keep ESI and Employer ESI 0)
       const baseLower = base.toLowerCase();
@@ -1267,6 +1351,11 @@ const Payroll = () => {
       }
       // Late is evaluated after Earned Gross / OT sync (see below) so LOH × Earned Basic resolves correctly
       if (baseLower === 'late') return;
+      if (
+        baseLower.includes('uniform') &&
+        (baseLower.includes('allowance') || baseLower.includes('allownace'))
+      )
+        return;
 
       const value = evaluateFormulaExpression(updated, expression);
       // Total Deduction fallback: use configured deduction keys so setup changes are reflected automatically.
@@ -1447,10 +1536,23 @@ const Payroll = () => {
       console.log('Payroll data received:', result);
       console.log('Data array length:', result.data ? result.data.length : 0);
 
-      // Fix for Sunday count when date range is selected:
-      // We fetch data from Attendance Muster function to get accurate daily status counts
-      // This ensures we match the "Attendance Muster model" where Sundays/Holidays in range are counted
-      if (effectiveFromDate && effectiveToDate && result.data && result.data.length > 0) {
+      // Align No. of Days Present with Attendance Muster when NOT in Manual mode (same as Run Payroll path).
+      // Manual mode keeps DaysPresent/OT/LOH from saved payroll / SamplePayroll — muster merge was incorrectly always applied on refresh.
+      let manualModeActiveFetch = automaticSelections.has('Manual');
+      if (!manualModeActiveFetch) {
+        try {
+          const modeRes = await fetch(
+            `/server/payroll_function/automatic-selection/latest?month=${encodeURIComponent(selectedMonth)}&_t=${Date.now()}`
+          );
+          if (modeRes.ok) {
+            const modeJson = await modeRes.json().catch(() => ({}));
+            manualModeActiveFetch = !!modeJson.manual;
+          }
+        } catch (modeErr) {
+          console.warn('Could not verify payroll mode for fetch; may merge muster:', modeErr);
+        }
+      }
+      if (!manualModeActiveFetch && effectiveFromDate && effectiveToDate && result.data && result.data.length > 0) {
         try {
           console.log('Fetching accurate attendance data from Attendance Muster...');
           let musterUrl = `/server/attendance_muster_function/?startDate=${encodeURIComponent(effectiveFromDate)}&endDate=${encodeURIComponent(effectiveToDate)}&userEmail=${encodeURIComponent(userEmail || '')}`;
@@ -1479,8 +1581,8 @@ const Payroll = () => {
               musterData.employees.forEach((empId, idx) => {
                 const statuses = musterData.muster[idx] || [];
                
-                // Calculate Days Present using Attendance Muster logic (incl. sandwich rule)
-                const daysPresent = calculateDaysPresentFromMusterStatuses(statuses);
+                // Calculate Days Present using Attendance Muster logic (same as muster Total Present incl. dates for Sun/WO)
+                const daysPresent = calculateDaysPresentFromMusterStatuses(statuses, musterData.dates);
                
                 // Store both raw and normalized employee codes to avoid mismatch (e.g. "00123" vs "123")
                 const rawEmpId = String(empId ?? '').trim();
@@ -1566,6 +1668,8 @@ const Payroll = () => {
         } catch (err) {
           console.error('Error fetching/processing attendance muster data:', err);
         }
+      } else if (manualModeActiveFetch) {
+        console.log('Manual mode is active — skipping Attendance Muster overwrite for daysPresent/OT/LOH on fetch/refresh');
       }
      
       if (result.data && result.data.length > 0) {
@@ -1610,6 +1714,7 @@ const Payroll = () => {
         }
         return {
         ...row,
+        unit: row.unit ?? row.Unit ?? row.relevantExperience ?? row['SSPSE Experience'] ?? '',
         actualBasic: payrollFieldNumber(row.actualBasic, row.ActualBasic),
         actualHRA: payrollFieldNumber(row.actualHRA, row.ActualHRA),
         actualDA: payrollFieldNumber(row.actualDA, row.ActualDA),
@@ -1704,7 +1809,18 @@ const Payroll = () => {
     } finally {
       setLoading(false);
     }
-  }, [selectedMonth, contractor, department, employeeId, employeeStatus, fromDate, toDate]);
+  }, [
+    selectedMonth,
+    contractor,
+    department,
+    employeeId,
+    employeeStatus,
+    fromDate,
+    toDate,
+    userEmail,
+    forcedContractor,
+    automaticSelections
+  ]);
 
   // Store all imported data (unfiltered) to allow local filtering
   const [allPayrollData, setAllPayrollData] = useState([]);
@@ -2079,8 +2195,8 @@ const Payroll = () => {
                 const statuses = musterData.muster[idx] || [];
                 const rawEmpId = String(empId ?? '').trim();
                 const normalizedEmpId = normalizeEmployeeCode(empId);
-                // Calculate Days Present using Attendance Muster logic (incl. sandwich rule)
-                const daysPresent = calculateDaysPresentFromMusterStatuses(statuses);
+                // Calculate Days Present using Attendance Muster logic (same as muster Total Present incl. dates for Sun/WO)
+                const daysPresent = calculateDaysPresentFromMusterStatuses(statuses, musterData.dates);
                 if (rawEmpId) attendanceMap[rawEmpId] = daysPresent;
                 if (normalizedEmpId) attendanceMap[normalizedEmpId] = daysPresent;
                 // OT Hours from attendance_muster_function (monthlyOvertimePreferred)
@@ -2561,6 +2677,152 @@ const Payroll = () => {
     }
   };
 
+  const fetchPayslipTemplateForPdf = async () => {
+    try {
+      const res = await fetch('/server/payslip_function/getPayslipTemplate');
+      const data = await res.json();
+      if (data && data.success) {
+        return {
+          companyName: typeof data.companyName === 'string' ? data.companyName.trim() : '',
+          earningKeys: Array.isArray(data.earningKeys) ? data.earningKeys : [],
+          deductionKeys: Array.isArray(data.deductionKeys) ? data.deductionKeys : [],
+        };
+      }
+    } catch {
+      /* use fallback */
+    }
+    return payslipTemplateConfig;
+  };
+
+  const payslipPdfBaseOptions = (template) => {
+    const t = template && typeof template === 'object' ? template : null;
+    const useTemplateOverrides = t && (t.earningKeys?.length > 0 || t.deductionKeys?.length > 0);
+    return {
+      payrollKeyToHeaderLabel,
+      selectedMonth,
+      preferStoredTemplate: true,
+      strictTemplate: !!useTemplateOverrides,
+      companyNameOverride: useTemplateOverrides && t.companyName ? t.companyName : undefined,
+      earningKeysOverride: useTemplateOverrides ? t.earningKeys : undefined,
+      deductionKeysOverride: useTemplateOverrides ? t.deductionKeys : undefined,
+      logoUrl: payslipLogo,
+      getDisplayValue: getComponentDisplayValue,
+    };
+  };
+
+  const handleDownloadPayslipPdf = async (employee) => {
+    if (!employee) return;
+    setShowPayslipPreview(false);
+    setPayslipPreviewEmployee(null);
+    const code = employee.employeeCode ?? employee.EmployeeCode ?? '';
+    setPayslipPdfRowBusyCode(code);
+    setError('');
+    try {
+      const template = await fetchPayslipTemplateForPdf();
+      const ok = await downloadPayslipPdf({
+        employee,
+        ...payslipPdfBaseOptions(template),
+      });
+      if (!ok) setError('Could not generate payslip PDF. Try again or use View and print to PDF.');
+    } catch (err) {
+      setError(err?.message || 'Payslip PDF download failed.');
+    } finally {
+      removePayslipPdfGenerationArtifacts();
+      setPayslipPdfRowBusyCode(null);
+    }
+  };
+
+  const handleDownloadSelectedPayslipsZip = async () => {
+    const selected = payrollData.filter((emp) => !!(emp.payslip === true || emp.payslip === 'true'));
+    if (!selected.length) {
+      setError('Select at least one employee with the Payslip checkbox, then click Download ZIP.');
+      return;
+    }
+    setShowPayslipPreview(false);
+    setPayslipPreviewEmployee(null);
+    setPayslipZipFallback((prev) => {
+      if (prev?.url) URL.revokeObjectURL(prev.url);
+      return null;
+    });
+    removePayslipPdfGenerationArtifacts();
+
+    const zipName = `Payslips_${selectedMonth || 'export'}.zip`;
+
+    setPayslipZipBusy(true);
+    setError('');
+    try {
+      const template = await fetchPayslipTemplateForPdf();
+      const base = payslipPdfBaseOptions(template);
+      const zip = new JSZip();
+      let added = 0;
+      for (let i = 0; i < selected.length; i += 1) {
+        const employee = selected[i];
+        const blob = await generatePayslipPdfBlob({ employee, ...base });
+        if (blob && blob.size > 0) {
+          const rawCode = employee.employeeCode ?? employee.EmployeeCode ?? `emp_${i}`;
+          const safeCode = String(rawCode).replace(/[^\w.-]+/g, '_');
+          zip.file(`Payslip_${safeCode}_${selectedMonth || 'month'}.pdf`, blob);
+          added += 1;
+        }
+      }
+      if (!added) {
+        setError(
+          'Could not generate any payslip PDFs. If this persists, open one row with View — if View is blank, fix the payslip template or logo (CORS).'
+        );
+        return;
+      }
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+
+      const nav = typeof navigator !== 'undefined' ? navigator : null;
+      if (nav && typeof nav.msSaveOrOpenBlob === 'function') {
+        nav.msSaveOrOpenBlob(zipBlob, zipName);
+        setImportSuccess(`Saving ${zipName} (${added} PDFs)…`);
+        setTimeout(() => setImportSuccess(''), 6000);
+        return;
+      }
+
+      const url = URL.createObjectURL(zipBlob);
+      setPayslipZipFallback({ url, filename: zipName });
+      const a = document.createElement('a');
+      a.href = url;
+      a.setAttribute('download', zipName);
+      a.download = zipName;
+      a.rel = 'noopener';
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          try {
+            a.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+          } catch {
+            a.click();
+          }
+        });
+      });
+      setTimeout(() => {
+        if (a.parentNode) a.parentNode.removeChild(a);
+      }, 4000);
+      setImportSuccess(
+        `ZIP ${zipName} contains ${added} payslip PDF(s) (same layout as View). If download did not start, use the green “Save …” link below.`
+      );
+      setTimeout(() => setImportSuccess(''), 20000);
+      setTimeout(() => {
+        setPayslipZipFallback((prev) => {
+          if (prev?.url === url) {
+            URL.revokeObjectURL(url);
+            return null;
+          }
+          return prev;
+        });
+      }, 300000);
+    } catch (err) {
+      setError(err?.message || 'ZIP download failed.');
+    } finally {
+      removePayslipPdfGenerationArtifacts();
+      setPayslipZipBusy(false);
+    }
+  };
+
   const payslipPreviewMarkup = useMemo(() => {
     if (!showPayslipPreview || !payslipPreviewEmployee) return '';
 
@@ -2590,6 +2852,7 @@ const Payroll = () => {
       employeeName: employee.employeeName || '',
       designation: employee.designation ?? employee.Designation ?? '',
       department: employee.department || '',
+      unit: employee.unit ?? employee.Unit ?? employee.relevantExperience ?? '',
       dateOfJoining: employee.dateOfJoining ?? employee.date_of_joining ?? '',
       contractor: employee.contractor || '',
       daysInMonth: toWholeNumber(employee.daysInMonth ?? employee.DaysInMonth ?? 0),
@@ -2607,7 +2870,6 @@ const Payroll = () => {
       specialAllowance: toWholeNumber(employee.specialAllowance ?? employee.SpecialAllowance ?? 0),
       loanAllowance: toWholeNumber(employee.loanAllowance || 0),
       foodAllowance: toWholeNumber(employee.foodAllowance ?? employee.FoodAllowance ?? 0),
-      uniformAllowance: toWholeNumber(employee.uniformAllowance ?? employee.UniformAllowance ?? 0),
       travelChargers: toWholeNumber(getTravelChargersFromRecord(employee)),
       noOfDaysWithoutUniforms: toWholeNumber(employee.noOfDaysWithoutUniforms ?? employee.noofdayswithoutuniforms ?? 0),
       incentive: toWholeNumber(employee.incentive || 0),
@@ -2626,7 +2888,7 @@ const Payroll = () => {
       pf: toWholeNumber(getPfDisplayValue(employee) ?? 0),
       esi: toWholeNumber(employee.esi ?? getEsiDisplayValue(employee) ?? 0),
       totalDeduction: toWholeNumber(getDisplayTotalDeduction(employee)),
-      otAmount: toWholeNumber(employee.otAmount || 0),
+      otAmount: toWholeNumber(getOtAmountDisplayFromEmployee(employee)),
       otArrearAmount: toWholeNumber(employee.otArrearAmount || 0),
       otEsi: toWholeNumber(employee.otEsi || 0),
       otPayment: toWholeNumber(employee.otPayment || 0),
@@ -2672,24 +2934,8 @@ const Payroll = () => {
       employee.earnedSpecialAllowance ?? employee.EarnedSpecialAllowance ?? merged.earnedSpecialAllowance
     );
     merged.esi = employee.esi ?? employee.ESI ?? merged.esi;
-    // Recompute OT Amount from formula so it always shows when daysInMonth and otHours are present (avoids stale 0 from saved data)
-    let dim = Number(merged.daysInMonth) || 0;
-    if (dim <= 0 && selectedMonth) {
-      const parts = String(selectedMonth).split('-');
-      if (parts.length >= 2) {
-        const y = parseInt(parts[0], 10);
-        const m = parseInt(parts[1], 10);
-        if (!isNaN(y) && !isNaN(m)) dim = new Date(y, m, 0).getDate();
-      }
-    }
-    dim = dim || 31;
-    const oth = Number(merged.otHours ?? merged.OTHours) || 0;
-    const eb = Number(merged.earnedBasic) || 0;
-    if (dim > 0 && eb >= 0) {
-      if (oth > 0) {
-        merged.otAmount = Math.round(((eb / dim) / 8) * oth * 2);
-      }
-    }
+    // OT Amount must match the payroll grid column (same as getComponentDisplayValue → stored / Setup formula / built-in), not only the built-in recompute from calculateDerivedFields.
+    merged.otAmount = toWholeNumber(getOtAmountDisplayFromEmployee(employee));
     // Earned Gross Salary: use same value as grid row (backend + payroll formulae). Client-only sum (egsFromFormula) can differ from displayed EGS.
     const rowEgsRaw =
       employee.earnedSalaryCross ?? employee.EarnedSalaryCross ?? employee.earnedGrossSalary ?? employee.EarnedGrossSalary;
@@ -2697,18 +2943,27 @@ const Payroll = () => {
     if (rowEgsRaw !== undefined && rowEgsRaw !== null && rowEgsRaw !== '') {
       egsVal = toWholeNumber(rowEgsRaw);
     } else {
-      const egsFromFormula =
-        (Number(merged.travelChargers) || 0) +
-        (Number(merged.otAmount) || 0) +
-        (Number(merged.incentive) || 0) +
-        (Number(merged.attendanceBonus) || 0) +
-        (Number(merged.washingAllowance) || 0) +
-        (Number(merged.foodAllowance) || 0) +
-        (Number(merged.uniformAllowance) || 0) +
-        (Number(merged.earnedBasic) || 0) +
-        (Number(merged.earnedHRA) || 0) +
-        (Number(merged.earnedSpecialAllowance) || 0);
-      egsVal = Math.round(egsFromFormula);
+      const egsFormulaOpen = (Array.isArray(payrollFormulae) ? payrollFormulae : []).find(
+        (f) => String(f.variable || '').trim().toLowerCase() === 'earned gross salary'
+      );
+      if (egsFormulaOpen && String(egsFormulaOpen.expression || '').trim()) {
+        const vOpen = evaluateFormulaExpression(merged, egsFormulaOpen.expression);
+        egsVal = Number.isFinite(vOpen)
+          ? Math.round(vOpen)
+          : toWholeNumber(merged.earnedSalaryCross ?? merged.earnedGrossSalary ?? 0);
+      } else {
+        const egsFromFormula =
+          (Number(merged.travelChargers) || 0) +
+          (Number(merged.otAmount) || 0) +
+          (Number(merged.incentive) || 0) +
+          (Number(merged.attendanceBonus) || 0) +
+          (Number(merged.washingAllowance) || 0) +
+          (Number(merged.foodAllowance) || 0) +
+          (Number(merged.earnedBasic) || 0) +
+          (Number(merged.earnedHRA) || 0) +
+          (Number(merged.earnedSpecialAllowance) || 0);
+        egsVal = Math.round(egsFromFormula);
+      }
     }
     merged.earnedSalaryCross = egsVal;
     merged.earnedGrossSalary = egsVal;
@@ -2717,6 +2972,19 @@ const Payroll = () => {
     merged.esi = toWholeNumber(getEsiDisplayValue(merged) ?? 0);
     merged.totalDeduction = toWholeNumber(getDisplayTotalDeduction(merged) ?? 0);
     merged.netPay = toWholeNumber(getComponentDisplayValue(merged, 'Net Pay') ?? 0);
+    for (const compName of tablePayrollComponents || []) {
+      const k = getPayrollEditFieldKey(compName);
+      if (!k) continue;
+      if (merged[k] === undefined || merged[k] === null || merged[k] === '') {
+        const disp = getComponentDisplayValue(employee, compName);
+        if (disp !== '' && disp !== undefined && disp !== null) {
+          const n = typeof disp === 'number' ? disp : Number(disp);
+          merged[k] = Number.isFinite(n) ? toWholeNumber(disp) : disp;
+        } else {
+          merged[k] = 0;
+        }
+      }
+    }
     setEditFormData(merged);
     setShowEditModal(true);
   };
@@ -2797,8 +3065,14 @@ const Payroll = () => {
     const actualTotalSalary = providedActualTotalSalary ?? computedActualTotalSalary;
 
     const baseEarnedGross = earnedBasic + earnedHRA + earnedDA + earnedAttendanceAllowance + earnedOtherAllowances + arrear + arrearForPF + incentive + otArrearAmount; // Includes OTArrearAmount and Arrear For PF
-    // OT Amount = Earned Basic / No. of Days(In month) / 8 * OT Hours * 2
-    const otAmount = daysInMonth > 0 ? ((earnedBasic / daysInMonth) / 8) * otHours * 2 : 0;
+    // OT Amount = (effective daily basic / 8) * OT Hours * 2 — daily basic from earned÷present or actual÷dim (not earned÷dim twice)
+    const otAmount = computeDefaultOtAmountFromEarnedAndActual({
+      earnedBasic,
+      actualBasic,
+      daysInMonth,
+      daysPresent,
+      otHours
+    });
     const earnedSalaryCross = baseEarnedGross + otAmount; // Earned Gross Salary = baseEarnedGross + OT only (exclude special allowance, other allowances)
     const pfEnabled = isPfEnabled(formData);
     const esiEnabled = isEsiEnabled(formData);
@@ -2812,17 +3086,17 @@ const Payroll = () => {
         : savedEarnedSpecialAllowance !== null && savedEarnedSpecialAllowance >= 0
           ? savedEarnedSpecialAllowance
           : earnedSpecialAllowanceForm;
-    // PF: from EARNED values only. PF = (Earned Basic + Earned Special Allowance) > 15000 ? 1800 : (Earned Basic + Earned Special Allowance) * 12%; when sum is 0, PF = 0
+    // PF: Earned Basic > 15000 → 1800; else 12% on Earned Basic. pfWages (Admin/EDLI) still uses combined earned (capped).
     const earnedPlusSpecial = earnedBasic + earnedSpecialAllowanceResolved;
-    let pfWages; // wage base for admin/edli
+    let pfWages;
     let pf;
-    if (pfEnabled && earnedPlusSpecial > 0) {
-      if (earnedPlusSpecial > 15000) {
+    if (pfEnabled && earnedBasic > 0) {
+      if (earnedBasic > 15000) {
         pf = 1800;
         pfWages = 15000;
       } else {
-        pfWages = earnedPlusSpecial;
-        pf = Math.round(pfWages * 0.12);
+        pfWages = Math.min(15000, Math.max(0, earnedPlusSpecial));
+        pf = Math.round(earnedBasic * 0.12);
       }
     } else {
       pf = 0;
@@ -2841,11 +3115,10 @@ const Payroll = () => {
     const rent = parseFloat(formData.rent) || 0; // Rent Recovery (included in Total Deduction)
     const contractorNameForCalc = String(formData.contractor || '').trim().toLowerCase();
     const isYashaswiForCalc = contractorNameForCalc === 'yashaswi academy for skills';
-    // Total Deduction = PF + ESI + Loan allowance + Uniform allowance (Food allowance excluded from total)
+    // Total Deduction = PF + ESI + Loan allowance (Food allowance excluded from total)
     const loanVal = parseFloat(formData.loanAllowance) || 0;
-    const uniformVal = parseFloat(formData.uniformAllowance) || 0;
     const esiForTotalDed = Number(formData.esi ?? formData.ESI ?? '') || esi;
-    const totalDeduction = pf + esiForTotalDed + loanVal + uniformVal;
+    const totalDeduction = pf + esiForTotalDed + loanVal;
     const netPayBeforeAdvance = earnedSalaryCross - totalDeduction; // Net Pay before advance
     const otEsi = esiEnabled ? otAmount * 0.0075 : 0; // OT ESI uses OT Amount, not OT Payment, when ESI is enabled
     const payableAmount = otPayment - otEsi; // Payable Amount = OT Payment - OT ESI
@@ -2885,18 +3158,22 @@ const Payroll = () => {
     const gst = contractorNameLower === 'yashaswi academy for skills' ? 0 : total * 0.18;
     const netTotal = total + gst; // Net Total = Total + GST 18%
 
-    // Attendance Bonus: from DOJ 1 year complete + no. of days in month === no. of days present → 1200; from DOJ < 1 year + same → 800; else 0
+    // Attendance Bonus: days present = days in month → 0; else DOJ ≥1 year before month-end → 1200, else 800
     let attendanceBonusCalc = 0;
     const dateOfJoiningVal = formData.dateOfJoining ?? formData.date_of_joining ?? '';
-    if (dateOfJoiningVal && daysInMonth > 0 && Number(daysPresent) === Number(daysInMonth) && selectedMonth) {
-      const doj = new Date(dateOfJoiningVal);
-      if (!isNaN(doj.getTime())) {
-        const parts = String(selectedMonth).split('-').map(Number);
-        if (parts.length >= 2) {
-          const lastDayOfMonth = new Date(parts[0], parts[1], 0);
-          const oneYearBefore = new Date(lastDayOfMonth);
-          oneYearBefore.setFullYear(oneYearBefore.getFullYear() - 1);
-          attendanceBonusCalc = doj <= oneYearBefore ? 1200 : 800;
+    if (dateOfJoiningVal && daysInMonth > 0 && selectedMonth) {
+      if (Number(daysPresent) === Number(daysInMonth)) {
+        attendanceBonusCalc = 0;
+      } else {
+        const doj = new Date(dateOfJoiningVal);
+        if (!isNaN(doj.getTime())) {
+          const parts = String(selectedMonth).split('-').map(Number);
+          if (parts.length >= 2) {
+            const lastDayOfMonth = new Date(parts[0], parts[1], 0);
+            const oneYearBefore = new Date(lastDayOfMonth);
+            oneYearBefore.setFullYear(oneYearBefore.getFullYear() - 1);
+            attendanceBonusCalc = doj <= oneYearBefore ? 1200 : 800;
+          }
         }
       }
     }
@@ -2938,8 +3215,11 @@ const Payroll = () => {
       earnedAttendanceAllowance: toWholeNumber(earnedAttendanceAllowance),
       earnedOtherAllowances: toWholeNumber(earnedOtherAllowances),
       pt: toWholeNumber(pt), // PT rounded to whole number
-      attendanceBonus: toWholeNumber(attendanceBonusCalc), // DOJ 1 year + full attendance → 1200; DOJ < 1 year + full attendance → 800; else 0
+      attendanceBonus: toWholeNumber(attendanceBonusCalc), // full month present → 0; else tenure 1+ year → 1200, under 1 year → 800
       washingAllowance: toWholeNumber(washingAllowanceCalc), // 25 * (Days Present - No. of days without uniform)
+      // Echo allowances on the object sent to /import (derive merge must not drop PascalCase-only keys).
+      otherAllowance: toWholeNumber(parseFloat(formData.otherAllowance ?? formData.OtherAllowance ?? 0) || 0),
+      otherAllowances: toWholeNumber(parseFloat(formData.otherAllowances ?? formData.OtherAllowances ?? 0) || 0),
     };
     // When Actual HRA was computed from saved formula (form had 0), show it in the edit form so Earned HRA displays correctly
     if (actualHRAFromFormula) {
@@ -2955,7 +3235,7 @@ const Payroll = () => {
         const key = camel || base.replace(/\s+/g, '') || base.replace(/\s+/g, '_').toLowerCase();
         if (key === 'actualTotalSalary') return; // keep from employee/master, not formula-driven
         // Do not overwrite user-editable allowances with formula (user input must persist in edit form). Food Allowance uses Setup formula (same as payroll run).
-        const userEditableAllowances = new Set(['washingAllowance', 'travelChargers', 'uniformAllowance', 'attendanceBonus']);
+        const userEditableAllowances = new Set(['washingAllowance', 'travelChargers', 'attendanceBonus']);
         if (userEditableAllowances.has(key)) return;
         if (key === 'foodAllownace') {
           const fv = withFormulae.foodAllowance ?? withFormulae.foodAllownace;
@@ -2984,7 +3264,7 @@ const Payroll = () => {
         derived.earnedSalaryCross = derived.earnedGrossSalary;
       }
     }
-    // Earned Gross Salary = Travel Charges + OT Amount + Incentive + Attendance Bonus + Washing Allowance + Food Allowance + Uniform Allowance + Earned Basic + Earned HRA + Earned Special Allowance (all from Setup/configuration)
+    // Fallback when Setup does not define Earned Gross Salary: sum travel, OT, incentives, allowances, earned components.
     const applyEarnedGrossFormula = () => {
       const sum = (Number(derived.travelChargers ?? formData.travelChargers) || 0) +
         (Number(derived.otAmount) || 0) +
@@ -2992,22 +3272,42 @@ const Payroll = () => {
         (Number(derived.attendanceBonus ?? formData.attendanceBonus) || 0) +
         (Number(derived.washingAllowance ?? formData.washingAllowance) || 0) +
         (Number(derived.foodAllowance ?? formData.foodAllowance) || 0) +
-        (Number(derived.uniformAllowance ?? formData.uniformAllowance) || 0) +
         (Number(derived.earnedBasic) || 0) +
         (Number(derived.earnedHRA) || 0) +
         (Number(derived.earnedSpecialAllowance) || 0);
       derived.earnedSalaryCross = toWholeNumber(sum);
       derived.earnedGrossSalary = derived.earnedSalaryCross;
     };
-    // OT Amount uses Earned Basic (from Setup/configuration or built-in) after formulae
+    // OT Amount: same daily-rate rule after formulae (do not use finalEarnedBasic/dim — avoids OT spike when days present changes)
     const finalEarnedBasic = Number(derived.earnedBasic) || 0;
+    const finalActualBasic = parseFloat(formData.actualBasic) || 0;
+    const finalDaysPresent = parseFloat(formData.daysPresent) || 0;
     if (daysInMonth > 0 && finalEarnedBasic >= 0) {
-      // OT Amount = Earned Basic / No. of Days(In month) / 8 * OT Hours * 2
       if (otHours > 0) {
-        const newOtAmount = ((finalEarnedBasic / daysInMonth) / 8) * otHours * 2;
+        const newOtAmount = computeDefaultOtAmountFromEarnedAndActual({
+          earnedBasic: finalEarnedBasic,
+          actualBasic: finalActualBasic,
+          daysInMonth,
+          daysPresent: finalDaysPresent,
+          otHours
+        });
         derived.otAmount = toWholeNumber(newOtAmount);
       }
-      applyEarnedGrossFormula();
+    }
+    // When Setup defines "Earned Gross Salary", use that expression (e.g. Basic+HRA+Special+OtherAllowance+OT+Incentive).
+    // Do not overwrite with the client-only fallback sum — that caused edit-form EGS to ignore Saved Formulae.
+    const egsFormulaEntry = (Array.isArray(payrollFormulae) ? payrollFormulae : []).find(
+      (f) => String(f.variable || '').trim().toLowerCase() === 'earned gross salary'
+    );
+    if (egsFormulaEntry && String(egsFormulaEntry.expression || '').trim()) {
+      const rowForEgs = { ...formData, ...derived };
+      const vEgs = evaluateFormulaExpression(rowForEgs, egsFormulaEntry.expression);
+      if (Number.isFinite(vEgs)) {
+        derived.earnedGrossSalary = Math.round(vEgs);
+        derived.earnedSalaryCross = derived.earnedGrossSalary;
+      } else {
+        applyEarnedGrossFormula();
+      }
     } else {
       applyEarnedGrossFormula();
     }
@@ -3031,7 +3331,7 @@ const Payroll = () => {
     console.log(`Form field changed: ${field} = ${value}`);
     setEditFormData(prev => {
       const numericFields = new Set([
-        'daysInMonth','daysPresent','otHours','loh','actualBasic','actualHRA','actualDA','otherAllowance','otherAllowances','specialAllowance','loanAllowance','foodAllowance','uniformAllowance','washingAllowance','travelChargers','noOfDaysWithoutUniforms',
+        'daysInMonth','daysPresent','otHours','loh','actualBasic','actualHRA','actualDA','otherAllowance','otherAllowances','specialAllowance','loanAllowance','foodAllowance','washingAllowance','travelChargers','noOfDaysWithoutUniforms',
         'incentive','arrear','arrearForPF','lop','earnedAttendanceAllowance','earnedOtherAllowances','pf','esi','otherDeduction','totalDeduction',
         'otAmount','otArrearAmount','otWages','otEsi','otPayment','payableAmount','rent','advance','lwf','pt','netPay','totalNetPayable',
         'erpf','admin','edli','employerEsi','esiContribution','employerLwf','serviceCharge','total','gst','netTotal','bonus','attendanceBonus',
@@ -3068,9 +3368,35 @@ const Payroll = () => {
       }
      
       // Fields that are display-only / identifiers and do not affect payroll formulas - skip formula recalc
-      const noRecalcFields = new Set(['employeeCode', 'employeeName', 'designation', 'department', 'contractor', 'bankHolderName', 'bankName', 'ifscCode', 'bankBranch', 'pfStatus', 'esiStatus', 'payslip']);
+      const noRecalcFields = new Set(['employeeCode', 'employeeName', 'designation', 'department', 'unit', 'contractor', 'bankHolderName', 'bankName', 'ifscCode', 'bankBranch', 'pfStatus', 'esiStatus', 'payslip']);
       if (!noRecalcFields.has(field)) {
-        const derivedFields = calculateDerivedFields(newFormData);
+        let derivedFields = calculateDerivedFields(newFormData);
+        // Keep Earned Gross fixed for edits that should not re-open gross (OT/travel/loan/uniform paths, etc.).
+        // Do NOT include daysPresent / lop: they drive Earned Basic/HRA/Special via pro‑rating, so Earned Gross must follow the Setup gross formula.
+        const editFieldsPreserveEarnedGross = new Set([
+          'loh',
+          'otHours',
+          'travelChargers',
+          'otherAllowance',
+          'otherAllowances',
+          'loanAllowance',
+          'noOfDaysWithoutUniforms',
+          'noofdayswithoutuniforms',
+        ]);
+        if (editFieldsPreserveEarnedGross.has(field)) {
+          const keepEgs = Number(prev.earnedSalaryCross ?? prev.earnedGrossSalary ?? prev.EarnedGrossSalary);
+          if (Number.isFinite(keepEgs)) {
+            const adv = parseFloat(newFormData.advance) || 0;
+            derivedFields = {
+              ...derivedFields,
+              earnedSalaryCross: toWholeNumber(keepEgs),
+              earnedGrossSalary: toWholeNumber(keepEgs),
+              netPay: toWholeNumber(
+                keepEgs - (Number(derivedFields.totalDeduction) || 0) - adv
+              ),
+            };
+          }
+        }
         console.log(`Calculated derived fields for ${field}:`, derivedFields);
         return { ...newFormData, ...derivedFields };
       }
@@ -3098,7 +3424,7 @@ const Payroll = () => {
       const requestPayload = {
         month: selectedMonth,
         employeeCode: editingEmployee.employeeCode,
-        updatedData: { ...editFormData, netPay: netPayToSave },
+        updatedData: { ...editFormData, uniformAllowance: 0, netPay: netPayToSave },
         userEmail
       };
      
@@ -3160,7 +3486,7 @@ const Payroll = () => {
             otherAllowances: editFormData.otherAllowances !== undefined ? editFormData.otherAllowances : emp.otherAllowances,
             loanAllowance: editFormData.loanAllowance !== undefined ? editFormData.loanAllowance : emp.loanAllowance,
             foodAllowance: editFormData.foodAllowance !== undefined ? editFormData.foodAllowance : emp.foodAllowance,
-            uniformAllowance: editFormData.uniformAllowance !== undefined ? editFormData.uniformAllowance : emp.uniformAllowance,
+            uniformAllowance: 0,
             washingAllowance: editFormData.washingAllowance !== undefined ? editFormData.washingAllowance : emp.washingAllowance,
             travelChargers: editFormData.travelChargers !== undefined ? editFormData.travelChargers : emp.travelChargers,
             attendanceBonus: editFormData.attendanceBonus !== undefined ? editFormData.attendanceBonus : emp.attendanceBonus,
@@ -3315,8 +3641,13 @@ const Payroll = () => {
       arrearForPF +
       incentive +
       otArrearAmount; // Includes earned special + OTArrearAmount and Arrear For PF
-    // OT Amount = Earned Basic / No. of Days(In month) / 8 * OT Hours * 2
-    const otAmount = daysInMonth > 0 ? ((earnedBasic / daysInMonth) / 8) * otHours * 2 : 0;
+    const otAmount = computeDefaultOtAmountFromEarnedAndActual({
+      earnedBasic,
+      actualBasic,
+      daysInMonth,
+      daysPresent,
+      otHours
+    });
     const earnedSalaryCross = baseEarnedGross + otAmount; // Earned Gross Salary = baseEarnedGross + OT Amount (baseEarnedGross includes OTArrearAmount)
     const pfEnabled = isPfEnabled(emp);
     const esiEnabled = isEsiEnabled(emp);
@@ -3848,10 +4179,10 @@ const Payroll = () => {
     // Create CSV template content with exact column names
     // Note: The import function supports flexible header matching, so variations like "EmployeeName", "Name", etc. will also work
     // Note: When importing exported Excel files, totals/summary rows are automatically skipped
-    const templateContent = `Employee Code,Employee Name,Department,Contractor,No. of Days (Month),No. of Days Present,OT Hours,LOH,Actual Basic,Actual HRA,Other Allowances,Travel Chargers,Special Allowance,Incentive,OT Amount,OT Arrear Amount,Actual Total Gross,Earned Basic,Earned HRA,Earned Gross Salary,PF 12%,ESI 0.75%,Employer ESI 3.25%,ESIContribution,Total Deduction,Rent,Net Pay
-EMP001,MUKESH,SALES,No,31,22.5,0.00,0,10000,5000,0,0,0,0,15000,7258.06,3629.03,10887.09,870.97,54.44,925.41,0,0,0,0,10887.09
-36050,K.Sivasubramanian,Accounts,R.P.D Facility Management,31,25,8.5,0,25000,5000,0,0,0,0,30000,25000,5000,30000,3000,187.5,3187.5,0,0,0,0,31250
-36109,Sunil Kumar,Hamper assembly,R.P.D Facility Management,31,28,12.0,0,22000,4400,0,0,0,0,26400,22000,4400,26400,2640,165,2805,0,0,0,0,28900`;
+    const templateContent = `Employee Code,Employee Name,Department,Contractor,No. of Days (Month),No. of Days Present,OT Hours,LOH,Actual Basic,Actual HRA,Actual DA,Other Allowance,Other Allowances,Travel Chargers,Special Allowance,Incentive,OT Amount,OT Arrear Amount,Actual Total Gross,Earned Basic,Earned HRA,Earned Gross Salary,PF 12%,ESI 0.75%,Employer ESI 3.25%,ESIContribution,Total Deduction,Rent,Net Pay
+EMP001,MUKESH,SALES,No,31,22.5,0.00,0,10000,5000,0,0,0,0,0,0,15000,7258.06,3629.03,10887.09,870.97,54.44,925.41,0,0,0,0,10887.09
+36050,K.Sivasubramanian,Accounts,R.P.D Facility Management,31,25,8.5,0,25000,5000,0,0,0,0,0,0,30000,25000,5000,30000,3000,187.5,3187.5,0,0,0,0,31250
+36109,Sunil Kumar,Hamper assembly,R.P.D Facility Management,31,28,12.0,0,22000,4400,0,0,0,0,0,0,26400,22000,4400,26400,2640,165,2805,0,0,0,0,28900`;
 
     // Create and download the file
     const blob = new Blob([templateContent], { type: 'text/csv' });
@@ -3902,9 +4233,6 @@ EMP001,MUKESH,SALES,No,31,22.5,0.00,0,10000,5000,0,0,0,0,15000,7258.06,3629.03,1
     }
     if (payroll.otAmount < 0) {
       errors.push('OT Amount cannot be negative.');
-    }
-    if (payroll.netPay < 0) {
-      errors.push('Net Pay cannot be negative.');
     }
     return errors.length > 0 ? errors.join(' ') : null;
   }, []);
@@ -4163,6 +4491,7 @@ EMP001,MUKESH,SALES,No,31,22.5,0.00,0,10000,5000,0,0,0,0,15000,7258.06,3629.03,1
             employeeCode: employeeCode,
             employeeName: employeeName,
             department: safeToString(getColumnValue(['Department', 'Dept', 'department'])),
+            unit: '',
             contractor: safeToString(getColumnValue(['Contractor', 'ContractorName', 'contractor'])),
             daysInMonth: getDaysInMonthImportValue(),
             daysPresent: getDaysPresentImportValue(),
@@ -4222,6 +4551,17 @@ EMP001,MUKESH,SALES,No,31,22.5,0.00,0,10000,5000,0,0,0,0,15000,7258.06,3629.03,1
           const dimImp = Number(payroll.daysInMonth);
           if ((!Number.isFinite(dimImp) || dimImp === 0) && payroll.daysPresent > 0 && payroll.daysPresent <= 31) {
             payroll.daysInMonth = payroll.daysPresent;
+          }
+          const dimResolved = Number(payroll.daysInMonth);
+          const dpResolved = Number(payroll.daysPresent);
+          if (
+            Number.isFinite(dimResolved) &&
+            dimResolved > 0 &&
+            Number.isFinite(dpResolved) &&
+            dpResolved > dimResolved
+          ) {
+            // Import should not hard-fail when days-present column has mismatch/noise; cap to month days.
+            payroll.daysPresent = dimResolved;
           }
 
           // Apply calculations for imported data
@@ -4482,7 +4822,34 @@ EMP001,MUKESH,SALES,No,31,22.5,0.00,0,10000,5000,0,0,0,0,15000,7258.06,3629.03,1
                 SUCCESS: {importSuccess}
               </div>
             )}
-           
+
+            {payslipZipFallback && (
+              <div className="payroll-zip-fallback-banner" role="status">
+                <span className="payroll-zip-fallback-text">
+                  If the ZIP did not start downloading, use this link (same file; link expires after a few minutes):
+                </span>
+                <a
+                  href={payslipZipFallback.url}
+                  download={payslipZipFallback.filename}
+                  className="payroll-zip-fallback-link"
+                >
+                  Save {payslipZipFallback.filename}
+                </a>
+                <button
+                  type="button"
+                  className="payroll-zip-fallback-dismiss"
+                  onClick={() => {
+                    setPayslipZipFallback((prev) => {
+                      if (prev?.url) URL.revokeObjectURL(prev.url);
+                      return null;
+                    });
+                  }}
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
+
             {/* Import Error Message */}
             {importError && (
               <div style={{ padding: '20px', background: 'red', color: 'white', margin: '10px' }}>
@@ -4831,17 +5198,28 @@ EMP001,MUKESH,SALES,No,31,22.5,0.00,0,10000,5000,0,0,0,0,15000,7258.06,3629.03,1
                           );
                         })}
                         <th className="payslip-header-cell">
-                          <label className="payslip-checkbox-wrap payslip-select-all-label" htmlFor="payslip-select-all">
-                            <input
-                              id="payslip-select-all"
-                              type="checkbox"
-                              ref={payslipSelectAllRef}
-                              checked={payrollData.length > 0 && payrollData.every(emp => !!(emp.payslip === true || emp.payslip === 'true'))}
-                              onChange={(e) => handlePayslipSelectAll(e.target.checked)}
-                              title="Select all / Deselect all"
-                            />
-                            <span className="payslip-checkbox-label">Payslip</span>
-                          </label>
+                          <div className="payslip-header-cell-inner">
+                            <label className="payslip-checkbox-wrap payslip-select-all-label" htmlFor="payslip-select-all">
+                              <input
+                                id="payslip-select-all"
+                                type="checkbox"
+                                ref={payslipSelectAllRef}
+                                checked={payrollData.length > 0 && payrollData.every(emp => !!(emp.payslip === true || emp.payslip === 'true'))}
+                                onChange={(e) => handlePayslipSelectAll(e.target.checked)}
+                                title="Select all / Deselect all"
+                              />
+                              <span className="payslip-checkbox-label">Payslip</span>
+                            </label>
+                            <button
+                              type="button"
+                              className="payslip-bulk-zip-btn"
+                              onClick={(e) => { e.stopPropagation(); handleDownloadSelectedPayslipsZip(); }}
+                              disabled={payslipZipBusy}
+                              title="Download one PDF per employee with Payslip checked, packaged as a ZIP file"
+                            >
+                              {payslipZipBusy ? 'Working…' : 'Download ZIP'}
+                            </button>
+                          </div>
                         </th>
                       </tr>
                     </thead>
@@ -4970,10 +5348,11 @@ EMP001,MUKESH,SALES,No,31,22.5,0.00,0,10000,5000,0,0,0,0,15000,7258.06,3629.03,1
                             }
                             const val = getComponentDisplayValue(employee, name);
                             const num = parseFloat(val);
-                            const isNum = Number.isFinite(num);
+                            // Currency grid: blank / non-numeric should show ₹0 (same as Loan/PF-style columns), not an empty cell.
+                            const amount = Number.isFinite(num) ? num : 0;
                             return (
                               <td key={`payroll-col-${colIdx}`}>
-                                {isNum ? `₹${Number(num).toLocaleString()}` : (val ?? '')}
+                                {`₹${Number(amount).toLocaleString()}`}
                               </td>
                             );
                           })}
@@ -5004,6 +5383,21 @@ EMP001,MUKESH,SALES,No,31,22.5,0.00,0,10000,5000,0,0,0,0,15000,7258.06,3629.03,1
                             >
                               View
                             </button>
+                            <button
+                              type="button"
+                              className="payslip-download-pdf-btn"
+                              onClick={(e) => { e.stopPropagation(); handleDownloadPayslipPdf(employee); }}
+                              disabled={
+                                payslipZipBusy ||
+                                (payslipPdfRowBusyCode != null &&
+                                  String(payslipPdfRowBusyCode) === String(employee.employeeCode ?? employee.EmployeeCode ?? ''))
+                              }
+                              title="Download payslip as PDF"
+                            >
+                              {payslipPdfRowBusyCode != null && String(payslipPdfRowBusyCode) === String(employee.employeeCode ?? employee.EmployeeCode ?? '')
+                                ? '…'
+                                : 'PDF'}
+                            </button>
                           </td>
                         </tr>
                           );
@@ -5025,7 +5419,7 @@ EMP001,MUKESH,SALES,No,31,22.5,0.00,0,10000,5000,0,0,0,0,15000,7258.06,3629.03,1
                         })()
                       ) : (
                         <tr>
-                          <td colSpan={6 + tablePayrollComponents.length} style={{ textAlign: 'center', padding: '20px' }}>
+                          <td colSpan={7 + tablePayrollComponents.length} style={{ textAlign: 'center', padding: '20px' }}>
                             No payroll data available
                           </td>
                         </tr>
@@ -5033,7 +5427,7 @@ EMP001,MUKESH,SALES,No,31,22.5,0.00,0,10000,5000,0,0,0,0,15000,7258.06,3629.03,1
                     </tbody>
                     <tfoot>
                       <tr className="table-footer">
-                        <td colSpan="5">Total</td>
+                        <td colSpan="6">Total</td>
                         {tablePayrollComponents.map((name, colIdx) => {
                             const total = payrollData && Array.isArray(payrollData)
                               ? payrollData.reduce((sum, emp) => {
@@ -5085,7 +5479,7 @@ EMP001,MUKESH,SALES,No,31,22.5,0.00,0,10000,5000,0,0,0,0,15000,7258.06,3629.03,1
                   </div>
                   <div className="edit-modal-content">
                     <p className="automatic-mode-hint">
-                      Settings apply to <strong>{selectedMonth}</strong> only. Other months default to <strong>Automatic</strong> until you save a mode for them. Select one or both. If <strong>Manual</strong> is saved for this month, <strong>Import Excel</strong> writes each row to the <strong>SamplePayroll</strong> table (EmployeeCode, EmployeeName, Department, DaysInMonth, DaysPresent, OTHours, ActualBasic).
+                      Settings apply to <strong>{selectedMonth}</strong> only. Other months default to <strong>Automatic</strong> until you save a mode for them. Select one or both. If <strong>Manual</strong> is saved for this month, <strong>Import Excel</strong> writes each row to the <strong>SamplePayroll</strong> table (EmployeeCode, EmployeeName, Department, DaysInMonth, DaysPresent, OTHours, LOH, ActualBasic, OtherAllowance, TravelChargers, Incentive, Month).
                     </p>
                     {loadingAutomaticSaved ? (
                       <p className="automatic-mode-loading">Loading saved selection…</p>
@@ -5230,9 +5624,23 @@ EMP001,MUKESH,SALES,No,31,22.5,0.00,0,10000,5000,0,0,0,0,15000,7258.06,3629.03,1
                                 rows.push(
                                   <div key={i} className="form-row">
                                     {pair.map((compName, j) => {
-                                      const key = tableColumnToKey(compName);
+                                      const key = getPayrollEditFieldKey(compName);
                                       const displayValue = getComponentDisplayValue(editFormData, compName);
-                                      const isEditable = key && editFormEditableKeys.has(key);
+                                      const lockedByFormula = hasPayrollFormulaForComponent(compName);
+                                      const automaticLock =
+                                        automaticSelections.has('Automatic') && !automaticSelections.has('Manual');
+                                      const lockedByAutomatic =
+                                        automaticLock &&
+                                        (['daysInMonth', 'daysPresent', 'loh', 'otHours'].includes(
+                                          key
+                                        ) ||
+                                          payrollFormulaOptionKeys.has(key));
+                                      const isEditable = Boolean(key) && !lockedByFormula && !lockedByAutomatic;
+                                      const readOnlyTitle = lockedByFormula
+                                        ? 'Calculated from Setup formula (read-only)'
+                                        : lockedByAutomatic
+                                          ? 'Read-only in Automatic payroll mode'
+                                          : 'Read-only';
                                       // Read-only columns must use the same value as the table (getComponentDisplayValue). Previously we preferred
                                       // editFormData.pf / editFormData.esi, which can differ from table PF/ESI (formula vs stored).
                                       let rawVal;
@@ -5262,8 +5670,8 @@ EMP001,MUKESH,SALES,No,31,22.5,0.00,0,10000,5000,0,0,0,0,15000,7258.06,3629.03,1
                                               value={readOnlyValue !== undefined && readOnlyValue !== null ? readOnlyValue : ''}
                               readOnly
                               disabled
-                              style={{ backgroundColor: '#f8f9fa', color: '#6c757d', cursor: 'not-allowed' }}
-                              title="Read-only"
+                                              style={{ backgroundColor: '#f8f9fa', color: '#6c757d', cursor: 'not-allowed' }}
+                                              title={readOnlyTitle}
                             />
                                           )}
                           </div>

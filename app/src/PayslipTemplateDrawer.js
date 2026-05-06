@@ -16,7 +16,9 @@ const shouldExcludeOtherAllowanceFromPayslipTemplate = (item) => {
 };
 
 const stripOtherAllowanceFromTemplateList = (arr) =>
-  (Array.isArray(arr) ? arr : []).filter((x) => !shouldExcludeOtherAllowanceFromPayslipTemplate(x));
+  (Array.isArray(arr) ? arr : []).filter(
+    (x) => !shouldExcludeOtherAllowanceFromPayslipTemplate(x) && !isHiddenPayslipAllowanceLabel(x)
+  );
 
 const safeMoney = (v) => {
   if (v == null || v === '') return '';
@@ -33,17 +35,22 @@ const hideZero = (v) => {
   return String(v);
 };
 
-const isFoodAllowancePayslipLabel = (lbl) => {
+const isHiddenPayslipAllowanceLabel = (lbl) => {
   const n = String(lbl || '')
     .trim()
     .toLowerCase()
     .replace(/\ballownace\b/gi, 'allowance');
-  return n.includes('food') && (n.includes('allowance') || n.includes('allownace'));
+  const isAllowance = n.includes('allowance') || n.includes('allownace');
+  if (!isAllowance) return false;
+  if (n.includes('food')) return true;
+  if (n.includes('washing')) return true;
+  if (n.includes('uniform')) return true;
+  return false;
 };
 
 const filterDeductionRowsForPayslip = (rows) => {
   if (!Array.isArray(rows) || !rows.length) return rows;
-  return rows.filter((r) => !isFoodAllowancePayslipLabel(r.label));
+  return rows.filter((r) => !isHiddenPayslipAllowanceLabel(r.label));
 };
 
 const getComponentDisplayValue = (employee, componentName) => {
