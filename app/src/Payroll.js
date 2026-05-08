@@ -283,6 +283,16 @@ const Payroll = () => {
     };
   }, [payrollKeyToHeaderLabel]);
 
+  /** Payroll row already has LOH stored in DB (including 0). Do not replace with attendance muster on refresh — otherwise edits disappear. */
+  const payrollRowHasStoredLoh = (emp) => {
+    const raw = emp?.loh ?? emp?.LOH;
+    if (raw === undefined || raw === null) return false;
+    const s = String(raw).trim();
+    if (s === '') return false;
+    const n = Number(s.replace(/,/g, ''));
+    return Number.isFinite(n);
+  };
+
   /** Setup & Configuration: variables with a non-empty expression, mapped to editFormData keys (for read-only in Automatic payroll mode). */
   const payrollFormulaOptionKeys = useMemo(() => {
     const norm = (s) =>
@@ -833,21 +843,19 @@ const Payroll = () => {
     if (earnedBasic > 15000) return 1800;
     return Math.round(earnedBasic * 0.12);
   };
+  /** Employee ESI 0.75%: Earned Basic + OT Amount + Incentive only (LOH must not move ESI via HRA/Special/Travel). */
+  const getEsiEmployeeAmountBasicOtIncentive = (record) => {
+    const eb = Number(record?.earnedBasic ?? record?.EarnedBasic ?? 0) || 0;
+    const ot = Number(record?.otAmount ?? record?.OTAmount ?? 0) || 0;
+    const inc = Number(record?.incentive ?? record?.Incentive ?? 0) || 0;
+    const base = eb + ot + inc;
+    if (base <= 0) return 0;
+    return Math.round(base * 0.0075);
+  };
   const getEsiDisplayValue = (record) => {
     if (isYashaswiContractor(record)) return 0;
     if (!isEsiEnabled(record)) return '';
-    const esiFormula = findPayrollFormula(
-      (v) =>
-        (v === 'esi' || v === 'esi 0.75%' || (v.includes('esi') && v.includes('0.75'))) &&
-        !v.includes('employer')
-    );
-    if (esiFormula?.expression) {
-      const skipVars = [esiFormula.variable, 'ESI', 'ESI 0.75%', payrollKeyToHeaderLabel?.esi].filter(Boolean);
-      const n = evaluateFormulaExpression(record, esiFormula.expression, { skipVariables: skipVars });
-      if (Number.isFinite(n)) return Math.round(n);
-    }
-    const esiValue = record?.esi ?? record?.ESI ?? 0;
-    return Math.round(parseFloat(esiValue) || 0);
+    return getEsiEmployeeAmountBasicOtIncentive(record);
   };
   /** Same rule as backend calcAttendanceBonus / "Attendance Bonus" column (full month present → 0; else DOJ → 1200 or 800). */
   const getAttendanceBonusNumericForRow = (employee) => {
@@ -1378,14 +1386,12 @@ const Payroll = () => {
         (baseLower === 'esi 0.75%' || baseLower === 'esi') &&
         (value === 0 || !Number.isFinite(value))
       ) {
-        // Legacy ESI fallback only when Setup does not define an employee ESI formula
+        // Legacy ESI fallback: Earned Basic + OT Amount + Incentive (same as edit form / display)
         const eb = parseFloat(updated.earnedBasic ?? updated.EarnedBasic) || 0;
-        const ehra = parseFloat(updated.earnedHRA ?? updated.EarnedHRA) || 0;
-        const esa = parseFloat(updated.earnedSpecialAllowance ?? updated.EarnedSpecialAllowance) || 0;
         const otAmt = parseFloat(updated.otAmount ?? updated.OTAmount) || 0;
-        const travel = getTravelChargersFromRecord(updated);
-        const esiBaseSum = eb + ehra + esa + otAmt + travel;
-        if (esiBaseSum > 0) updated[key] = Math.ceil(esiBaseSum * 0.0075);
+        const incAmt = parseFloat(updated.incentive ?? updated.Incentive) || 0;
+        const esiBaseSum = eb + otAmt + incAmt;
+        if (esiBaseSum > 0) updated[key] = Math.round(esiBaseSum * 0.0075);
         else updated[key] = 0;
       } else {
         updated[key] = Number.isFinite(value) ? Math.round(value) : value;
@@ -1627,11 +1633,12 @@ const Payroll = () => {
                   : undefined;
                 const otHoursUpdate = (!hasSavedOtHours && otFromMuster !== undefined) ? { otHours: otFromMuster, OTHours: otFromMuster } : {};
 
-                // LOH from muster (automatically fetched)
+                // LOH: use muster only when Payroll has no stored LOH yet (saved LOH including 0 wins after edit/save).
                 const lohFromMuster = (empCodeRaw && lohMap[empCodeRaw] !== undefined) ? lohMap[empCodeRaw]
                   : (empCodeNormalized && lohMap[empCodeNormalized] !== undefined) ? lohMap[empCodeNormalized]
                   : undefined;
-                const lohUpdate = lohFromMuster !== undefined ? { loh: lohFromMuster } : {};
+                const lohUpdate =
+                  payrollRowHasStoredLoh(emp) || lohFromMuster === undefined ? {} : { loh: lohFromMuster };
 
                 if (matchedDaysPresent !== undefined) {
                   // Employee found in attendance muster - use their attendance data and recalc Earned Basic to match
@@ -2238,7 +2245,8 @@ const Payroll = () => {
                 const lohFromMuster = (empCodeRaw && lohMap[empCodeRaw] !== undefined) ? lohMap[empCodeRaw]
                   : (empCodeNormalized && lohMap[empCodeNormalized] !== undefined) ? lohMap[empCodeNormalized]
                   : undefined;
-                const lohUpdate = lohFromMuster !== undefined ? { loh: lohFromMuster } : {};
+                const lohUpdate =
+                  payrollRowHasStoredLoh(emp) || lohFromMuster === undefined ? {} : { loh: lohFromMuster };
 
                 if (matchedDaysPresent !== undefined) {
                   updatedCount++;
@@ -3103,10 +3111,9 @@ const Payroll = () => {
       pfWages = 0;
     }
    const otPayment = daysInMonth > 0 ? ((actualTotalSalary / daysInMonth) / 8) * otHours * 2 : 0; // OT Payment = (Actual Total Gross / no.of months) / 8 * OT Hours * 2
-    // ESI: from EARNED values only - (Earned Basic + Earned HRA + Earned Special Allowance + OT Amount + Travel Charges) * 0.75%; when sum is 0, ESI = 0
-    const travelChargersForm = getTravelChargersFromRecord(formData);
-    const esiBaseSum = earnedBasic + earnedHRA + earnedSpecialAllowanceResolved + otAmount + travelChargersForm;
-    const esi = esiEnabled && esiBaseSum > 0 ? Math.ceil(esiBaseSum * 0.0075) : 0;
+    // ESI 0.75%: Earned Basic + OT Amount + Incentive (not HRA/Special/Travel — avoids LOH shifting ESI incorrectly)
+    const esiBaseSum = earnedBasic + otAmount + incentive;
+    const esi = esiEnabled && esiBaseSum > 0 ? Math.round(esiBaseSum * 0.0075) : 0;
     const employerEsi = esiEnabled && esi > 0 ? earnedSalaryCross * 0.0325 : 0; // Employer ESI = Earned Gross Salary × 3.25% when ESI > 0
     const otherDeduction = parseFloat(formData.otherDeduction) || 0;
     // December: LWF = 20 for all employees (enforced every year)
@@ -3397,6 +3404,37 @@ const Payroll = () => {
             };
           }
         }
+        // LOH edit only: keep Earned Basic / Special / OT / Incentive as before — ESI = (Basic+OT+Incentive)×0.75% must not move.
+        if (field === 'loh') {
+          const eb = parseFloat(prev.earnedBasic ?? prev.EarnedBasic) || 0;
+          const ehra = parseFloat(prev.earnedHRA ?? prev.EarnedHRA) || 0;
+          const eda = parseFloat(prev.earnedDA ?? prev.EarnedDA) || 0;
+          const esa = parseFloat(prev.earnedSpecialAllowance ?? prev.EarnedSpecialAllowance) || 0;
+          const ot = parseFloat(prev.otAmount ?? prev.OTAmount) || 0;
+          const inc = parseFloat(prev.incentive ?? prev.Incentive) || 0;
+          derivedFields = {
+            ...derivedFields,
+            earnedBasic: toWholeNumber(eb),
+            earnedHRA: toWholeNumber(ehra),
+            earnedDA: toWholeNumber(eda),
+            earnedSpecialAllowance: toWholeNumber(esa),
+            otAmount: toWholeNumber(ot),
+            incentive: toWholeNumber(inc),
+          };
+          const rowForEsi = { ...newFormData, ...derivedFields };
+          const esiBase = eb + ot + inc;
+          derivedFields.esi =
+            isEsiEnabled(rowForEsi) && esiBase > 0
+              ? toWholeNumber(Math.round(esiBase * 0.0075))
+              : 0;
+          const rowForDed = { ...newFormData, ...derivedFields };
+          derivedFields.totalDeduction = toWholeNumber(getDisplayTotalDeduction(rowForDed));
+          const adv = parseFloat(newFormData.advance) || 0;
+          const egs = Number(derivedFields.earnedSalaryCross ?? derivedFields.earnedGrossSalary ?? 0);
+          derivedFields.netPay = toWholeNumber(
+            egs - (Number(derivedFields.totalDeduction) || 0) - adv
+          );
+        }
         console.log(`Calculated derived fields for ${field}:`, derivedFields);
         return { ...newFormData, ...derivedFields };
       }
@@ -3669,7 +3707,7 @@ const Payroll = () => {
     }
     const otPayment = daysInMonth > 0 ? ((actualTotalSalary / daysInMonth) / 8) * otHours * 2 : 0;
     const esiBase = earnedSalaryCross;
-    const esi = esiEnabled ? Math.ceil(esiBase * 0.0075) : 0;
+    const esi = esiEnabled ? Math.round(esiBase * 0.0075) : 0;
     const employerEsi = esiEnabled ? esiBase * 0.0325 : 0;
     const otherDeduction = parseFloat(emp.otherDeduction) || 0;
     const lwf = getDisplayLWF(emp); // December: 20 for all employees
@@ -3838,7 +3876,7 @@ const Payroll = () => {
   };
 
   // Numeric ESI value for table/totals. If contractor is Yashaswi Academy for Skills, ESI = 0.
-  const getEsiValue = (emp) => (isYashaswiContractor(emp) ? 0 : Math.ceil(parseFloat(emp?.esi ?? emp?.ESI ?? 0) || 0));
+  const getEsiValue = (emp) => (isYashaswiContractor(emp) ? 0 : Math.round(parseFloat(emp?.esi ?? emp?.ESI ?? 0) || 0));
 
   // LWF: every year December month = 20 for all employees; otherwise use saved/calculated value.
   const getDisplayLWF = (emp) => (selectedMonth && selectedMonth.endsWith('-12') ? 20 : (parseFloat(emp?.lwf ?? emp?.LWF) || 0));

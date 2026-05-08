@@ -4563,6 +4563,48 @@ function buildLatestSavedOTHoursMapFromPayrollRows(payrollRowResults) {
   return map;
 }
 
+/** Same as OT map but for LOH — newest Payroll ROWID per employee wins (includes explicit 0). */
+function buildLatestSavedLOHMapFromPayrollRows(payrollRowResults) {
+  const bestByNorm = new Map();
+  const rowIdNum = (p) => {
+    const n = Number(p.ROWID ?? p.rowid ?? 0);
+    return Number.isFinite(n) ? n : 0;
+  };
+  for (const rec of payrollRowResults || []) {
+    const p = rec?.Payroll;
+    if (!p) continue;
+    const code = String(p.EmployeeCode || '').trim();
+    if (!code) continue;
+    const norm = normalizeEmployeeCode(code) || code;
+    const rid = rowIdNum(p);
+    const lohRaw = p.LOH ?? p.loh;
+    if (lohRaw === null || lohRaw === undefined || String(lohRaw).trim() === '') continue;
+    const lohNum = parseFloat(lohRaw);
+    if (!Number.isFinite(lohNum)) continue;
+    const lohRounded = parseFloat(lohNum.toFixed(2));
+    const prev = bestByNorm.get(norm);
+    if (!prev || rid >= prev.rowId) {
+      bestByNorm.set(norm, { rowId: rid, loh: lohRounded });
+    }
+  }
+  const map = {};
+  for (const rec of payrollRowResults || []) {
+    const p = rec?.Payroll;
+    if (!p) continue;
+    const code = String(p.EmployeeCode || '').trim();
+    if (!code) continue;
+    const norm = normalizeEmployeeCode(code) || code;
+    const best = bestByNorm.get(norm);
+    if (!best) continue;
+    if (rowIdNum(p) !== best.rowId) continue;
+    map[code] = best.loh;
+    map[norm] = best.loh;
+    const n = parseInt(code, 10);
+    if (!Number.isNaN(n)) map[String(n)] = best.loh;
+  }
+  return map;
+}
+
 function normalizeSamplePayrollMonthKey(val) {
   const s = String(val ?? '').trim();
   if (!s) return '';
@@ -4723,11 +4765,12 @@ function selectBestSamplePayrollRowsByEmployee(monthScopedRows) {
 }
 
 /** For each employee, set loh[objKey] to max existing vs any positive LOH on rows in month (catch split across rows). */
-function supplementLohMapFromAllSampleRows(monthScopedRows, lohObj) {
+function supplementLohMapFromAllSampleRows(monthScopedRows, lohObj, payrollLohLockedNorm) {
   for (const pr of monthScopedRows) {
     const code = String(getAutomaticTableCell(pr, 'EmployeeCode', 'employeecode') || '').trim();
     if (!code) continue;
     const norm = normalizeEmployeeCode(code) || code;
+    if (payrollLohLockedNorm && payrollLohLockedNorm.has(norm)) continue;
     const lohC = getAutomaticTableCell(pr, 'LOH', 'loh');
     if (lohC == null || String(lohC).trim() === '') continue;
     const lv = parseFloat(lohC);
@@ -4832,7 +4875,7 @@ async function fetchLatestSamplePayrollOverrideMaps(catalystApp, month) {
         if (!Number.isNaN(oaNum)) putAll(otherAllowance, parseFloat(oaNum.toFixed(2)));
       }
     }
-    supplementLohMapFromAllSampleRows(monthScopedRows, loh);
+    supplementLohMapFromAllSampleRows(monthScopedRows, loh, null);
     console.log(
       `GET /payroll: Manual mode — merged SamplePayroll for ${bestSampleRowByEmp.size} employee(s) (month=${targetMonth || 'all'})`
     );
@@ -5747,6 +5790,8 @@ async function computePayrollData(catalystApp, month, contractor, department, em
   const arrearForPFMap = {};
   const otherAllowancesMap = {};
   const savedLOHMap = {}; // Map: employeeCode -> saved LOH value
+  /** Payroll table had explicit LOH for this normalized code — Sample/supplement must not overwrite user edits (including 0). */
+  const payrollLohLockedNorm = new Set();
   const savedOTHoursMap = {}; // Map: employeeCode -> saved OT Hours value
   const savedOTArrearAmountMap = {}; // Map: employeeCode -> saved OT Arrear Amount value
   const savedActualAttendanceAllowanceMap = {}; // Map: employeeCode -> saved Actual Attendance Allowance (Payroll.OtherAllowance); when absent, payroll uses Employee.AttendanceAllowance column
@@ -5822,11 +5867,16 @@ async function computePayrollData(catalystApp, month, contractor, department, em
           const savedOANum = parseFloat(savedOA) || 0;
           if (savedOANum > 0) otherAllowancesMap[normalizedCode] = savedOANum;
         }
-        // Check if LOH exists in saved record (even if 0, it means user has set it)
+        // LOH from Payroll row (including 0). Store under all code variants so lookup matches EmployeeCode format.
         if (p.LOH !== null && p.LOH !== undefined && String(p.LOH).trim() !== '') {
-          const savedLOH = parseFloat(p.LOH) || 0;
+          const savedLOH = parseFloat(p.LOH);
           if (!isNaN(savedLOH)) {
-            savedLOHMap[normalizedCode] = parseFloat(savedLOH.toFixed(2));
+            const lohRounded = parseFloat(savedLOH.toFixed(2));
+            payrollLohLockedNorm.add(normalizedCode);
+            savedLOHMap[normalizedCode] = lohRounded;
+            if (code !== normalizedCode) savedLOHMap[code] = lohRounded;
+            const codeNum = String(parseInt(code, 10));
+            if (codeNum && !Number.isNaN(parseInt(code, 10))) savedLOHMap[codeNum] = lohRounded;
           }
         }
         // Check if OTHours exists in saved record (even if 0, it means user has set it)
@@ -6033,7 +6083,7 @@ async function computePayrollData(catalystApp, month, contractor, department, em
                 const cn = String(parseInt(code, 10));
                 if (cn && !Number.isNaN(parseInt(code, 10))) savedOTHoursMap[cn] = otf;
               }
-              if (lohSamC != null && String(lohSamC).trim() !== '' && !Number.isNaN(lohSam)) {
+              if (!payrollLohLockedNorm.has(norm) && lohSamC != null && String(lohSamC).trim() !== '' && !Number.isNaN(lohSam)) {
                 const lohRounded = parseFloat(lohSam.toFixed(2));
                 savedLOHMap[norm] = lohRounded;
                 savedLOHMap[code] = lohRounded;
@@ -6081,7 +6131,7 @@ async function computePayrollData(catalystApp, month, contractor, department, em
                 latestSamplePayrollRawByNormalizedCode.set(cnSp, rawSampleCopy);
               }
             }
-            supplementLohMapFromAllSampleRows(monthScopedSample, savedLOHMap);
+            supplementLohMapFromAllSampleRows(monthScopedSample, savedLOHMap, payrollLohLockedNorm);
             console.log(
               `computePayrollData: Manual mode — merged SamplePayroll rows for ${bestByEmp.size} employees (days present / OT / LOH / etc. persist after refresh)`
             );
@@ -6199,13 +6249,13 @@ async function computePayrollData(catalystApp, month, contractor, department, em
     // Always prioritize saved LOH from Payroll table (user edits should be preserved)
     let loh = 0;
     let empIdStr = String(empId).trim();
-   
-    // Check if there's a saved LOH value for this employee
-    if (savedLOHMap[empId] !== undefined) {
-      loh = savedLOHMap[empId];
-      console.log(`Employee ${empId}: Using saved LOH value from Payroll table: ${loh} (preserving user edit)`);
-    } else if (savedLOHMap[empIdStr] !== undefined) {
-      loh = savedLOHMap[empIdStr];
+    const savedLohPick =
+      savedLOHMap[empId] ??
+      savedLOHMap[empIdStrLookup] ??
+      savedLOHMap[empIdNormLookup] ??
+      savedLOHMap[empIdNumStr];
+    if (savedLohPick !== undefined && savedLohPick !== null && Number.isFinite(Number(savedLohPick))) {
+      loh = Number(savedLohPick);
       console.log(`Employee ${empId}: Using saved LOH value from Payroll table: ${loh} (preserving user edit)`);
     } else {
       if (isJanuary) {
@@ -8105,6 +8155,7 @@ module.exports = async (req, res) => {
         console.log('Month value being queried:', monthEscaped, '(type:', typeof monthEscaped, ', length:', monthEscaped.length, ')');
         const allPayrollRecords = await catalystApp.zcql().executeZCQLQuery(allPayrollQuery);
         const latestSavedOtHoursByEmp = buildLatestSavedOTHoursMapFromPayrollRows(allPayrollRecords);
+        const latestSavedLohByEmp = buildLatestSavedLOHMapFromPayrollRows(allPayrollRecords);
         console.log(`✅ Found ${allPayrollRecords.length} imported payroll records for month ${monthEscaped}`);
        
         // Log sample records to verify data structure
@@ -8642,9 +8693,29 @@ module.exports = async (req, res) => {
                 console.log(`Imported payroll - Employee ${payroll.EmployeeCode}: Using LOH from attendance_muster_function: ${importLOH.toFixed(2)}`);
               }
             }
+
+            const latestLohPickImp = pickEmployeeKeyedMapValue(latestSavedLohByEmp, payroll.EmployeeCode);
+            const hasExplicitLatestPayrollLohImp =
+              latestLohPickImp !== undefined &&
+              latestLohPickImp !== null &&
+              String(latestLohPickImp).trim() !== '' &&
+              Number.isFinite(Number(latestLohPickImp));
+            if (hasExplicitLatestPayrollLohImp) {
+              importLOH = parseFloat(Number(latestLohPickImp).toFixed(2));
+              console.log(
+                `Imported payroll - Employee ${payroll.EmployeeCode}: Using LOH from newest Payroll ROWID for month: ${importLOH} (preserving edit/import)`
+              );
+            }
            
             importLOH = parseFloat(importLOH.toFixed(2));
-            if (sampleLOH !== undefined && sampleLOH !== null && String(sampleLOH).trim() !== '' && !Number.isNaN(Number(sampleLOH))) {
+            if (
+              samplePayrollOverrides.manualMode &&
+              !hasExplicitLatestPayrollLohImp &&
+              sampleLOH !== undefined &&
+              sampleLOH !== null &&
+              String(sampleLOH).trim() !== '' &&
+              !Number.isNaN(Number(sampleLOH))
+            ) {
               importLOH = parseFloat(Number(sampleLOH).toFixed(2));
               console.log(`Imported payroll - Employee ${payroll.EmployeeCode}: Using LOH from SamplePayroll (manual mode): ${importLOH}`);
             }
@@ -10916,7 +10987,7 @@ module.exports = async (req, res) => {
         }
         const savedLopRow = Number(p.LOP) || 0;
         const lopRow = isManagingPartnerDesignation({ Designation: desRow }) && dimRow > 0 ? 0 : savedLopRow;
-        return {
+        const mappedRow = {
         employeeCode: p.EmployeeCode,
         employeeName: p.EmployeeName || '',
         designation: desRow,
@@ -11036,6 +11107,9 @@ module.exports = async (req, res) => {
         washingAllowance: Number(p.WashingAllowance ?? p.washingAllowance) || 0,
         travelChargers: Number(p.TravelChargers ?? p.travelChargers) || 0,
       };
+        // Preserve Setup/custom Payroll columns (e.g. Attendance Deduction) so payslip deductions resolve by label.
+        mergeSavedPayrollCustomColumnsIntoResultRow(mappedRow, p);
+        return mappedRow;
       };
 
       let data = records.map(mapRow);
