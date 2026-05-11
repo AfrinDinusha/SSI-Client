@@ -1,4 +1,85 @@
-/* --- Card Container --- */
+/* Full-width list: table fills main area (no card shell) */
+.regularization-list-layout {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 12px 20px 24px;
+  box-sizing: border-box;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.regularization-toolbar-unified {
+  margin-bottom: 12px;
+}
+
+.regularization-list-layout .regularization-search-input {
+  padding: 10px 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  min-width: 220px;
+  height: 48px;
+  box-sizing: border-box;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.regularization-list-layout .regularization-search-input:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.regularization-list-layout .toolbar-btn[disabled] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.regularization-list-layout .toolbar-btn:hover:not([disabled]) {
+  transform: translateY(-1px);
+}
+
+.regularization-toolbar-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.regularization-table-wrapper-inline {
+  margin-top: 0;
+  box-shadow: none;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.regularization-loading-cell {
+  text-align: center;
+  padding: 28px 16px !important;
+  color: #64748b;
+  font-size: 1rem;
+}
+
+.regularization-loading-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.regularization-loading-inline::before {
+  content: '';
+  width: 18px;
+  height: 18px;
+  border: 2px solid #e2e8f0;
+  border-top-color: #2196f3;
+  border-radius: 50%;
+  animation: spin 0.85s linear infinite;
+}
+
+/* --- Card Container (legacy; list layout replaces usage on main page) --- */
 .regularization-card-container {
   background: #fff;
   border-radius: 18px;
@@ -2331,4 +2412,82 @@
   --shadow-light: rgba(0, 0, 0, 0.05);
   --shadow-medium: rgba(0, 0, 0, 0.1);
   --shadow-heavy: rgba(0, 0, 0, 0.15);
+}
+
+/* List table: fixed layout + alignment (legacy .regularization-table rules targeted wrong columns) */
+.regularization-list-layout .regularization-table-wrapper-inline .regularization-table {
+  min-width: 100% !important;
+  width: 100% !important;
+  table-layout: fixed !important;
+}
+
+.regularization-list-layout .regularization-table-wrapper-inline col.reg-col-check { width: 3rem; }
+.regularization-list-layout .regularization-table-wrapper-inline col.reg-col-edit { width: 3.25rem; }
+.regularization-list-layout .regularization-table-wrapper-inline col.reg-col-index { width: 2.75rem; }
+.regularization-list-layout .regularization-table-wrapper-inline col.reg-col-code { width: 11%; }
+.regularization-list-layout .regularization-table-wrapper-inline col.reg-col-name { width: 22%; }
+.regularization-list-layout .regularization-table-wrapper-inline col.reg-col-date { width: 9%; }
+.regularization-list-layout .regularization-table-wrapper-inline col.reg-col-time { width: 8%; }
+.regularization-list-layout .regularization-table-wrapper-inline col.reg-col-datetime { width: 13%; }
+.regularization-list-layout .regularization-table-wrapper-inline col.reg-col-actions { width: 4.5rem; }
+
+.regularization-list-layout .regularization-table-wrapper-inline .regularization-table th,
+.regularization-list-layout .regularization-table-wrapper-inline .regularization-table td {
+  max-width: none !important;
+  min-height: unset !important;
+  display: table-cell !important;
+  padding: 12px 10px !important;
+  box-sizing: border-box !important;
+  vertical-align: middle !important;
+  word-break: normal !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.regularization-list-layout .regularization-table-wrapper-inline .regularization-table td:nth-child(2) {
+  display: table-cell !important;
+  align-items: unset !important;
+  justify-content: unset !important;
+}
+
+.regularization-list-layout .regularization-table-wrapper-inline .regularization-table:not(.regularization-table-has-edit) th:nth-child(1),
+.regularization-list-layout .regularization-table-wrapper-inline .regularization-table:not(.regularization-table-has-edit) td:nth-child(1),
+.regularization-list-layout .regularization-table-wrapper-inline .regularization-table:not(.regularization-table-has-edit) th:nth-child(2),
+.regularization-list-layout .regularization-table-wrapper-inline .regularization-table:not(.regularization-table-has-edit) td:nth-child(2),
+.regularization-list-layout .regularization-table-wrapper-inline .regularization-table:not(.regularization-table-has-edit) th:nth-child(10),
+.regularization-list-layout .regularization-table-wrapper-inline .regularization-table:not(.regularization-table-has-edit) td:nth-child(10) {
+  text-align: center !important;
+}
+
+.regularization-list-layout .regularization-table-wrapper-inline .regularization-table:not(.regularization-table-has-edit) th:nth-child(n+3):nth-child(-n+9),
+.regularization-list-layout .regularization-table-wrapper-inline .regularization-table:not(.regularization-table-has-edit) td:nth-child(n+3):nth-child(-n+9) {
+  text-align: left !important;
+}
+
+.regularization-list-layout .regularization-table-wrapper-inline .regularization-table.regularization-table-has-edit th:nth-child(1),
+.regularization-list-layout .regularization-table-wrapper-inline .regularization-table.regularization-table-has-edit td:nth-child(1),
+.regularization-list-layout .regularization-table-wrapper-inline .regularization-table.regularization-table-has-edit th:nth-child(2),
+.regularization-list-layout .regularization-table-wrapper-inline .regularization-table.regularization-table-has-edit td:nth-child(2),
+.regularization-list-layout .regularization-table-wrapper-inline .regularization-table.regularization-table-has-edit th:nth-child(3),
+.regularization-list-layout .regularization-table-wrapper-inline .regularization-table.regularization-table-has-edit td:nth-child(3),
+.regularization-list-layout .regularization-table-wrapper-inline .regularization-table.regularization-table-has-edit th:nth-child(11),
+.regularization-list-layout .regularization-table-wrapper-inline .regularization-table.regularization-table-has-edit td:nth-child(11) {
+  text-align: center !important;
+}
+
+.regularization-list-layout .regularization-table-wrapper-inline .regularization-table.regularization-table-has-edit th:nth-child(n+4):nth-child(-n+10),
+.regularization-list-layout .regularization-table-wrapper-inline .regularization-table.regularization-table-has-edit td:nth-child(n+4):nth-child(-n+10) {
+  text-align: left !important;
+}
+
+.regularization-col-index {
+  text-align: center !important;
+}
+
+/* Time + clock inside employee-style form */
+.employee-form-page .regularization-time-in-employee-form input.input[type="time"] {
+  width: 100%;
+  padding-right: 42px;
+  box-sizing: border-box;
 }

@@ -10,6 +10,36 @@ app.use((req, res, next) => {
     next();
 });
 
+/** Fill assignedShift, firstIn, lastOut from Shift master when missing (client import / API). */
+async function applyShiftMasterToPayload(catalyst, shiftId, payload) {
+    const out = { ...payload };
+    const sid = String(shiftId || '').trim().replace(/'/g, "''");
+    if (!sid) return out;
+    try {
+        const zcql = catalyst.zcql();
+        const rows = await zcql.executeZCQLQuery(
+            `SELECT ShiftName, FromDate, ToDate FROM Shift WHERE ROWID = '${sid}' LIMIT 1`
+        );
+        if (!rows || rows.length === 0) return out;
+        const s = rows[0].Shift || rows[0];
+        const name = String(s.ShiftName || '').trim();
+        const fromT = String(s.FromDate || '').trim();
+        const toT = String(s.ToDate || '').trim();
+        if (!(out.assignedShift && String(out.assignedShift).trim()) && name) {
+            out.assignedShift = name;
+        }
+        if (!(out.firstIn && String(out.firstIn).trim()) && fromT) {
+            out.firstIn = fromT;
+        }
+        if (!(out.lastOut && String(out.lastOut).trim()) && toT) {
+            out.lastOut = toT;
+        }
+    } catch (e) {
+        console.error('applyShiftMasterToPayload:', e.message);
+    }
+    return out;
+}
+
 // Get all shift mappings
 app.get('/shiftmaps', async (req, res) => {
     try {
@@ -135,11 +165,17 @@ app.get('/shiftmaps', async (req, res) => {
 // Add a new shift mapping
 app.post('/shiftmaps', async (req, res) => {
     try {
-        const { employeeId, shiftId, fromdate, todate, assignedShift, firstIn, lastOut, dateWise, dateWiseShiftName } = req.body;
+        let { employeeId, shiftId, fromdate, todate, assignedShift, firstIn, lastOut, dateWise, dateWiseShiftName } = req.body;
         if (!employeeId || !shiftId || !fromdate || !todate) {
             return res.status(400).send({ status: 'failure', message: 'All fields are required.' });
         }
         const { catalyst } = res.locals;
+        const merged = await applyShiftMasterToPayload(catalyst, shiftId, {
+            employeeId, shiftId, fromdate, todate, assignedShift, firstIn, lastOut, dateWise, dateWiseShiftName
+        });
+        assignedShift = merged.assignedShift;
+        firstIn = merged.firstIn;
+        lastOut = merged.lastOut;
         const table = catalyst.datastore().table('Shiftmap');
         const newMap = await table.insertRow({
             EmployeeId: employeeId,
@@ -182,11 +218,17 @@ app.post('/shiftmaps', async (req, res) => {
 app.put('/shiftmaps/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        const { employeeId, shiftId, fromdate, todate, assignedShift, firstIn, lastOut, dateWise, dateWiseShiftName } = req.body;
+        let { employeeId, shiftId, fromdate, todate, assignedShift, firstIn, lastOut, dateWise, dateWiseShiftName } = req.body;
         if (!employeeId || !shiftId || !fromdate || !todate) {
             return res.status(400).send({ status: 'failure', message: 'All fields are required.' });
         }
         const { catalyst } = res.locals;
+        const merged = await applyShiftMasterToPayload(catalyst, shiftId, {
+            employeeId, shiftId, fromdate, todate, assignedShift, firstIn, lastOut, dateWise, dateWiseShiftName
+        });
+        assignedShift = merged.assignedShift;
+        firstIn = merged.firstIn;
+        lastOut = merged.lastOut;
         const table = catalyst.datastore().table('Shiftmap');
         const updatedMap = await table.updateRow({
             ROWID: id,

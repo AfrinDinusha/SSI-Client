@@ -578,6 +578,9 @@ module.exports = async (req, res) => {
         if (key.includes('2ND') || key.includes('SECOND') || key === '2' || key.includes('SHIFT2')) {
           return findByKeyword(['2ND', 'SECOND']);
         }
+        if (key.includes('3RD') || key.includes('THIRD') || key === '3' || key.includes('SHIFT3')) {
+          return findByKeyword(['3RD', 'THIRD']);
+        }
         if (key.includes('HOUSEKEEPING') || key === 'HK') {
           return findByKeyword(['HOUSEKEEPING', 'HK']);
         }
@@ -637,11 +640,12 @@ module.exports = async (req, res) => {
             return true;
           }
          
-          // If NewShiftMap has a shift type but it's not General, check if it's 1st or 2nd
+          // If NewShiftMap has a shift type but it's not General, check if it's 1st, 2nd, or 3rd
           const isFirst = isFirstShift(empId, dateStr);
           const isSecond = isSecondShift(empId, dateStr);
-          // If it's not 1st or 2nd, and NewShiftMap has a value, default to General
-          if (!isFirst && !isSecond) {
+          const isThird = isThirdShift(empId, dateStr);
+          // If it's not 1st, 2nd, or 3rd, and NewShiftMap has a value, default to General
+          if (!isFirst && !isSecond && !isThird) {
             console.log(`[Monthly OT] Employee ${normalizedEmpId} on ${normalizedDate} defaulting to General shift (NewShiftMap has "${newShiftType}" but not 1st or 2nd)`);
             return true; // Default to General if NewShiftMap has a shift type but it's not 1st or 2nd
           }
@@ -775,6 +779,40 @@ module.exports = async (req, res) => {
         return false;
       };
 
+      // 3rd / night shift: OT from total worked hours vs 8.5h (same as BHR "other shifts" path), not General checkout rules.
+      const isThirdShift = (empId, dateStr) => {
+        const normalizedEmpId = String(empId).trim();
+        const normalizedDate = normalizeDateForCompare(dateStr);
+        const newShiftKey = `${normalizedEmpId}_${normalizedDate}`;
+        const newShiftType = newShiftMap[newShiftKey];
+
+        if (newShiftType) {
+          const u = String(newShiftType || '').trim().toUpperCase();
+          return u === '3RD' || u === '3RD SHIFT' || u === 'THIRD' || u === 'THIRD SHIFT' ||
+            u === '3' || u === 'SHIFT 3' || u.includes('3RD') || u.includes('THIRD');
+        }
+
+        if (!shiftMap[empId] || shiftMap[empId].length === 0) {
+          return false;
+        }
+
+        for (const shift of shiftMap[empId]) {
+          const shiftName = String(shift.assignedShift || '').trim().toUpperCase();
+          if (shiftName === '3RD' || shiftName === '3RD SHIFT' || shiftName === 'THIRD' ||
+              shiftName === 'THIRD SHIFT' || shiftName === '3' || shiftName === 'SHIFT 3' ||
+              shiftName.includes('3RD') || shiftName.includes('THIRD')) {
+            if (shift.fromdate && shift.todate) {
+              if (dateStr >= shift.fromdate && dateStr <= shift.todate) return true;
+            } else if (shift.fromdate && dateStr >= shift.fromdate) {
+              return true;
+            } else if (shift.todate && dateStr <= shift.todate) {
+              return true;
+            }
+          }
+        }
+        return false;
+      };
+
       // Helper function to check if employee is on Housekeeping shift for a specific date
       // Housekeeping OT rule: no fixed start/end; OT only when total > 9h, then OT = total − 8.
       function isHousekeepingShift(empId, dateStr) {
@@ -872,8 +910,43 @@ module.exports = async (req, res) => {
         return isNaN(d.getTime()) ? null : d;
       };
 
+      const addOneCalendarDayYmd = (ymd) => {
+        if (!ymd || !/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return ymd;
+        const d = new Date(`${ymd}T12:00:00`);
+        if (isNaN(d.getTime())) return ymd;
+        d.setDate(d.getDate() + 1);
+        const y = d.getFullYear();
+        const mo = String(d.getMonth() + 1).padStart(2, '0');
+        const da = String(d.getDate()).padStart(2, '0');
+        return `${y}-${mo}-${da}`;
+      };
+
+      const timeStrToMinutes = (t) => {
+        const m = String(t || '').trim().match(/^([01]?\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?$/);
+        if (!m) return null;
+        return parseInt(m[1], 10) * 60 + parseInt(m[2], 10) + (m[3] ? parseInt(m[3], 10) : 0);
+      };
+
+      /** Shift crosses midnight when clock start is after clock end on the same calendar day (e.g. 20:00 → 06:00). */
+      const isOvernightShiftPair = (fromHms, toHms) => {
+        const a = timeStrToMinutes(fromHms);
+        const b = timeStrToMinutes(toHms);
+        if (a === null || b === null) return false;
+        return a > b;
+      };
+
+      const normalizeShiftBoundaryHms = (t) => {
+        const raw = String(t || '').trim();
+        if (!raw) return '00:00:00';
+        const p = raw.match(/^([01]?\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?$/);
+        if (!p) return raw.length >= 8 ? raw.slice(0, 8) : `${raw}:00`.slice(0, 8);
+        const hh = p[1].padStart(2, '0');
+        return `${hh}:${p[2]}:${p[3] || '00'}`;
+      };
+
       // Helper function to calculate overtime based on shift end time
-      const calculateOvertimeForShift = (lastOutTimeStr, dateStr, expectedCheckoutTime) => {
+      // shiftStartTimeHms: when set and shift is overnight (from > to on clock), expected end is on the calendar day AFTER dateStr (fixes 3rd shift 20:00–06:00 with checkout next morning).
+      const calculateOvertimeForShift = (lastOutTimeStr, dateStr, expectedCheckoutTime, shiftStartTimeHms) => {
         if (!lastOutTimeStr || !dateStr || !expectedCheckoutTime) return 0;
        
         try {
@@ -882,7 +955,12 @@ module.exports = async (req, res) => {
          
           const lastOutTime = lastOutInstantFromStr(lastOutTimeStr, dateStr);
           if (!lastOutTime) return 0;
-          const expectedCheckout = new Date(`${dateStr} ${expectedCheckoutTime}`.replace(' ', 'T'));
+          const endHms = normalizeShiftBoundaryHms(expectedCheckoutTime);
+          let expectedEndYmd = dateStr;
+          if (shiftStartTimeHms && isOvernightShiftPair(shiftStartTimeHms, endHms)) {
+            expectedEndYmd = addOneCalendarDayYmd(dateStr);
+          }
+          const expectedCheckout = new Date(`${expectedEndYmd} ${endHms}`.replace(' ', 'T'));
          
           if (isNaN(lastOutTime.getTime()) || isNaN(expectedCheckout.getTime())) {
             return 0;
@@ -895,7 +973,7 @@ module.exports = async (req, res) => {
             const diffMs = lastOutTime - expectedCheckout;
             const overtimeHours = diffMs / (1000 * 60 * 60); // Convert to hours
             const result = Math.max(0, parseFloat(overtimeHours.toFixed(3))); // Round to 3 decimal places for accuracy
-            console.log(`OT Calculation: checkout=${timePart}, expected=${expectedCheckoutTime}, diffMs=${diffMs}, OT=${result.toFixed(3)} hours`);
+            console.log(`OT Calculation: checkout=${timePart}, expectedEnd=${expectedEndYmd} ${endHms}, diffMs=${diffMs}, OT=${result.toFixed(3)} hours`);
             return result;
           }
          
@@ -1073,10 +1151,10 @@ module.exports = async (req, res) => {
       };
 
       // Dynamic OT calculation for Shift master definitions:
-      // OT is counted immediately after shift end time.
-      const calculateOvertimeForDynamicShift = (lastOutTimeStr, dateStr, shiftEndTimeHms) => {
+      // OT is counted immediately after shift end time. Pass shiftStartTimeHms for overnight shifts (e.g. 20:00–06:00).
+      const calculateOvertimeForDynamicShift = (lastOutTimeStr, dateStr, shiftEndTimeHms, shiftStartTimeHms) => {
         if (!shiftEndTimeHms) return 0;
-        return calculateOvertimeForShift(lastOutTimeStr, dateStr, shiftEndTimeHms);
+        return calculateOvertimeForShift(lastOutTimeStr, dateStr, shiftEndTimeHms, shiftStartTimeHms);
       };
      
       let dataSource = 'none';
@@ -1231,6 +1309,7 @@ module.exports = async (req, res) => {
               const isGeneral = isGeneralShift(empDateData.EmployeeID, dateStr);
               const isFirst = isFirstShift(empDateData.EmployeeID, dateStr);
               const isSecond = isSecondShift(empDateData.EmployeeID, dateStr);
+              const isThird = isThirdShift(empDateData.EmployeeID, dateStr);
               const assignedShiftDef = getShiftDefinitionForEmployeeDate(empDateData.EmployeeID, dateStr);
              
               let overtimeHours = 0;
@@ -1274,7 +1353,7 @@ module.exports = async (req, res) => {
               {
                 const fallbackGeneralShift = getGeneralShiftDefinition();
                 overtimeHours = fallbackGeneralShift
-                  ? calculateOvertimeForDynamicShift(lastOut, dateStr, fallbackGeneralShift.toTime)
+                  ? calculateOvertimeForDynamicShift(lastOut, dateStr, fallbackGeneralShift.toTime, fallbackGeneralShift.fromTime)
                   : calculateOvertimeForGeneralShift(lastOut, dateStr);
               }
               if (overtimeHours > 0 || dateStr === '2026-01-03') {
@@ -1305,7 +1384,20 @@ module.exports = async (req, res) => {
                 }
               } else if (assignedShiftDef) {
                 overtimeHours =
-                  calculateOvertimeForDynamicShift(lastOut, dateStr, assignedShiftDef.toTime);
+                  calculateOvertimeForDynamicShift(lastOut, dateStr, assignedShiftDef.toTime, assignedShiftDef.fromTime);
+                if (overtimeHours > 0 || dateStr === '2026-01-03') {
+                  overtimeRecords.push({
+                    EmployeeID: empDateData.EmployeeID,
+                    Date: dateStr,
+                    TotalHours: totalHours,
+                    OvertimeHours: overtimeHours,
+                    FirstIn: firstIn,
+                    LastOut: lastOut,
+                    Source: 'BHR'
+                  });
+                }
+              } else if (isThird) {
+                overtimeHours = totalHours > 8.5 ? totalHours - 8.5 : 0;
                 if (overtimeHours > 0 || dateStr === '2026-01-03') {
                   overtimeRecords.push({
                     EmployeeID: empDateData.EmployeeID,
@@ -1321,7 +1413,7 @@ module.exports = async (req, res) => {
                 // Shift is assigned in NewShiftMap but not resolved in Shift master -> fallback to General shift.
                 const fallbackGeneralShift = getGeneralShiftDefinition();
                 overtimeHours = fallbackGeneralShift
-                  ? calculateOvertimeForDynamicShift(lastOut, dateStr, fallbackGeneralShift.toTime)
+                  ? calculateOvertimeForDynamicShift(lastOut, dateStr, fallbackGeneralShift.toTime, fallbackGeneralShift.fromTime)
                   : calculateOvertimeForGeneralShift(lastOut, dateStr);
                 if (overtimeHours > 0 || dateStr === '2026-01-03') {
                   overtimeRecords.push({
@@ -1353,7 +1445,7 @@ module.exports = async (req, res) => {
                 {
                   const fallbackGeneralShift = getGeneralShiftDefinition();
                   overtimeHours = fallbackGeneralShift
-                    ? calculateOvertimeForDynamicShift(lastOut, dateStr, fallbackGeneralShift.toTime)
+                    ? calculateOvertimeForDynamicShift(lastOut, dateStr, fallbackGeneralShift.toTime, fallbackGeneralShift.fromTime)
                     : calculateOvertimeForGeneralShift(lastOut, dateStr);
                 }
                 if (overtimeHours > 0 || dateStr === '2026-01-03') {
@@ -1550,6 +1642,7 @@ module.exports = async (req, res) => {
             const isGeneral = isGeneralShift(row.EmployeeId, dateStr);
             const isFirst = isFirstShift(row.EmployeeId, dateStr);
             const isSecond = isSecondShift(row.EmployeeId, dateStr);
+            const isThird = isThirdShift(row.EmployeeId, dateStr);
             const assignedShiftDef = getShiftDefinitionForEmployeeDate(row.EmployeeId, dateStr);
            
             let overtimeHours = 0;
@@ -1597,7 +1690,7 @@ module.exports = async (req, res) => {
               {
                 const fallbackGeneralShift = getGeneralShiftDefinition();
                 overtimeHours = fallbackGeneralShift
-                  ? calculateOvertimeForDynamicShift(row.LastOut, dateStr, fallbackGeneralShift.toTime)
+                  ? calculateOvertimeForDynamicShift(row.LastOut, dateStr, fallbackGeneralShift.toTime, fallbackGeneralShift.fromTime)
                   : calculateOvertimeForGeneralShift(row.LastOut, dateStr);
               }
               if (overtimeHours > 0 || dateStr === '2026-01-03') {
@@ -1628,7 +1721,20 @@ module.exports = async (req, res) => {
               }
             } else if (assignedShiftDef) {
               overtimeHours =
-                calculateOvertimeForDynamicShift(row.LastOut, dateStr, assignedShiftDef.toTime);
+                calculateOvertimeForDynamicShift(row.LastOut, dateStr, assignedShiftDef.toTime, assignedShiftDef.fromTime);
+              if (overtimeHours > 0 || dateStr === '2026-01-03') {
+                overtimeRecords.push({
+                  EmployeeID: row.EmployeeId,
+                  Date: dateStr,
+                  TotalHours: totalHours,
+                  OvertimeHours: overtimeHours,
+                  FirstIn: row.FirstIn,
+                  LastOut: row.LastOut,
+                  Source: 'Attendance'
+                });
+              }
+            } else if (isThird) {
+              overtimeHours = totalHours > 8.5 ? totalHours - 8.5 : 0;
               if (overtimeHours > 0 || dateStr === '2026-01-03') {
                 overtimeRecords.push({
                   EmployeeID: row.EmployeeId,
@@ -1644,7 +1750,7 @@ module.exports = async (req, res) => {
               // Shift is assigned in NewShiftMap but not resolved in Shift master -> fallback to General shift.
               const fallbackGeneralShift = getGeneralShiftDefinition();
               overtimeHours = fallbackGeneralShift
-                ? calculateOvertimeForDynamicShift(row.LastOut, dateStr, fallbackGeneralShift.toTime)
+                ? calculateOvertimeForDynamicShift(row.LastOut, dateStr, fallbackGeneralShift.toTime, fallbackGeneralShift.fromTime)
                 : calculateOvertimeForGeneralShift(row.LastOut, dateStr);
               if (overtimeHours > 0 || dateStr === '2026-01-03') {
                 overtimeRecords.push({
@@ -1676,7 +1782,7 @@ module.exports = async (req, res) => {
               {
                 const fallbackGeneralShift = getGeneralShiftDefinition();
                 overtimeHours = fallbackGeneralShift
-                  ? calculateOvertimeForDynamicShift(row.LastOut, dateStr, fallbackGeneralShift.toTime)
+                  ? calculateOvertimeForDynamicShift(row.LastOut, dateStr, fallbackGeneralShift.toTime, fallbackGeneralShift.fromTime)
                   : calculateOvertimeForGeneralShift(row.LastOut, dateStr);
               }
               if (overtimeHours > 0 || dateStr === '2026-01-03') {
@@ -2547,7 +2653,7 @@ module.exports = async (req, res) => {
           if (!hasNewShiftMapEntry(rec.EmployeeID, rec.Date) && !assignedShiftDef && !isHousekeeping) {
             const fallbackGeneralShift = getGeneralShiftDefinition();
             const otHoursGeneral = fallbackGeneralShift
-              ? calculateOvertimeForDynamicShift(rec.LastOUT, rec.Date, fallbackGeneralShift.toTime)
+              ? calculateOvertimeForDynamicShift(rec.LastOUT, rec.Date, fallbackGeneralShift.toTime, fallbackGeneralShift.fromTime)
               : calculateOvertimeForGeneralShift(rec.LastOUT, rec.Date);
             const finalOtHours = isOTExcluded(rec.EmployeeID, rec.Date) ? 0 : otHoursGeneral;
             overtimeFromByKey.push({
@@ -2584,12 +2690,22 @@ module.exports = async (req, res) => {
             }
           } else if (assignedShiftDef) {
             otHours =
-              calculateOvertimeForDynamicShift(rec.LastOUT, rec.Date, assignedShiftDef.toTime);
+              calculateOvertimeForDynamicShift(rec.LastOUT, rec.Date, assignedShiftDef.toTime, assignedShiftDef.fromTime);
+          } else if (isThirdShift(rec.EmployeeID, rec.Date)) {
+            if (!isNaN(firstInDate) && !isNaN(lastOutDate)) {
+              const diffMs = lastOutDate - firstInDate;
+              if (diffMs > 0) {
+                const totalWorkingHours = diffMs / (1000 * 60 * 60);
+                if (totalWorkingHours > 8.5) {
+                  otHours = totalWorkingHours - 8.5;
+                }
+              }
+            }
           } else if (hasNewShiftMapEntry(rec.EmployeeID, rec.Date)) {
             // Shift is assigned in NewShiftMap but not resolved in Shift master -> fallback to General shift.
             const fallbackGeneralShift = getGeneralShiftDefinition();
             otHours = fallbackGeneralShift
-              ? calculateOvertimeForDynamicShift(rec.LastOUT, rec.Date, fallbackGeneralShift.toTime)
+              ? calculateOvertimeForDynamicShift(rec.LastOUT, rec.Date, fallbackGeneralShift.toTime, fallbackGeneralShift.fromTime)
               : calculateOvertimeForGeneralShift(rec.LastOUT, rec.Date);
           } else if (isGeneralII) {
             // For General II shift: 12:00-20:00, OT if checkout after 21:00.
@@ -2599,7 +2715,7 @@ module.exports = async (req, res) => {
             {
               const fallbackGeneralShift = getGeneralShiftDefinition();
               otHours = fallbackGeneralShift
-                ? calculateOvertimeForDynamicShift(rec.LastOUT, rec.Date, fallbackGeneralShift.toTime)
+                ? calculateOvertimeForDynamicShift(rec.LastOUT, rec.Date, fallbackGeneralShift.toTime, fallbackGeneralShift.fromTime)
                 : calculateOvertimeForGeneralShift(rec.LastOUT, rec.Date);
             }
             if (rec.EmployeeID && rec.Date && (rec.LastOUT && rec.LastOUT.includes('23:59') || rec.LastOUT && rec.LastOUT.includes('23:5'))) {
@@ -2616,7 +2732,7 @@ module.exports = async (req, res) => {
             {
               const fallbackGeneralShift = getGeneralShiftDefinition();
               otHours = fallbackGeneralShift
-                ? calculateOvertimeForDynamicShift(rec.LastOUT, rec.Date, fallbackGeneralShift.toTime)
+                ? calculateOvertimeForDynamicShift(rec.LastOUT, rec.Date, fallbackGeneralShift.toTime, fallbackGeneralShift.fromTime)
                 : calculateOvertimeForGeneralShift(rec.LastOUT, rec.Date);
             }
           }

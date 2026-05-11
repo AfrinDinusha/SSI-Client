@@ -153,6 +153,18 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
     ) {
       return 'shift-second';
     }
+    if (
+      shiftRaw === 'THIRD' ||
+      shiftRaw === '3RD' ||
+      shiftRaw === '3RD SHIFT' ||
+      shiftRaw === 'THIRD SHIFT' ||
+      shiftRaw === '3' ||
+      shiftRaw === 'SHIFT 3' ||
+      shiftCompact.includes('3RD') ||
+      shiftCompact.includes('THIRD')
+    ) {
+      return 'shift-third';
+    }
     if (shiftRaw === 'HOUSEKEEPING' || shiftRaw === 'HK' || shiftCompact === 'HOUSEKEEPING') {
       return 'shift-housekeeping';
     }
@@ -192,6 +204,18 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
       shiftCompact === 'SECONDSHIFT'
     ) {
       return '2nd Shift';
+    }
+    if (
+      shiftUpper === 'THIRD' ||
+      shiftUpper === '3RD' ||
+      shiftUpper === '3RD SHIFT' ||
+      shiftUpper === 'THIRD SHIFT' ||
+      shiftUpper === '3' ||
+      shiftUpper === 'SHIFT 3' ||
+      shiftCompact.includes('3RD') ||
+      shiftCompact.includes('THIRD')
+    ) {
+      return '3rd Shift';
     }
     if (shiftUpper === 'HK' || shiftCompact === 'HOUSEKEEPING') {
       return 'Housekeeping';
@@ -461,7 +485,7 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
 
   const legendShifts = useMemo(() => {
     if (shiftMasterNames.length > 0) return shiftMasterNames;
-    return ['1st Shift', '2nd Shift', 'General', 'General II', 'Housekeeping'];
+    return ['1st Shift', '2nd Shift', '3rd Shift', 'General', 'General II', 'Housekeeping'];
   }, [shiftMasterNames]);
 
   const refreshContractors = () => {
@@ -1064,10 +1088,22 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
                               else if (status === 'OD') { display = 'OD (Full Day)'; className = 'onduty'; }
                               else if (status === 'OD-0.5') { display = 'OD (Half Day)'; className = 'onduty-halfday'; }
 
-                              // Apply shift-based tint (from NewShiftMap) for UI clarity
+                              // Apply shift-based tint (from NewShiftMap / Shiftmap) for UI clarity
                               const shiftType = rowShiftTypes && rowShiftTypes[colIdx] ? rowShiftTypes[colIdx] : 'GENERAL';
-                              const shiftClass = getShiftClassName(shiftType);
-                              const shiftDisplayName = normalizeShiftDisplayName(shiftType);
+                              let shiftClass = getShiftClassName(shiftType);
+                              let shiftDisplayName = normalizeShiftDisplayName(shiftType);
+                              // Night check-in (19:00–23:59) with Present: show 3rd-shift orange when map still says General (common when NewShiftMap key mismatches employee id).
+                              const firstInRawForInfer = rowFirstIn && Array.isArray(rowFirstIn) && rowFirstIn[colIdx] ? String(rowFirstIn[colIdx]).trim() : '';
+                              if (shiftClass === 'shift-general' && (status === 'Present' || status === 'Half Day Present') && firstInRawForInfer) {
+                                const timeMatch = firstInRawForInfer.match(/(?:^|\s|T)(\d{1,2}):(\d{2})/);
+                                if (timeMatch) {
+                                  const h = parseInt(timeMatch[1], 10);
+                                  if (!Number.isNaN(h) && h >= 19 && h <= 23) {
+                                    shiftClass = 'shift-third';
+                                    shiftDisplayName = '3rd Shift';
+                                  }
+                                }
+                              }
                               const shouldShowShiftText = shiftDisplayName && shiftDisplayName.toLowerCase() !== 'general';
                               className = `${className} ${shiftClass}`.trim();
                               
@@ -1204,7 +1240,7 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
                                 <td key={colIdx} className={`muster-date-col ${className}`.trim()} style={cellStyle}>
                                   <div className="muster-date-cell-inner" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                                     <div>{display}</div>
-                                    {shouldShowShiftText ? (
+                                    {shouldShowShiftText && shiftClass !== 'shift-third' ? (
                                       <div style={{ fontSize: '11px', color: '#2f2f2f', marginTop: '2px', fontWeight: '600' }}>
                                         {shiftDisplayName}
                                       </div>

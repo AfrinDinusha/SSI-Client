@@ -231,7 +231,44 @@
   padding: 48px 24px;
 }
 
-/* ========== Add Shift form (2nd image model: alignment, header, sections, buttons) ========== */
+/* Shift form: shift name + From + To in one row inside Shift Information (employee-info flex grid) */
+.form-section-card.employee-info .form-grid.shift-shift-info-row {
+  flex-wrap: nowrap;
+  align-items: flex-end;
+  gap: 20px 24px;
+}
+
+.form-section-card.employee-info .form-grid.shift-shift-info-row .form-group:first-child {
+  flex: 2 1 240px;
+  min-width: 160px;
+}
+
+.form-section-card.employee-info .form-grid.shift-shift-info-row .form-group:nth-child(2),
+.form-section-card.employee-info .form-grid.shift-shift-info-row .form-group:nth-child(3) {
+  flex: 1 1 140px;
+  min-width: 120px;
+  max-width: 200px;
+}
+
+@media (max-width: 900px) {
+  .form-section-card.employee-info .form-grid.shift-shift-info-row {
+    flex-wrap: wrap;
+  }
+
+  .form-section-card.employee-info .form-grid.shift-shift-info-row .form-group:nth-child(2),
+  .form-section-card.employee-info .form-grid.shift-shift-info-row .form-group:nth-child(3) {
+    max-width: none;
+    flex: 1 1 calc(50% - 12px);
+  }
+}
+
+@media (max-width: 520px) {
+  .form-section-card.employee-info .form-grid.shift-shift-info-row .form-group {
+    flex: 1 1 100% !important;
+    max-width: none !important;
+  }
+}
+
 .shift-form-page {
   padding: 24px;
   max-width: 100%;

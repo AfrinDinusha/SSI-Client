@@ -2,12 +2,13 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import './App.css';
 import './shift.css';
+import './employeeManagement.css';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import Button from './Button';
 import HeaderBranding from './HeaderBranding';
 import { getSidebarModulesForUser, resolveSidebarUserEmail } from './modulesConfig';
 import { 
-  Users, Calendar, FileText, AlertTriangle, FolderOpen, 
+  Users, Calendar, AlertTriangle, FolderOpen, 
   ClipboardList, Building, Handshake, Landmark, Clock, 
   Map, BarChart3, User, TrendingUp, TrendingDown,
   Activity, Plus, CheckCircle, Bell, Settings, LayoutDashboard, Home as HomeIcon, AlertOctagon, CreditCard, Shield, FileSignature, Search, Clock3, CalendarDays, Database, Pencil, Trash2, ArrowRight, RefreshCw, X, Info, AlarmClock
@@ -362,113 +363,94 @@ function Shift({ userRole: propUserRole, userEmail: propUserEmail }) {
               </div>
             )}
 
-            {/* Form Page Content */}
+            {/* Form Page Content — same shell as Employee Management add/edit */}
             <main className="cms-dashboard-content">
-              <div className="shift-form-page">
-                <div className="shift-form-container">
-                  <div className="shift-form-header">
-                    <h1 className="shift-form-title">
-                      {editingShift ? <Pencil size={24} className="shift-form-title-icon" /> : <Plus size={24} className="shift-form-title-icon" />}
-                      {editingShift ? 'Edit' : 'Add'} Shift
+              <div className="employee-form-page">
+                <div className="employee-form-container">
+                  <div className="employee-form-header">
+                    <h1 style={{ paddingLeft: '20px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      {editingShift ? <Pencil size={28} strokeWidth={2} aria-hidden /> : <Plus size={28} strokeWidth={2} aria-hidden />}
+                      {editingShift ? 'Edit Shift' : 'Add Shift'}
                     </h1>
-                    <button type="button" className="shift-form-close" onClick={closeForm} aria-label="Close">
-                      <X size={22} />
+                    <button type="button" className="close-btn" onClick={closeForm} title="Close form" aria-label="Close form">
+                      <X size={32} strokeWidth={2.5} aria-hidden />
                     </button>
                   </div>
-                  
-                  <div className="shift-form-content">
+                  <div className="employee-form-content" style={{ position: 'relative' }}>
                     {submitting && (
                       <div className="form-loader">
                         <div className="loading-spinner"></div>
                       </div>
                     )}
-                    
-                    <form onSubmit={saveShift} className="shift-add-form">
-                      <div className="shift-form-section-card shift-info">
-                        <h2 className="section-title">Shift Information</h2>
-                        <div className="shift-form-grid shift-form-grid-single">
-                          <div className="shift-form-group">
-                            <label htmlFor="shiftName">
-                              <FileText size={16} className="label-icon" />
-                              SHIFT NAME <span className="required">**</span>
-                            </label>
-                            <input
-                              id="shiftName"
-                              name="shiftName"
-                              type="text"
-                              className="shift-input"
-                              value={form.shiftName}
-                              onChange={e => setForm({ ...form, shiftName: e.target.value })}
-                              placeholder="Enter shift name..."
-                              required
-                            />
+                    <div className="employee-form-card">
+                      <form onSubmit={saveShift} className="employee-form">
+                        <div className="form-section-card employee-info">
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
+                            <h2 className="section-title" style={{ margin: 0 }}>Shift Information</h2>
+                            <AlarmClock size={22} style={{ color: '#e91e63', flexShrink: 0 }} aria-hidden title="Time details" />
                           </div>
-                        </div>
-                      </div>
-
-                      <div className="shift-form-section-card time-details">
-                        <div className="section-title-row">
-                          <h2 className="section-title">Time Details</h2>
-                          <AlarmClock size={22} className="section-title-card-icon section-title-icon-time" aria-hidden />
-                        </div>
-                        <div className="shift-form-grid shift-form-grid-double">
-                          <div className="shift-form-group">
-                            <label htmlFor="from">
-                              <Clock size={16} className="label-icon" />
-                              FROM <span className="required">**</span>
-                            </label>
-                            <div className="shift-input-wrap">
+                          <div className="form-grid shift-shift-info-row">
+                            <div className="form-group">
+                              <label htmlFor="shiftName">Shift name *</label>
+                              <input
+                                id="shiftName"
+                                name="shiftName"
+                                type="text"
+                                className="input"
+                                value={form.shiftName}
+                                onChange={(e) => setForm({ ...form, shiftName: e.target.value })}
+                                placeholder="Enter shift name..."
+                                required
+                              />
+                            </div>
+                            <div className="form-group">
+                              <label htmlFor="from">From *</label>
                               <input
                                 id="from"
                                 name="from"
                                 type="time"
-                                className="shift-input"
+                                className="input"
+                                step={60}
                                 value={form.from}
-                                onChange={e => setForm({ ...form, from: e.target.value })}
+                                onChange={(e) => setForm({ ...form, from: e.target.value })}
                                 required
                               />
-                              <Clock size={18} className="shift-input-icon" aria-hidden />
                             </div>
-                          </div>
-                          <div className="shift-form-group">
-                            <label htmlFor="to">
-                              <Clock size={16} className="label-icon" />
-                              TO <span className="required">**</span>
-                            </label>
-                            <div className="shift-input-wrap">
+                            <div className="form-group">
+                              <label htmlFor="to">To *</label>
                               <input
                                 id="to"
                                 name="to"
                                 type="time"
-                                className="shift-input"
+                                className="input"
+                                step={60}
                                 value={form.to}
-                                onChange={e => setForm({ ...form, to: e.target.value })}
+                                onChange={(e) => setForm({ ...form, to: e.target.value })}
                                 required
                               />
-                              <Clock size={18} className="shift-input-icon" aria-hidden />
                             </div>
                           </div>
                         </div>
-                      </div>
 
-                      {formError && (
-                        <div className="alert alert-error">
-                          <span className="alert-icon">⚠️</span>
-                          {formError}
+                        {formError && (
+                          <div className="alert alert-error" style={{ marginBottom: '16px' }}>
+                            <span className="alert-icon">⚠️</span>
+                            {formError}
+                          </div>
+                        )}
+
+                        <div className="form-actions" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+                          <button type="button" className="btn btn-danger" onClick={resetForm}>
+                            <RefreshCw size={18} style={{ marginRight: '6px' }} aria-hidden />
+                            Reset
+                          </button>
+                          <button type="submit" className="btn btn-primary" disabled={submitting}>
+                            <Plus size={18} style={{ marginRight: '6px' }} aria-hidden />
+                            {editingShift ? 'Update' : 'Add'} Shift
+                          </button>
                         </div>
-                      )}
-
-                      <div className="shift-form-actions">
-                        <button type="button" className="btn-danger" onClick={resetForm}>
-                          <RefreshCw size={18} className="btn-icon-svg" />
-                          Reset
-                        </button>
-                        <button type="submit" className="btn-primary" disabled={submitting}>
-                          <Plus size={18} className="btn-icon-svg" />
-                          {editingShift ? 'Update' : 'Add'} Shift
-                        </button>
-                      </div>
-                    </form>
+                      </form>
+                    </div>
                   </div>
                 </div>
               </div>

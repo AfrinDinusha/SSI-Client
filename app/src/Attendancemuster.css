@@ -305,6 +305,14 @@
     background-image: linear-gradient(0deg, rgba(139, 108, 92, 0.25), rgba(139, 108, 92, 0.25));
   }
 
+  .muster-table td.shift-third {
+    /* 3rd Shift: solid orange so it wins over .present green (background shorthand clears background-image) */
+    background: rgba(233, 113, 50, 0.55) !important;
+    background-image: none !important;
+    color: #1a1a1a !important;
+    font-weight: 600;
+  }
+
   .muster-table td.shift-housekeeping {
     /* Housekeeping tint (base color #FF7F7F) */
     background-image: linear-gradient(0deg, rgba(255, 127, 127, 0.25), rgba(255, 127, 127, 0.25));
@@ -332,6 +340,17 @@
   .muster-table td.present.shift-second,
   .muster-table td.halfday.shift-second {
     background: #8b6c5c !important;
+    background-image: none !important;
+    color: #fff !important;
+    font-weight: 700;
+  }
+
+  .muster-table td.present.shift-third,
+  .muster-table td.halfday.shift-third,
+  .muster-table tbody td.muster-date-col.present.shift-third,
+  .muster-table tbody td.muster-date-col.halfday.shift-third {
+    background: #e97132 !important;
+    background-color: #e97132 !important;
     background-image: none !important;
     color: #fff !important;
     font-weight: 700;
@@ -387,6 +406,9 @@
   }
   .muster-shift-legend .legend-swatch.shift-second {
     background: #8b6c5c;
+  }
+  .muster-shift-legend .legend-swatch.shift-third {
+    background: #e97132;
   }
   .muster-shift-legend .legend-swatch.shift-housekeeping {
     background: #FF7F7F;

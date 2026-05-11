@@ -15,7 +15,7 @@ import {
   BarChart3, User, TrendingUp, TrendingDown,
   Activity, Plus, CheckCircle, Bell, Settings, LayoutDashboard, Home as HomeIcon,
   Shield, AlertOctagon, CreditCard, FileSignature, Search, Clock3, Database, CalendarDays,
-  FileInput, FileOutput, Filter, RefreshCw, Trash2, Pencil, X
+  FileInput, FileOutput, Filter, RefreshCw, Trash2, X
 } from 'lucide-react';
 // import DOMPurify from 'dompurify'; // Uncomment if you install DOMPurify for XSS sanitization
 
@@ -97,7 +97,7 @@ function getActualTotalSalaryDisplay(employee) {
 }
 
 // Employee Row Component
-function EmployeeRow({ employee, index, removeEmployee, editEmployee, isSelected, onSelect, selectedEmployees }) {
+function EmployeeRow({ employee, index, removeEmployee, editEmployee, isSelected, onSelect }) {
   // Debug: Log emergency contact fields for first few rows
   if (index < 3) {
     console.log(`Employee ${index} emergency fields:`, {
@@ -210,11 +210,6 @@ function EmployeeRow({ employee, index, removeEmployee, editEmployee, isSelected
     onSelect(employee.id);
   }, [onSelect, employee.id]);
 
-  const handleEditButtonClick = useCallback((e) => {
-    e.stopPropagation(); // Prevent row click when clicking edit button
-    editEmployee(employee);
-  }, [editEmployee, employee]);
-
   return (
     <tr
       className="clickable-row"
@@ -237,7 +232,7 @@ function EmployeeRow({ employee, index, removeEmployee, editEmployee, isSelected
           onChange={handleCheckboxClick}
         />
       </td>
-      <td style={{ paddingRight: '20px', cursor: 'default' }} onClick={(e) => e.stopPropagation()}>{index + 1}</td>
+      <td style={{ paddingRight: '20px', cursor: 'pointer', textAlign: 'center' }}>{index + 1}</td>
       <td
         className="col-employee-status"
         onClick={handleRowClick}
@@ -4608,35 +4603,6 @@ function EmployeeManagement({ userRole = 'App Administrator', userEmail = null }
               >
                 <Plus size={34} strokeWidth={2.5} style={{ color: '#14b8a6' }} aria-hidden />
               </button>
-              {/* Edit button for selected employee(s) - before Delete */}
-              {selectedEmployees.length > 0 && (
-                <button
-                  className="toolbar-btn"
-                  onClick={() => {
-                    const firstId = selectedEmployees[0];
-                    const emp = filteredEmployees.find((e) => String(e.id) === String(firstId));
-                    if (emp) editEmployee(emp);
-                  }}
-                  title="Edit selected employee"
-                  type="button"
-                  style={{
-                    background: '#fff',
-                    color: '#2196f3',
-                    border: '2px solid #bbdefb',
-                    fontWeight: 700,
-                    padding: '8px',
-                    borderRadius: '8px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    width: '48px',
-                    height: '48px',
-                    boxShadow: '0 2px 8px rgba(33,150,243,0.15)',
-                  }}
-                >
-                  <Pencil size={22} style={{ color: '#2196f3' }} />
-                </button>
-              )}
               {/* Delete button for selected employees */}
               {selectedEmployees.length > 0 && (
                 <button
@@ -5562,7 +5528,6 @@ function EmployeeManagement({ userRole = 'App Administrator', userEmail = null }
                             editEmployee={editEmployee}
                             isSelected={selectedEmployees.some((id) => String(id) === String(employee.id))}
                             onSelect={handleSelectEmployee}
-                            selectedEmployees={selectedEmployees}
                           />
                         ))
                       ) : (

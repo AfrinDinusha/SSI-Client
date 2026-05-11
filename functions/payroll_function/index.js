@@ -4563,7 +4563,7 @@ function buildLatestSavedOTHoursMapFromPayrollRows(payrollRowResults) {
   return map;
 }
 
-/** Same as OT map but for LOH — newest Payroll ROWID per employee wins (includes explicit 0). */
+/** Same as OT map but for LOH — newest Payroll ROWID per employee wins; zero is omitted so muster can supply LOH. */
 function buildLatestSavedLOHMapFromPayrollRows(payrollRowResults) {
   const bestByNorm = new Map();
   const rowIdNum = (p) => {
@@ -4580,7 +4580,7 @@ function buildLatestSavedLOHMapFromPayrollRows(payrollRowResults) {
     const lohRaw = p.LOH ?? p.loh;
     if (lohRaw === null || lohRaw === undefined || String(lohRaw).trim() === '') continue;
     const lohNum = parseFloat(lohRaw);
-    if (!Number.isFinite(lohNum)) continue;
+    if (!Number.isFinite(lohNum) || lohNum === 0) continue;
     const lohRounded = parseFloat(lohNum.toFixed(2));
     const prev = bestByNorm.get(norm);
     if (!prev || rid >= prev.rowId) {
@@ -5331,7 +5331,7 @@ async function computePayrollData(catalystApp, month, contractor, department, em
     `SELECT EmployeeCode, EmployeeName, Department, Designation, ContractorName, ActualBasic, ActualHRA, ActualDA, AttendanceAllowance, OtherAllowance, TravelChargers, TotalSalary` +
     (includeSpecialAllowance ? `, SpecialAllowance, ActualSpecialAllowance` : ``) +
     (includeFoodUniform ? `, FoodAllowance, UniformAllowance` : ``) +
-    `, BankHolderName, BankName, IFSCCode, BankBranch, PFStatus, ESIStatus, employeeStatus, DateofJoining, UANNo, ESICNo FROM Employee WHERE EmployeeCode IS NOT NULL ${empWhereClause}`
+    `, BankHolderName, BankName, IFSCCode, BankBranch, PFStatus, ESIStatus, employeeStatus, DateofJoining, UANNo, ESICNo, RelevantExperience FROM Employee WHERE EmployeeCode IS NOT NULL ${empWhereClause}`
   );
   let empRecords = [];
   let empQueryHasFoodUniform = true;
@@ -5790,7 +5790,7 @@ async function computePayrollData(catalystApp, month, contractor, department, em
   const arrearForPFMap = {};
   const otherAllowancesMap = {};
   const savedLOHMap = {}; // Map: employeeCode -> saved LOH value
-  /** Payroll table had explicit LOH for this normalized code — Sample/supplement must not overwrite user edits (including 0). */
+  /** Payroll table had non-zero LOH for this normalized code — Sample/supplement must not overwrite that edit. */
   const payrollLohLockedNorm = new Set();
   const savedOTHoursMap = {}; // Map: employeeCode -> saved OT Hours value
   const savedOTArrearAmountMap = {}; // Map: employeeCode -> saved OT Arrear Amount value
@@ -5867,10 +5867,10 @@ async function computePayrollData(catalystApp, month, contractor, department, em
           const savedOANum = parseFloat(savedOA) || 0;
           if (savedOANum > 0) otherAllowancesMap[normalizedCode] = savedOANum;
         }
-        // LOH from Payroll row (including 0). Store under all code variants so lookup matches EmployeeCode format.
+        // LOH from Payroll row: only non-zero counts as saved (matches OT Hours — zero means "use muster", not "user locked zero").
         if (p.LOH !== null && p.LOH !== undefined && String(p.LOH).trim() !== '') {
           const savedLOH = parseFloat(p.LOH);
-          if (!isNaN(savedLOH)) {
+          if (!isNaN(savedLOH) && savedLOH !== 0) {
             const lohRounded = parseFloat(savedLOH.toFixed(2));
             payrollLohLockedNorm.add(normalizedCode);
             savedLOHMap[normalizedCode] = lohRounded;
@@ -6246,7 +6246,7 @@ async function computePayrollData(catalystApp, month, contractor, department, em
     if (savedDaysPresent !== undefined && savedDaysPresent !== null && !isNaN(savedDaysPresent) && savedDaysPresent >= 0) {
       daysPresent = savedDaysPresent;
     }
-    // Always prioritize saved LOH from Payroll table (user edits should be preserved)
+    // Prioritize non-zero saved LOH from Payroll / Sample; zero in Payroll is ignored so muster can populate (same as OT Hours).
     let loh = 0;
     let empIdStr = String(empId).trim();
     const savedLohPick =
@@ -6941,6 +6941,7 @@ async function computePayrollData(catalystApp, month, contractor, department, em
       employeeCode: empId,
       employeeName: emp.EmployeeName || '',
       designation: String(emp.Designation ?? emp.designation ?? '').trim(),
+      unit: String(emp.RelevantExperience ?? emp.relevantExperience ?? '').trim(),
       department: emp.Department || '',
       contractor: emp.ContractorName || '',
       dateOfJoining: dateOfJoining,
@@ -7187,7 +7188,7 @@ module.exports = async (req, res) => {
 `SELECT EmployeeCode, EmployeeName, Department, Designation, ContractorName, ActualBasic, ActualHRA, ActualDA, AttendanceAllowance, OtherAllowance, TravelChargers, TotalSalary` +
     (includeSpecialAllowance ? `, SpecialAllowance, ActualSpecialAllowance` : ``) +
     (includeFoodUniform ? `, FoodAllowance, UniformAllowance` : ``) +
-    `, BankHolderName, BankName, IFSCCode, BankBranch, PFStatus, ESIStatus, employeeStatus, DateofJoining FROM Employee WHERE EmployeeCode IS NOT NULL ${empWhereClause}`
+    `, BankHolderName, BankName, IFSCCode, BankBranch, PFStatus, ESIStatus, employeeStatus, DateofJoining, RelevantExperience FROM Employee WHERE EmployeeCode IS NOT NULL ${empWhereClause}`
       );
 
       const empQuery = buildEmpQuery(true, true);
@@ -8248,6 +8249,7 @@ module.exports = async (req, res) => {
         const employeeStatusMap = {};
         const dateOfJoiningMap = {};
         const designationMap = {};
+        const unitMap = {};
         const uanNoMap = {};
         const esicNoMap = {};
         const employeeOtherAllowancesMapForImport = {};
@@ -8257,7 +8259,7 @@ module.exports = async (req, res) => {
             const employeeCodes = payrollRecords.map(r => r.Payroll.EmployeeCode).filter(Boolean);
             if (employeeCodes.length > 0) {
               const empCodesList = employeeCodes.map(code => `'${String(code).replace(/'/g, "''")}'`).join(',');
-              const statusQuery = `SELECT EmployeeCode, PFStatus, ESIStatus, employeeStatus, DateofJoining, Designation, AttendanceAllowance, OtherAllowance, RevisedOtherAllowance, TravelChargers, UANNo, ESICNo FROM Employee WHERE EmployeeCode IN (${empCodesList})`;
+              const statusQuery = `SELECT EmployeeCode, PFStatus, ESIStatus, employeeStatus, DateofJoining, Designation, RelevantExperience, AttendanceAllowance, OtherAllowance, RevisedOtherAllowance, TravelChargers, UANNo, ESICNo FROM Employee WHERE EmployeeCode IN (${empCodesList})`;
               const statusRecords = await catalystApp.zcql().executeZCQLQuery(statusQuery);
               for (const row of statusRecords) {
                 const emp = row.Employee;
@@ -8296,6 +8298,10 @@ module.exports = async (req, res) => {
                   designationMap[ec] = desigVal;
                   designationMap[normalizeEmployeeCode(ec)] = desigVal;
                   if (/^\d+$/.test(ec)) designationMap[String(parseInt(ec))] = desigVal;
+                  const unitVal = String(emp.RelevantExperience ?? emp.relevantExperience ?? '').trim();
+                  unitMap[ec] = unitVal;
+                  unitMap[normalizeEmployeeCode(ec)] = unitVal;
+                  if (/^\d+$/.test(ec)) unitMap[String(parseInt(ec))] = unitVal;
                   const uanVal = String(emp.UANNo ?? emp.uanNo ?? emp.UAN ?? '').trim();
                   const esicVal = String(emp.ESICNo ?? emp.esicNo ?? emp.ESIC ?? '').trim();
                   uanNoMap[ec] = uanVal;
@@ -8327,7 +8333,7 @@ module.exports = async (req, res) => {
               const employeeCodes = payrollRecords.map(r => r.Payroll.EmployeeCode).filter(Boolean);
               if (employeeCodes.length > 0) {
                 const empCodesList = employeeCodes.map(code => `'${String(code).replace(/'/g, "''")}'`).join(',');
-                const fallbackQuery = `SELECT EmployeeCode, DateofJoining, Designation, AttendanceAllowance, OtherAllowance, TravelChargers, UANNo, ESICNo FROM Employee WHERE EmployeeCode IN (${empCodesList})`;
+                const fallbackQuery = `SELECT EmployeeCode, DateofJoining, Designation, RelevantExperience, AttendanceAllowance, OtherAllowance, TravelChargers, UANNo, ESICNo FROM Employee WHERE EmployeeCode IN (${empCodesList})`;
                 const fallbackRecords = await catalystApp.zcql().executeZCQLQuery(fallbackQuery);
                 for (const row of fallbackRecords) {
                   const emp = row.Employee;
@@ -8346,6 +8352,10 @@ module.exports = async (req, res) => {
                     designationMap[ec] = desigFb;
                     designationMap[normalizeEmployeeCode(ec)] = desigFb;
                     if (/^\d+$/.test(ec)) designationMap[String(parseInt(ec))] = desigFb;
+                    const unitFb = String(emp.RelevantExperience ?? emp.relevantExperience ?? '').trim();
+                    unitMap[ec] = unitFb;
+                    unitMap[normalizeEmployeeCode(ec)] = unitFb;
+                    if (/^\d+$/.test(ec)) unitMap[String(parseInt(ec))] = unitFb;
                     const uanVal = String(emp.UANNo ?? emp.uanNo ?? emp.UAN ?? '').trim();
                     const esicVal = String(emp.ESICNo ?? emp.esicNo ?? emp.ESIC ?? '').trim();
                     uanNoMap[ec] = uanVal;
@@ -8624,28 +8634,24 @@ module.exports = async (req, res) => {
               }
             }
             const importActualHRA = parseFloat(payroll.ActualHRA) || 0;
-            // Always prioritize saved LOH from Payroll table (user edits should be preserved)
+            // Non-zero saved LOH from Payroll wins; zero uses muster (same as computePayrollData / OT Hours).
             // EXCEPTION: For January, only use real-time data (not saved data)
-            // For December, always use saved data to preserve existing data
             let importLOH = 0;
             const empIdStr = String(payroll.EmployeeCode);
            
-            // For December, always use saved data. For January, skip saved data and use only real-time.
-            // First, check if there's a saved LOH value in the payroll record (only for non-January months)
-            const hasSavedLOH = !isJanuary && payroll.LOH !== null && payroll.LOH !== undefined && String(payroll.LOH).trim() !== '';
-            if (hasSavedLOH) {
-              importLOH = parseFloat(payroll.LOH) || 0;
-              if (!isNaN(importLOH)) {
-                importLOH = parseFloat(importLOH.toFixed(2));
-                console.log(`Imported payroll - Employee ${payroll.EmployeeCode}: Using saved LOH value from Payroll table: ${importLOH} (preserving user edit)`);
-              } else {
-                importLOH = 0;
-              }
+            const parsedRowLohImp =
+              !isJanuary && payroll.LOH !== null && payroll.LOH !== undefined && String(payroll.LOH).trim() !== ''
+                ? parseFloat(payroll.LOH)
+                : NaN;
+            const useSavedPayrollLohImp = Number.isFinite(parsedRowLohImp) && parsedRowLohImp !== 0;
+            if (useSavedPayrollLohImp) {
+              importLOH = parseFloat(parsedRowLohImp.toFixed(2));
+              console.log(`Imported payroll - Employee ${payroll.EmployeeCode}: Using saved LOH value from Payroll table: ${importLOH} (preserving user edit)`);
             } else {
               if (isJanuary) {
                 console.log(`Imported payroll - Employee ${payroll.EmployeeCode}: January month detected - skipping saved LOH data, using only real-time data`);
               }
-              // If no saved value exists, fetch from attendance_muster_function (lohMap)
+              // If no non-zero saved value, fetch from attendance_muster_function (lohMap)
               // Try multiple matching strategies to handle different data types
               // Strategy 1: Direct match
               if (lohMap[payroll.EmployeeCode] !== undefined) {
@@ -8699,7 +8705,8 @@ module.exports = async (req, res) => {
               latestLohPickImp !== undefined &&
               latestLohPickImp !== null &&
               String(latestLohPickImp).trim() !== '' &&
-              Number.isFinite(Number(latestLohPickImp));
+              Number.isFinite(Number(latestLohPickImp)) &&
+              Number(latestLohPickImp) !== 0;
             if (hasExplicitLatestPayrollLohImp) {
               importLOH = parseFloat(Number(latestLohPickImp).toFixed(2));
               console.log(
@@ -9067,12 +9074,18 @@ module.exports = async (req, res) => {
               designationMap[normalizeEmployeeCode(empCodeStr)] ??
               designationMap[String(parseInt(empCodeStr))] ??
               '';
+            const unitImported =
+              unitMap[empCodeStr] ??
+              unitMap[normalizeEmployeeCode(empCodeStr)] ??
+              (/^\d+$/.test(empCodeStr) ? unitMap[String(parseInt(empCodeStr))] : undefined) ??
+              String(payroll.Unit ?? payroll.unit ?? '').trim();
             const travelChargersImported = parseNum(payroll.TravelChargers ?? payroll.travelChargers) ?? travelChargersMap[empCodeStr] ?? travelChargersMap[normalizeEmployeeCode(empCodeStr)] ?? travelChargersMap[String(parseInt(empCodeStr))] ?? 0;
          
             const importedRow = {
               employeeCode: String(payroll.EmployeeCode || ''),
               employeeName: String(payroll.EmployeeName || ''),
               designation: designationImported,
+              unit: unitImported,
               department: String(payroll.Department || ''),
               contractor: String(payroll.Contractor || ''),
               dateOfJoining: dateOfJoining,
@@ -10346,6 +10359,7 @@ module.exports = async (req, res) => {
           employeeCode: emp.EmployeeCode,
           employeeName: emp.EmployeeName || '',
           designation: String(emp.Designation ?? emp.designation ?? '').trim(),
+          unit: String(emp.RelevantExperience ?? emp.relevantExperience ?? '').trim(),
           department: emp.Department || '',
           contractor: emp.ContractorName || '',
           dateOfJoining: dateOfJoining,
@@ -11535,21 +11549,27 @@ module.exports = async (req, res) => {
           const importPfStatusMap = {};
           const importEsiStatusMap = {};
           const importEmployeeStatusMap = {};
+          const importUnitMap = {};
           try {
             const employeeCodes = payrollData.map(r => r.employeeCode).filter(Boolean);
             if (employeeCodes.length > 0) {
               const empCodesList = employeeCodes.map(code => `'${code}'`).join(',');
-              const statusQuery = `SELECT EmployeeCode, PFStatus, ESIStatus, employeeStatus FROM Employee WHERE EmployeeCode IN (${empCodesList})`;
+              const statusQuery = `SELECT EmployeeCode, PFStatus, ESIStatus, employeeStatus, RelevantExperience FROM Employee WHERE EmployeeCode IN (${empCodesList})`;
               const statusRecords = await catalystApp.zcql().executeZCQLQuery(statusQuery);
               for (const row of statusRecords) {
                 const emp = row.Employee;
                 if (emp.EmployeeCode) {
-                  importPfStatusMap[String(emp.EmployeeCode)] = String(emp.PFStatus || '').trim().toLowerCase();
-                  importEsiStatusMap[String(emp.EmployeeCode)] = String(emp.ESIStatus || '').trim().toLowerCase();
-                  importEmployeeStatusMap[String(emp.EmployeeCode)] = String(emp.EmployeeStatus || '').trim();
+                  const ec = String(emp.EmployeeCode);
+                  importPfStatusMap[ec] = String(emp.PFStatus || '').trim().toLowerCase();
+                  importEsiStatusMap[ec] = String(emp.ESIStatus || '').trim().toLowerCase();
+                  importEmployeeStatusMap[ec] = String(emp.EmployeeStatus || '').trim();
+                  const uImp = String(emp.RelevantExperience ?? emp.relevantExperience ?? '').trim();
+                  importUnitMap[ec] = uImp;
+                  importUnitMap[normalizeEmployeeCode(ec)] = uImp;
+                  if (/^\d+$/.test(ec)) importUnitMap[String(parseInt(ec, 10))] = uImp;
                 }
               }
-              console.log(`Fetched PFStatus, ESIStatus, and EmployeeStatus for ${Object.keys(importPfStatusMap).length} employees during import`);
+              console.log(`Fetched PFStatus, ESIStatus, EmployeeStatus, and Unit for ${Object.keys(importPfStatusMap).length} employees during import`);
             }
           } catch (statusErr) {
             console.log('Error fetching PFStatus/ESIStatus/EmployeeStatus during import, will use imported values:', statusErr.message);
@@ -11590,6 +11610,13 @@ module.exports = async (req, res) => {
          
               // Check PFStatus and ESIStatus and override values if applicable
               const empCodeStr = String(record.employeeCode || '');
+              const unitFromFile = String(record.unit ?? record.Unit ?? '').trim();
+              const unitFromEmp =
+                importUnitMap[empCodeStr] ||
+                importUnitMap[normalizeEmployeeCode(empCodeStr)] ||
+                (/^\d+$/.test(empCodeStr.trim()) ? importUnitMap[String(parseInt(empCodeStr.trim(), 10))] : '') ||
+                '';
+              record.unit = unitFromFile || unitFromEmp || '';
               const pfStatus = importPfStatusMap[empCodeStr] || '';
               const isPfApplicable = pfStatus !== 'no';
               const esiStatus = importEsiStatusMap[empCodeStr] || '';
@@ -12151,6 +12178,7 @@ module.exports = async (req, res) => {
       'userEmail',
       'month',
       'designation',
+      'unit',
       'dateOfJoining',
       'pfStatus',
       'esiStatus',

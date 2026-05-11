@@ -2720,6 +2720,9 @@ module.exports = async (req, res) => {
       if (t === '2ND' || t === '2ND SHIFT' || t === 'SECOND' || t === 'SECOND SHIFT' || t === '2' || t === 'SHIFT 2' || t.includes('2ND') || t.includes('SECOND')) {
         return 'SECOND';
       }
+      if (t === '3RD' || t === '3RD SHIFT' || t === 'THIRD' || t === 'THIRD SHIFT' || t === '3' || t === 'SHIFT 3' || t.includes('3RD') || t.includes('THIRD')) {
+        return 'THIRD';
+      }
       // General II: 12:00-20:00, 10 min grace, OT after 21:00
       if (t === 'GENERAL II' || t === 'GENERALII' || compact.includes('GENERALII') || (t.includes('GENERAL') && t.includes('II'))) {
         return 'GENERAL_II';
@@ -3393,8 +3396,41 @@ module.exports = async (req, res) => {
       return isNaN(d.getTime()) ? null : d;
     };
 
-    // Helper function to calculate overtime based on shift end time
-    const calculateOvertimeForShift = (lastOutTimeStr, dateStr, expectedCheckoutTime) => {
+    const addOneCalendarDayYmdMuster = (ymd) => {
+      if (!ymd || !/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return ymd;
+      const d = new Date(`${ymd}T12:00:00`);
+      if (isNaN(d.getTime())) return ymd;
+      d.setDate(d.getDate() + 1);
+      const y = d.getFullYear();
+      const mo = String(d.getMonth() + 1).padStart(2, '0');
+      const da = String(d.getDate()).padStart(2, '0');
+      return `${y}-${mo}-${da}`;
+    };
+
+    const timeStrToMinutesMuster = (t) => {
+      const m = String(t || '').trim().match(/^([01]?\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?$/);
+      if (!m) return null;
+      return parseInt(m[1], 10) * 60 + parseInt(m[2], 10) + (m[3] ? parseInt(m[3], 10) : 0);
+    };
+
+    const isOvernightShiftPairMuster = (fromHms, toHms) => {
+      const a = timeStrToMinutesMuster(fromHms);
+      const b = timeStrToMinutesMuster(toHms);
+      if (a === null || b === null) return false;
+      return a > b;
+    };
+
+    const normalizeShiftBoundaryHmsMuster = (t) => {
+      const raw = String(t || '').trim();
+      if (!raw) return '00:00:00';
+      const p = raw.match(/^([01]?\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?$/);
+      if (!p) return raw.length >= 8 ? raw.slice(0, 8) : `${raw}:00`.slice(0, 8);
+      const hh = p[1].padStart(2, '0');
+      return `${hh}:${p[2]}:${p[3] || '00'}`;
+    };
+
+    // Helper function to calculate overtime based on shift end time (aligned with reports_function overnight fix).
+    const calculateOvertimeForShift = (lastOutTimeStr, dateStr, expectedCheckoutTime, shiftStartTimeHms) => {
       if (!lastOutTimeStr || !dateStr || !expectedCheckoutTime) return 0;
      
       try {
@@ -3403,7 +3439,12 @@ module.exports = async (req, res) => {
        
         const lastOutTime = lastOutInstantFromStr(lastOutTimeStr, dateStr);
         if (!lastOutTime) return 0;
-        const expectedCheckout = new Date(`${dateStr} ${expectedCheckoutTime}`.replace(' ', 'T'));
+        const endHms = normalizeShiftBoundaryHmsMuster(expectedCheckoutTime);
+        let expectedEndYmd = dateStr;
+        if (shiftStartTimeHms && isOvernightShiftPairMuster(shiftStartTimeHms, endHms)) {
+          expectedEndYmd = addOneCalendarDayYmdMuster(dateStr);
+        }
+        const expectedCheckout = new Date(`${expectedEndYmd} ${endHms}`.replace(' ', 'T'));
        
         if (isNaN(lastOutTime.getTime()) || isNaN(expectedCheckout.getTime())) {
           return 0;

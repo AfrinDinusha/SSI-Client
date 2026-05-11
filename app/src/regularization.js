@@ -1,6 +1,7 @@
 import './App.css';
 import './helper.css';
 import './regularization.css';
+import './employeeManagement.css';
 import axios from 'axios';
 import { useCallback, useEffect, useState, useRef, useMemo } from 'react';
 import * as XLSX from 'xlsx';
@@ -14,7 +15,7 @@ import {
   Map, BarChart3, User, TrendingUp, TrendingDown,
   Activity, Plus, CheckCircle, Bell, Settings, LayoutDashboard, Home as HomeIcon,
   Shield, AlertOctagon, CreditCard, FileSignature, Search, Clock3, CalendarDays, Database,
-  FileInput, FileOutput, RefreshCw, Trash2
+  FileInput, FileOutput, RefreshCw, Trash2, X
 } from 'lucide-react';
 
 function formatDate(dateStr) {
@@ -113,7 +114,7 @@ function RegularizationRow({ record, index, removeRegularization, editRegulariza
           )}
         </td>
       )}
-      <td style={{ paddingRight: '20px' }}>{index + 1}</td>
+      <td className="regularization-col-index">{index + 1}</td>
       <td>{record.employeeCode || '-'}</td>
       <td>{record.employeeName || '-'}</td>
       <td>{record.logDate ? formatDate(record.logDate) : '-'}</td>
@@ -140,7 +141,7 @@ const Regularization = ({ userRole, userEmail }) => {
   const location = useLocation();
   const [regularizations, setRegularizations] = useState([]);
   const [filteredRegularizations, setFilteredRegularizations] = useState([]);
-  const [fetchState, setFetchState] = useState('idle');
+  const [fetchState, setFetchState] = useState('loading');
   const [fetchError, setFetchError] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -177,6 +178,8 @@ const Regularization = ({ userRole, userEmail }) => {
 
   const allSelected = selectedRegularizations.length > 0 && selectedRegularizations.length === filteredRegularizations.length;
   const someSelected = selectedRegularizations.length > 0 && selectedRegularizations.length < filteredRegularizations.length;
+  const tableColSpan = selectedRegularizations.length > 0 ? 11 : 10;
+  const tableHasEditColumn = selectedRegularizations.length > 0;
 
   const fetchRegularizations = useCallback(() => {
     setFetchState('loading');
@@ -681,16 +684,41 @@ const Regularization = ({ userRole, userEmail }) => {
           </header>
 
           {!showForm && (
-          <div className="regularization-card-container regularization-page">
-            <div className="regularization-header-row">
-              <div className="regularization-title-section">
-                <h1 className="regularization-title">
-                  <Clock size={28} className="regularization-title-icon" />
-                  Regularization Data Store
-                </h1>
-                <p className="regularization-subtitle">Manage Regularization records efficiently</p>
+          <main className="cms-dashboard-content">
+            <div
+              className="employee-card-container regularization-list-layout"
+              style={{
+                background: 'var(--white)',
+                borderRadius: '20px',
+                boxShadow: '0 8px 30px var(--shadow-light)',
+                padding: '30px',
+                margin: '0',
+                maxWidth: '100%',
+                position: 'relative',
+                border: '1px solid rgba(37, 99, 235, 0.2)'
+              }}
+            >
+            {/* Header and Toolbar */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px', gap: '16px', flexWrap: 'wrap' }}>
+              <div className="employee-header-actions">
+                <div className="employee-title-section">
+                  <h2 className="employee-title">
+                    <Clock3 size={28} />
+                    Regularization Directory
+                  </h2>
+                  <p className="employee-subtitle">
+                    Manage your regularization records efficiently
+                  </p>
+                </div>
               </div>
-              <div className="regularization-toolbar-buttons">
+              <div className="employee-toolbar" style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'nowrap' }}>
+                <input
+                  type="text"
+                  placeholder="Search..."
+                  className="regularization-search-input"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
                 <input
                   type="file"
                   ref={fileInputRef}
@@ -699,62 +727,90 @@ const Regularization = ({ userRole, userEmail }) => {
                   onChange={handleImport}
                 />
                 <button
+                  className="toolbar-btn import-btn"
                   type="button"
-                  className="regularization-btn regularization-btn-import"
                   onClick={() => fileInputRef.current && fileInputRef.current.click()}
                   disabled={importing}
                   title={importing ? 'Importing...' : 'Import Excel'}
+                  style={{ background: '#fff', color: '#22c55e', border: 'none', fontWeight: 600, padding: '8px', borderRadius: '8px', width: '48px', height: '48px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}
                 >
-                  <FileInput size={22} style={{ color: '#16a34a', flexShrink: 0 }} />
+                  <FileInput size={22} style={{ color: '#22c55e' }} />
                 </button>
                 <button
+                  className="toolbar-btn export-btn"
                   type="button"
-                  className="regularization-btn regularization-btn-export"
                   onClick={handleExport}
                   disabled={exporting || filteredRegularizations.length === 0}
                   title={exporting ? 'Exporting...' : 'Export Excel'}
+                  style={{ background: '#fff', color: '#2563eb', border: 'none', fontWeight: 600, padding: '8px', borderRadius: '8px', width: '48px', height: '48px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}
                 >
-                  <FileOutput size={22} style={{ color: '#2563eb', flexShrink: 0 }} />
+                  <FileOutput size={22} style={{ color: '#2563eb' }} />
                 </button>
                 <button
+                  className="toolbar-btn"
                   type="button"
-                  className="regularization-btn-add-circle"
+                  onClick={fetchRegularizations}
+                  disabled={fetchState === 'loading'}
+                  title="Refresh data"
+                  style={{ background: '#fff', color: '#7c3aed', border: 'none', fontWeight: 600, padding: '8px', borderRadius: '8px', width: '48px', height: '48px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}
+                >
+                  <RefreshCw size={22} style={{ color: '#7c3aed' }} />
+                </button>
+                <button
+                  className="toolbar-btn toolbar-btn-add-employee"
+                  type="button"
                   onClick={toggleForm}
                   title="Add Regularization"
+                  style={{
+                    background: '#fff',
+                    color: '#14b8a6',
+                    border: '2px solid rgba(20, 184, 166, 0.35)',
+                    fontWeight: 700,
+                    borderRadius: '12px',
+                    width: '60px',
+                    height: '60px',
+                    minWidth: '60px',
+                    minHeight: '60px',
+                    padding: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    boxShadow: '0 4px 14px rgba(20, 184, 166, 0.22)',
+                    flexShrink: 0,
+                  }}
                 >
-                  <Plus size={24} style={{ color: '#2563eb', flexShrink: 0 }} />
+                  <Plus size={34} strokeWidth={2.5} style={{ color: '#14b8a6' }} aria-hidden />
                 </button>
+                {selectedRegularizations.length > 0 && (
+                  <button
+                    className="toolbar-btn"
+                    type="button"
+                    onClick={handleMassDelete}
+                    disabled={deletingMultiple}
+                    title={deletingMultiple ? 'Deleting...' : `Delete selected (${selectedRegularizations.length})`}
+                    style={{
+                      background: '#fff',
+                      color: '#d32f2f',
+                      border: '2px solid #ffcdd2',
+                      fontWeight: 700,
+                      padding: '8px',
+                      borderRadius: '8px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: '48px',
+                      height: '48px',
+                      boxShadow: '0 2px 8px rgba(211,47,47,0.15)',
+                    }}
+                  >
+                    <Trash2 size={22} style={{ color: '#d32f2f' }} />
+                  </button>
+                )}
               </div>
             </div>
 
             <form className="regularization-data-form" onSubmit={(e) => e.preventDefault()}>
               <div className="regularization-data-container">
-                <div className="regularization-toolbar">
-                  <div className="regularization-toolbar-left">
-                    {selectedRegularizations.length > 0 && (
-                      <button
-                        type="button"
-                        className="btn btn-danger"
-                        onClick={handleMassDelete}
-                        disabled={deletingMultiple}
-                      >
-                        {deletingMultiple ? 'Deleting...' : `Delete selected (${selectedRegularizations.length})`}
-                      </button>
-                    )}
-                  </div>
-                  <div className="regularization-toolbar-right">
-                    <input
-                      type="text"
-                      placeholder="Search..."
-                      className="regularization-search-input"
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                    />
-                    <button type="button" className="btn btn-icon" onClick={fetchRegularizations} title="Refresh">
-                      <RefreshCw size={18} />
-                    </button>
-                  </div>
-                </div>
 
                 {fetchError && (
                   <div className="alert alert-error" style={{ marginBottom: '16px' }}>
@@ -777,184 +833,241 @@ const Regularization = ({ userRole, userEmail }) => {
                   </div>
                 )}
 
-                {fetchState === 'loading' && (
-                  <div style={{ padding: '24px', textAlign: 'center', color: '#666' }}>Loading...</div>
-                )}
-                {fetchState === 'fetched' && (
-                  <div className="regularization-table-wrapper">
-                    <table className={`regularization-table ${selectedRegularizations.length > 0 ? 'regularization-table-has-edit' : ''}`}>
-                      <thead>
+                <div className="regularization-table-wrapper regularization-table-wrapper-inline">
+                  <table className={`regularization-table ${tableHasEditColumn ? 'regularization-table-has-edit' : ''}`}>
+                    <colgroup>
+                      <col className="reg-col-check" />
+                      {tableHasEditColumn && <col className="reg-col-edit" />}
+                      <col className="reg-col-index" />
+                      <col className="reg-col-code" />
+                      <col className="reg-col-name" />
+                      <col className="reg-col-date" />
+                      <col className="reg-col-time" />
+                      <col className="reg-col-time" />
+                      <col className="reg-col-datetime" />
+                      <col className="reg-col-datetime" />
+                      <col className="reg-col-actions" />
+                    </colgroup>
+                    <thead>
+                      <tr>
+                        <th
+                          onClick={() => {
+                            if (fetchState === 'fetched') handleSelectAll();
+                          }}
+                          style={{ cursor: fetchState === 'fetched' ? 'pointer' : 'default' }}
+                        >
+                          <input type="checkbox" checked={allSelected} ref={(el) => el && (el.indeterminate = someSelected)} readOnly disabled={fetchState !== 'fetched'} />
+                        </th>
+                        {selectedRegularizations.length > 0 && <th>Edit</th>}
+                        <th>#</th>
+                        <th>Employee Code</th>
+                        <th>Employee Name</th>
+                        <th>Log Date</th>
+                        <th>First In</th>
+                        <th>Last Out</th>
+                        <th>Created Time</th>
+                        <th>Modified Time</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(fetchState === 'loading' || fetchState === 'idle') && (
                         <tr>
-                          <th onClick={handleSelectAll} style={{ cursor: 'pointer' }}>
-                            <input type="checkbox" checked={allSelected} ref={(el) => el && (el.indeterminate = someSelected)} readOnly />
-                          </th>
-                          {selectedRegularizations.length > 0 && <th>Edit</th>}
-                          <th>#</th>
-                          <th>Employee Code</th>
-                          <th>Employee Name</th>
-                          <th>Log Date</th>
-                          <th>First In</th>
-                          <th>Last Out</th>
-                          <th>Created Time</th>
-                          <th>Modified Time</th>
-                          <th>Actions</th>
+                          <td colSpan={tableColSpan} className="regularization-loading-cell">
+                            <span className="regularization-loading-inline">Loading…</span>
+                          </td>
                         </tr>
-                      </thead>
-                      <tbody>
-                        {filteredRegularizations.length === 0 ? (
-                          <tr>
-                            <td colSpan={selectedRegularizations.length > 0 ? 11 : 10} style={{ textAlign: 'center', padding: '24px', color: '#666' }}>
-                              No regularization records found.
-                            </td>
-                          </tr>
-                        ) : (
-                          filteredRegularizations.map((record, index) => (
-                            <RegularizationRow
-                              key={record.id}
-                              record={record}
-                              index={index}
-                              removeRegularization={removeRegularization}
-                              editRegularization={editRegularization}
-                              isSelected={selectedRegularizations.includes(record.id)}
-                              onSelect={handleSelectRegularization}
-                              selectedRegularizations={selectedRegularizations}
-                            />
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+                      )}
+                      {fetchState === 'error' && (
+                        <tr>
+                          <td colSpan={tableColSpan} style={{ textAlign: 'center', padding: '24px', color: '#666' }}>
+                            Could not load records. Check the message above or click refresh to try again.
+                          </td>
+                        </tr>
+                      )}
+                      {fetchState === 'fetched' && filteredRegularizations.length === 0 && (
+                        <tr>
+                          <td colSpan={tableColSpan} style={{ textAlign: 'center', padding: '24px', color: '#666' }}>
+                            No regularization records found.
+                          </td>
+                        </tr>
+                      )}
+                      {fetchState === 'fetched' &&
+                        filteredRegularizations.length > 0 &&
+                        filteredRegularizations.map((record, index) => (
+                          <RegularizationRow
+                            key={record.id}
+                            record={record}
+                            index={index}
+                            removeRegularization={removeRegularization}
+                            editRegularization={editRegularization}
+                            isSelected={selectedRegularizations.includes(record.id)}
+                            onSelect={handleSelectRegularization}
+                            selectedRegularizations={selectedRegularizations}
+                          />
+                        ))}
+                    </tbody>
+                  </table>
                 </div>
-              </form>
+              </div>
+            </form>
             </div>
+          </main>
           )}
 
           {showForm && (
-            <div className="regularization-form-page">
-              <div className="regularization-form-container">
-                <div className="regularization-form-header">
-                  <h2>{isEditing ? 'Edit Regularization' : 'Add Regularization'}</h2>
-                  <button type="button" className="regularization-form-close" onClick={toggleForm} aria-label="Close">
-                    &times;
+            <div className="employee-form-page">
+              <div className="employee-form-container">
+                <div className="employee-form-header">
+                  <h1 style={{ paddingLeft: '20px' }}>
+                    {isEditing ? 'Edit Regularization' : 'Add Regularization'}
+                  </h1>
+                  <button
+                    type="button"
+                    className="close-btn"
+                    onClick={toggleForm}
+                    title="Close form"
+                    aria-label="Close form"
+                  >
+                    <X size={32} strokeWidth={2.5} aria-hidden />
                   </button>
                 </div>
-                <div className="regularization-form-content">
-                  <form onSubmit={saveRegularization} className="regularization-form">
-                    {formError && (
-                      <div className="alert alert-error" style={{ marginBottom: '12px' }}>
-                        {formError}
-                      </div>
-                    )}
-                    <div className="regularization-form-fields">
-                      <div className="regularization-form-group">
-                        <label>Employee Code *</label>
-                        <input
-                          type="text"
-                          value={form.employeeCode}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            setForm((prev) => {
-                              const next = { ...prev, employeeCode: v };
-                              if (employeeCodeLookupTimerRef.current) clearTimeout(employeeCodeLookupTimerRef.current);
-                              employeeCodeLookupTimerRef.current = setTimeout(() => {
-                                employeeCodeLookupTimerRef.current = null;
-                                setForm((prevForm) => {
-                                  const nameFromLookup = lookupEmployeeNameByCode(prevForm.employeeCode);
-                                  if (nameFromLookup !== null) return { ...prevForm, employeeName: nameFromLookup };
-                                  return prevForm;
+                <div className="employee-form-content">
+                  <div className="employee-form-card">
+                    <form onSubmit={saveRegularization} className="employee-form">
+                      {formError && (
+                        <div className="alert alert-error" style={{ marginBottom: '12px' }}>
+                          {formError}
+                        </div>
+                      )}
+                      <div className="form-section-card employee-info">
+                        <h2 className="section-title">Employee</h2>
+                        <div className="form-grid">
+                          <div className="form-group">
+                            <label htmlFor="reg-employee-code">Employee Code *</label>
+                            <input
+                              id="reg-employee-code"
+                              className="input"
+                              type="text"
+                              value={form.employeeCode}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setForm((prev) => {
+                                  const next = { ...prev, employeeCode: v };
+                                  if (employeeCodeLookupTimerRef.current) clearTimeout(employeeCodeLookupTimerRef.current);
+                                  employeeCodeLookupTimerRef.current = setTimeout(() => {
+                                    employeeCodeLookupTimerRef.current = null;
+                                    setForm((prevForm) => {
+                                      const nameFromLookup = lookupEmployeeNameByCode(prevForm.employeeCode);
+                                      if (nameFromLookup !== null) return { ...prevForm, employeeName: nameFromLookup };
+                                      return prevForm;
+                                    });
+                                  }, 400);
+                                  return next;
                                 });
-                              }, 400);
-                              return next;
-                            });
-                          }}
-                          onBlur={() => {
-                            if (employeeCodeLookupTimerRef.current) {
-                              clearTimeout(employeeCodeLookupTimerRef.current);
-                              employeeCodeLookupTimerRef.current = null;
-                            }
-                            applyEmployeeCodeLookup();
-                          }}
-                          placeholder="Enter code to auto-fill name"
-                          required
-                        />
-                        {employeeLookupLoading && (
-                          <span className="text-muted" style={{ fontSize: '0.85rem', marginTop: 4 }}>Loading employee list…</span>
-                        )}
-                      </div>
-                      <div className="regularization-form-group">
-                        <label>Employee Name</label>
-                        <input
-                          type="text"
-                          value={form.employeeName}
-                          readOnly
-                          placeholder="Fills automatically when you enter employee code"
-                          tabIndex={-1}
-                        />
-                      </div>
-                      <div className="regularization-form-group">
-                        <label>Log Date *</label>
-                        <input
-                          type="date"
-                          value={form.logDate}
-                          onChange={(e) => setForm((prev) => ({ ...prev, logDate: e.target.value }))}
-                          required
-                        />
-                      </div>
-                      <div className="regularization-form-group">
-                        <label>First In</label>
-                        <div className="regularization-time-input-wrap">
-                          <input
-                            ref={firstInTimeInputRef}
-                            type="time"
-                            step={60}
-                            value={form.firstIn}
-                            onChange={(e) => setForm((prev) => ({ ...prev, firstIn: e.target.value }))}
-                            aria-label="First in time"
-                          />
-                          <button
-                            type="button"
-                            className="regularization-time-clock-btn"
-                            onClick={() => openNativeTimePicker(firstInTimeInputRef)}
-                            aria-label="Open time picker for First In"
-                            title="Select time"
-                          >
-                            <Clock size={18} strokeWidth={2} />
-                          </button>
+                              }}
+                              onBlur={() => {
+                                if (employeeCodeLookupTimerRef.current) {
+                                  clearTimeout(employeeCodeLookupTimerRef.current);
+                                  employeeCodeLookupTimerRef.current = null;
+                                }
+                                applyEmployeeCodeLookup();
+                              }}
+                              placeholder="Enter code to auto-fill name"
+                              required
+                            />
+                            {employeeLookupLoading && (
+                              <span className="text-muted" style={{ fontSize: '0.85rem', marginTop: 4 }}>Loading employee list…</span>
+                            )}
+                          </div>
+                          <div className="form-group">
+                            <label htmlFor="reg-employee-name">Employee Name</label>
+                            <input
+                              id="reg-employee-name"
+                              className="input"
+                              type="text"
+                              value={form.employeeName}
+                              readOnly
+                              placeholder="Fills automatically when you enter employee code"
+                              tabIndex={-1}
+                            />
+                          </div>
                         </div>
                       </div>
-                      <div className="regularization-form-group">
-                        <label>Last Out</label>
-                        <div className="regularization-time-input-wrap">
-                          <input
-                            ref={lastOutTimeInputRef}
-                            type="time"
-                            step={60}
-                            value={form.lastOut}
-                            onChange={(e) => setForm((prev) => ({ ...prev, lastOut: e.target.value }))}
-                            aria-label="Last out time"
-                          />
-                          <button
-                            type="button"
-                            className="regularization-time-clock-btn"
-                            onClick={() => openNativeTimePicker(lastOutTimeInputRef)}
-                            aria-label="Open time picker for Last Out"
-                            title="Select time"
-                          >
-                            <Clock size={18} strokeWidth={2} />
-                          </button>
+                      <div className="form-section-card work-info">
+                        <h2 className="section-title">Attendance log</h2>
+                        <div className="form-grid">
+                          <div className="form-group">
+                            <label htmlFor="reg-log-date">Log Date *</label>
+                            <input
+                              id="reg-log-date"
+                              className="input"
+                              type="date"
+                              value={form.logDate}
+                              onChange={(e) => setForm((prev) => ({ ...prev, logDate: e.target.value }))}
+                              required
+                            />
+                          </div>
+                          <div className="form-group">
+                            <label htmlFor="reg-first-in">First In</label>
+                            <div className="regularization-time-input-wrap regularization-time-in-employee-form">
+                              <input
+                                id="reg-first-in"
+                                ref={firstInTimeInputRef}
+                                className="input"
+                                type="time"
+                                step={60}
+                                value={form.firstIn}
+                                onChange={(e) => setForm((prev) => ({ ...prev, firstIn: e.target.value }))}
+                                aria-label="First in time"
+                              />
+                              <button
+                                type="button"
+                                className="regularization-time-clock-btn"
+                                onClick={() => openNativeTimePicker(firstInTimeInputRef)}
+                                aria-label="Open time picker for First In"
+                                title="Select time"
+                              >
+                                <Clock size={18} strokeWidth={2} />
+                              </button>
+                            </div>
+                          </div>
+                          <div className="form-group">
+                            <label htmlFor="reg-last-out">Last Out</label>
+                            <div className="regularization-time-input-wrap regularization-time-in-employee-form">
+                              <input
+                                id="reg-last-out"
+                                ref={lastOutTimeInputRef}
+                                className="input"
+                                type="time"
+                                step={60}
+                                value={form.lastOut}
+                                onChange={(e) => setForm((prev) => ({ ...prev, lastOut: e.target.value }))}
+                                aria-label="Last out time"
+                              />
+                              <button
+                                type="button"
+                                className="regularization-time-clock-btn"
+                                onClick={() => openNativeTimePicker(lastOutTimeInputRef)}
+                                aria-label="Open time picker for Last Out"
+                                title="Select time"
+                              >
+                                <Clock size={18} strokeWidth={2} />
+                              </button>
+                            </div>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    <div className="regularization-form-actions">
-                      <button type="button" className="btn btn-secondary" onClick={toggleForm}>
-                        Cancel
-                      </button>
-                      <button type="submit" className="btn btn-primary" disabled={submitting}>
-                        {submitting ? 'Saving...' : isEditing ? 'Update' : 'Add'}
-                      </button>
-                    </div>
-                  </form>
+                      <div className="form-actions">
+                        <button type="button" className="btn btn-secondary" onClick={toggleForm}>
+                          Cancel
+                        </button>
+                        <button type="submit" className="btn btn-primary" disabled={submitting}>
+                          {submitting ? 'Saving...' : isEditing ? 'Update' : 'Add'}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
                 </div>
               </div>
             </div>

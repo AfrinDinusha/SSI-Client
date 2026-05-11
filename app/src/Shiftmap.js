@@ -180,6 +180,19 @@ function Shiftmap({ userRole = 'App Administrator', userEmail = null }) {
     // Filter shiftmaps to only include those for contractor employees
     return shiftmaps.filter(sm => contractorEmployeeIds.has(String(sm.employeeId)));
   }, [shiftmaps, filteredEmployees, shouldFilterByContractor]);
+
+  /** Expected shift label and window from Shift master (matches /server/Shift_function/shifts). */
+  const getShiftMasterFields = useCallback((shiftId) => {
+    const shift = shifts.find((s) => String(s.id) === String(shiftId));
+    if (!shift) {
+      return { assignedShift: '', firstIn: '', lastOut: '' };
+    }
+    return {
+      assignedShift: (shift.shiftName || '').trim(),
+      firstIn: (shift.from || '').trim(),
+      lastOut: (shift.to || '').trim(),
+    };
+  }, [shifts]);
   
   // Calculate if all shift maps are selected
   const allSelected = filteredShiftmaps.length > 0 && selected.size === filteredShiftmaps.length;
@@ -539,12 +552,13 @@ function Shiftmap({ userRole = 'App Administrator', userEmail = null }) {
     setShowForm(true);
     setEditMode(true);
     setEditId(shiftmap.id);
+    const master = getShiftMasterFields(shiftmap.shiftId);
     setForm({
       employeeId: shiftmap.employeeId,
       shiftId: shiftmap.shiftId,
       fromdate: shiftmap.fromdate,
       todate: shiftmap.todate,
-      assignedShift: shiftmap.assignedShift || ''
+      assignedShift: (shiftmap.assignedShift && String(shiftmap.assignedShift).trim()) || master.assignedShift || '',
     });
     setFormError('');
     setSuccessMessage('');
@@ -747,21 +761,20 @@ function Shiftmap({ userRole = 'App Administrator', userEmail = null }) {
                       }
                       setFormLoading(true);
 
-                      // Fetch attendance for this employee and fromdate
-                      const attendanceUrl = `/server/GetAttendanceList?summary=true&startDate=${form.fromdate}&endDate=${form.fromdate}`;
-                      const attendanceRes = await axios.get(attendanceUrl);
-                      const attendanceData = attendanceRes.data.data || [];
-                      const summary = attendanceData.find(
-                        row => String(row.EmployeeID) === String(form.employeeId) && row.Date === form.fromdate
-                      );
-                      const firstIn = summary ? summary.FirstIN : '';
-                      const lastOut = summary ? summary.LastOUT : '';
+                      const master = getShiftMasterFields(form.shiftId);
+                      const assignedShift =
+                        (form.assignedShift && form.assignedShift.trim()) || master.assignedShift || '';
+                      const firstIn = master.firstIn || '';
+                      const lastOut = master.lastOut || '';
 
-                      // Now include firstIn and lastOut in your shift mapping object:
                       const shiftmapPayload = {
-                        ...form,
+                        employeeId: form.employeeId,
+                        shiftId: form.shiftId,
+                        fromdate: form.fromdate,
+                        todate: form.todate,
+                        assignedShift,
                         firstIn,
-                        lastOut
+                        lastOut,
                       };
 
                       if (editMode && editId) {
@@ -856,7 +869,11 @@ function Shiftmap({ userRole = 'App Administrator', userEmail = null }) {
                               name="shiftId" 
                               className="input"
                               value={form.shiftId} 
-                              onChange={e => setForm({ ...form, shiftId: e.target.value })} 
+                              onChange={(e) => {
+                                const shiftId = e.target.value;
+                                const m = shiftId ? getShiftMasterFields(shiftId) : { assignedShift: '', firstIn: '', lastOut: '' };
+                                setForm({ ...form, shiftId, assignedShift: m.assignedShift });
+                              }} 
                               required
                             >
                               <option value="">-Select Shift-</option>
@@ -919,7 +936,7 @@ function Shiftmap({ userRole = 'App Administrator', userEmail = null }) {
                               className="input"
                               value={form.assignedShift}
                               onChange={e => setForm({ ...form, assignedShift: e.target.value })}
-                              placeholder="Enter assigned shift (optional)"
+                              placeholder="Filled from selected shift; edit if needed"
                             />
                           </div>
                         </div>

@@ -26,7 +26,35 @@ import { getSidebarModulesForUser } from './modulesConfig';
 
 const PAYROLL_AUTOMATIC_MODE_OPTIONS = ['Automatic', 'Manual'];
 
+/** Edit modal: when Automatic is on and Manual is off, these `editFormData` keys are read-only. */
+const AUTOMATIC_PAYROLL_EDIT_READONLY_KEYS = new Set([
+  'daysInMonth',
+  'daysPresent',
+  'loh',
+  'otHours',
+  'lop',
+  'actualBasic',
+  'actualHRA',
+  'specialAllowance',
+  'pf',
+  'esi',
+  'attendanceBonus',
+]);
+
 /** Remove columns not shown on the payroll grid (Setup may still list legacy / duplicate labels). */
+/** Unit on payroll rows: Employee master stores it as RelevantExperience / export "Unit". */
+function payrollRowUnitDisplay(emp) {
+  if (!emp) return '';
+  const v =
+    emp.unit ??
+    emp.Unit ??
+    emp.relevantExperience ??
+    emp.RelevantExperience ??
+    emp['SSPSE Experience'] ??
+    '';
+  return String(v ?? '').trim();
+}
+
 function stripPayrollGridExcludedColumns(columns) {
   if (!Array.isArray(columns) || columns.length === 0) return columns;
   return columns
@@ -61,7 +89,10 @@ function normPayrollFieldKeyForLookup(s) {
   return String(s ?? '').replace(/[\s_]/g, '').toLowerCase();
 }
 
-/** Show employees with designation MANAGING PARTNER first; case-insensitive; stable order within each group. */
+/**
+ * Sort payroll rows: MANAGING PARTNER first, then by Unit number (UNIT 1 before UNIT 2, …),
+ * then by employee code for a stable order within the same unit.
+ */
 function sortPayrollManagingPartnerFirst(rows) {
   if (!Array.isArray(rows) || rows.length <= 1) return rows;
   const normDesig = (emp) =>
@@ -70,10 +101,24 @@ function sortPayrollManagingPartnerFirst(rows) {
       .trim()
       .toLowerCase();
   const isManagingPartner = (emp) => normDesig(emp) === 'managing partner';
+  /** Lower = earlier in list. Parsed from labels like "UNIT 1", "Unit 2". */
+  const unitSortRank = (emp) => {
+    const s = payrollRowUnitDisplay(emp);
+    const m = s.match(/\d+/);
+    if (m) return parseInt(m[0], 10);
+    if (!s) return 1_000_000;
+    return 999_999;
+  };
   return [...rows].sort((a, b) => {
     const da = isManagingPartner(a) ? 0 : 1;
     const db = isManagingPartner(b) ? 0 : 1;
-    return da - db;
+    if (da !== db) return da - db;
+    const ua = unitSortRank(a);
+    const ub = unitSortRank(b);
+    if (ua !== ub) return ua - ub;
+    const ca = String(a?.employeeCode ?? '').trim();
+    const cb = String(b?.employeeCode ?? '').trim();
+    return ca.localeCompare(cb, undefined, { numeric: true });
   });
 }
 
@@ -193,6 +238,7 @@ const Payroll = () => {
     netTotal: 'Net Total',
     bonus: 'Bonus',
     attendanceBonus: 'Attendance Bonus',
+    unit: 'Unit',
   }), []);
   const defaultPayrollComponentHeaders = useMemo(() => ([
     'Actual Basic',
@@ -279,18 +325,19 @@ const Payroll = () => {
       if (lower.includes('travel') && lower.includes('charge')) return 'travelChargers';
       if (lower === 'loan' || (lower.includes('loan') && lower.includes('allowance'))) return 'loanAllowance';
       if (lower.includes('no of days without uniform') || lower.includes('no.of days without uniform')) return 'noOfDaysWithoutUniforms';
+      if (lower === 'unit') return 'unit';
       return null;
     };
   }, [payrollKeyToHeaderLabel]);
 
-  /** Payroll row already has LOH stored in DB (including 0). Do not replace with attendance muster on refresh — otherwise edits disappear. */
+  /** Non-zero LOH from saved payroll counts as user/import data — do not replace with muster (same idea as OT Hours). Zero is treated as unset so stale DB zeros still refresh from Attendance Muster. */
   const payrollRowHasStoredLoh = (emp) => {
     const raw = emp?.loh ?? emp?.LOH;
     if (raw === undefined || raw === null) return false;
     const s = String(raw).trim();
     if (s === '') return false;
     const n = Number(s.replace(/,/g, ''));
-    return Number.isFinite(n);
+    return Number.isFinite(n) && n !== 0;
   };
 
   /** Setup & Configuration: variables with a non-empty expression, mapped to editFormData keys (for read-only in Automatic payroll mode). */
@@ -953,6 +1000,7 @@ const Payroll = () => {
     if (!base) return '';
 
     const lower = base.toLowerCase();
+    if (lower === 'unit') return payrollRowUnitDisplay(employee);
     if (lower.includes('no. of days present') || lower.includes('days present')) {
       const dimGp = parseFloat(employee.daysInMonth ?? employee.DaysInMonth ?? 0) || 0;
       if (isManagingPartnerPayrollRow(employee) && dimGp > 0) return dimGp;
@@ -1633,7 +1681,7 @@ const Payroll = () => {
                   : undefined;
                 const otHoursUpdate = (!hasSavedOtHours && otFromMuster !== undefined) ? { otHours: otFromMuster, OTHours: otFromMuster } : {};
 
-                // LOH: use muster only when Payroll has no stored LOH yet (saved LOH including 0 wins after edit/save).
+                // LOH: use muster when row has no non-zero saved LOH (same as OT — stale 0 from DB still refreshes from muster).
                 const lohFromMuster = (empCodeRaw && lohMap[empCodeRaw] !== undefined) ? lohMap[empCodeRaw]
                   : (empCodeNormalized && lohMap[empCodeNormalized] !== undefined) ? lohMap[empCodeNormalized]
                   : undefined;
@@ -1721,7 +1769,7 @@ const Payroll = () => {
         }
         return {
         ...row,
-        unit: row.unit ?? row.Unit ?? row.relevantExperience ?? row['SSPSE Experience'] ?? '',
+        unit: payrollRowUnitDisplay(row),
         actualBasic: payrollFieldNumber(row.actualBasic, row.ActualBasic),
         actualHRA: payrollFieldNumber(row.actualHRA, row.ActualHRA),
         actualDA: payrollFieldNumber(row.actualDA, row.ActualDA),
@@ -2312,7 +2360,7 @@ const Payroll = () => {
                   )
                 : 0;
           }
-          return { ...row, specialAllowance, earnedSpecialAllowance };
+          return { ...row, specialAllowance, earnedSpecialAllowance, unit: payrollRowUnitDisplay(row) };
         });
       }
 
@@ -2860,7 +2908,7 @@ const Payroll = () => {
       employeeName: employee.employeeName || '',
       designation: employee.designation ?? employee.Designation ?? '',
       department: employee.department || '',
-      unit: employee.unit ?? employee.Unit ?? employee.relevantExperience ?? '',
+      unit: payrollRowUnitDisplay(employee),
       dateOfJoining: employee.dateOfJoining ?? employee.date_of_joining ?? '',
       contractor: employee.contractor || '',
       daysInMonth: toWholeNumber(employee.daysInMonth ?? employee.DaysInMonth ?? 0),
@@ -3931,6 +3979,7 @@ const Payroll = () => {
           'Employee Name': employee.employeeName || '',
           'Designation': employee.designation ?? employee.Designation ?? '',
           'Department': employee.department || '',
+          Unit: payrollRowUnitDisplay(employee),
           'Date of Joining': employee.dateOfJoining ? new Date(employee.dateOfJoining).toLocaleDateString('en-GB') : ''
         };
         exportColumns.forEach((compName, idx) => {
@@ -3950,6 +3999,7 @@ const Payroll = () => {
           'Employee Name': '',
           'Designation': '',
           'Department': '',
+          Unit: '',
           'Date of Joining': ''
         };
         exportSheetKeys.forEach((sk) => {
@@ -3962,7 +4012,15 @@ const Payroll = () => {
       });
 
       // Totals row: fixed columns empty/total label, then sum for each numeric table column
-      const totalsRow = { 'S.No': 'Total', 'Employee Code': '', 'Employee Name': '', 'Designation': '', 'Department': '', 'Date of Joining': '' };
+      const totalsRow = {
+        'S.No': 'Total',
+        'Employee Code': '',
+        'Employee Name': '',
+        'Designation': '',
+        'Department': '',
+        Unit: '',
+        'Date of Joining': '',
+      };
       exportColumns.forEach((compName, idx) => {
         const sheetKey = exportSheetKeys[idx];
         const firstVal = payrollData.length ? getComponentDisplayValue(payrollData[0], compName) : 0;
@@ -3986,6 +4044,7 @@ const Payroll = () => {
         { wch: 20 },  // Employee Name
         { wch: 18 },  // Designation
         { wch: 15 },  // Department
+        { wch: 14 },  // Unit
         { wch: 18 }   // Date of Joining
       ].concat(exportColumns.map(() => ({ wch: 15 })));
       worksheet['!cols'] = columnWidths;
@@ -4217,10 +4276,10 @@ const Payroll = () => {
     // Create CSV template content with exact column names
     // Note: The import function supports flexible header matching, so variations like "EmployeeName", "Name", etc. will also work
     // Note: When importing exported Excel files, totals/summary rows are automatically skipped
-    const templateContent = `Employee Code,Employee Name,Department,Contractor,No. of Days (Month),No. of Days Present,OT Hours,LOH,Actual Basic,Actual HRA,Actual DA,Other Allowance,Other Allowances,Travel Chargers,Special Allowance,Incentive,OT Amount,OT Arrear Amount,Actual Total Gross,Earned Basic,Earned HRA,Earned Gross Salary,PF 12%,ESI 0.75%,Employer ESI 3.25%,ESIContribution,Total Deduction,Rent,Net Pay
-EMP001,MUKESH,SALES,No,31,22.5,0.00,0,10000,5000,0,0,0,0,0,0,15000,7258.06,3629.03,10887.09,870.97,54.44,925.41,0,0,0,0,10887.09
-36050,K.Sivasubramanian,Accounts,R.P.D Facility Management,31,25,8.5,0,25000,5000,0,0,0,0,0,0,30000,25000,5000,30000,3000,187.5,3187.5,0,0,0,0,31250
-36109,Sunil Kumar,Hamper assembly,R.P.D Facility Management,31,28,12.0,0,22000,4400,0,0,0,0,0,0,26400,22000,4400,26400,2640,165,2805,0,0,0,0,28900`;
+    const templateContent = `Employee Code,Employee Name,Department,Unit,Contractor,No. of Days (Month),No. of Days Present,OT Hours,LOH,Actual Basic,Actual HRA,Actual DA,Other Allowance,Other Allowances,Travel Chargers,Special Allowance,Incentive,OT Amount,OT Arrear Amount,Actual Total Gross,Earned Basic,Earned HRA,Earned Gross Salary,PF 12%,ESI 0.75%,Employer ESI 3.25%,ESIContribution,Total Deduction,Rent,Net Pay
+EMP001,MUKESH,SALES,Unit-A,No,31,22.5,0.00,0,10000,5000,0,0,0,0,0,0,15000,7258.06,3629.03,10887.09,870.97,54.44,925.41,0,0,0,0,10887.09
+36050,K.Sivasubramanian,Accounts,Unit-B,R.P.D Facility Management,31,25,8.5,0,25000,5000,0,0,0,0,0,0,30000,25000,5000,30000,3000,187.5,3187.5,0,0,0,0,31250
+36109,Sunil Kumar,Hamper assembly,Unit-B,R.P.D Facility Management,31,28,12.0,0,22000,4400,0,0,0,0,0,0,26400,22000,4400,26400,2640,165,2805,0,0,0,0,28900`;
 
     // Create and download the file
     const blob = new Blob([templateContent], { type: 'text/csv' });
@@ -4529,7 +4588,15 @@ EMP001,MUKESH,SALES,No,31,22.5,0.00,0,10000,5000,0,0,0,0,0,0,15000,7258.06,3629.
             employeeCode: employeeCode,
             employeeName: employeeName,
             department: safeToString(getColumnValue(['Department', 'Dept', 'department'])),
-            unit: '',
+            unit: safeToString(
+              getColumnValue([
+                'Unit',
+                'unit',
+                'SSPSE Experience',
+                'RelevantExperience',
+                'relevantExperience',
+              ])
+            ),
             contractor: safeToString(getColumnValue(['Contractor', 'ContractorName', 'contractor'])),
             daysInMonth: getDaysInMonthImportValue(),
             daysPresent: getDaysPresentImportValue(),
@@ -5215,6 +5282,7 @@ EMP001,MUKESH,SALES,No,31,22.5,0.00,0,10000,5000,0,0,0,0,0,0,15000,7258.06,3629.
                         <th>Employee Name</th>
                         <th>Designation</th>
                         <th>Department</th>
+                        <th>Unit</th>
                         <th>Date of Joining</th>
                         {tablePayrollComponents.map((name, colIdx) => {
                           const lower = String(name || '').toLowerCase();
@@ -5271,7 +5339,7 @@ EMP001,MUKESH,SALES,No,31,22.5,0.00,0,10000,5000,0,0,0,0,0,0,15000,7258.06,3629.
                             else otherRows.push(emp);
                           });
                           const showMpSectionGap = mpRows.length > 0 && otherRows.length > 0;
-                          const tbodyColSpan = 7 + tablePayrollComponents.length;
+                          const tbodyColSpan = 8 + tablePayrollComponents.length;
                           const renderPayrollDataRow = (employee, displaySerialNo, rowSuffix) => (
                         <tr
                           key={`${rowSuffix}-${employee.employeeCode}-${employee.actualBasic}-${employee.actualHRA}-${employee.actualDA}-${employee.otherAllowance}`}
@@ -5284,6 +5352,7 @@ EMP001,MUKESH,SALES,No,31,22.5,0.00,0,10000,5000,0,0,0,0,0,0,15000,7258.06,3629.
                           <td>{employee.employeeName || ''}</td>
                           <td>{employee.designation ?? employee.Designation ?? ''}</td>
                           <td>{employee.department || ''}</td>
+                          <td>{payrollRowUnitDisplay(employee)}</td>
                           <td>{employee.dateOfJoining ? new Date(employee.dateOfJoining).toLocaleDateString('en-GB') : '-'}</td>
                           {tablePayrollComponents.map((name, colIdx) => {
                             const lowerName = String(name || '').toLowerCase();
@@ -5457,7 +5526,7 @@ EMP001,MUKESH,SALES,No,31,22.5,0.00,0,10000,5000,0,0,0,0,0,0,15000,7258.06,3629.
                         })()
                       ) : (
                         <tr>
-                          <td colSpan={7 + tablePayrollComponents.length} style={{ textAlign: 'center', padding: '20px' }}>
+                          <td colSpan={8 + tablePayrollComponents.length} style={{ textAlign: 'center', padding: '20px' }}>
                             No payroll data available
                           </td>
                         </tr>
@@ -5465,7 +5534,7 @@ EMP001,MUKESH,SALES,No,31,22.5,0.00,0,10000,5000,0,0,0,0,0,0,15000,7258.06,3629.
                     </tbody>
                     <tfoot>
                       <tr className="table-footer">
-                        <td colSpan="6">Total</td>
+                        <td colSpan="7">Total</td>
                         {tablePayrollComponents.map((name, colIdx) => {
                             const total = payrollData && Array.isArray(payrollData)
                               ? payrollData.reduce((sum, emp) => {
@@ -5622,6 +5691,17 @@ EMP001,MUKESH,SALES,No,31,22.5,0.00,0,10000,5000,0,0,0,0,0,0,15000,7258.06,3629.
                             title="Read-only"
                           />
                         </div>
+                        <div className="form-group">
+                          <label>Unit:</label>
+                          <input
+                            type="text"
+                            value={editFormData.unit ?? ''}
+                            readOnly
+                            disabled
+                            style={{ backgroundColor: '#f8f9fa', color: '#6c757d', cursor: 'not-allowed' }}
+                            title="Read-only (from Employee master)"
+                          />
+                        </div>
                       </div>
 
                       <div className="form-row">
@@ -5669,9 +5749,7 @@ EMP001,MUKESH,SALES,No,31,22.5,0.00,0,10000,5000,0,0,0,0,0,0,15000,7258.06,3629.
                                         automaticSelections.has('Automatic') && !automaticSelections.has('Manual');
                                       const lockedByAutomatic =
                                         automaticLock &&
-                                        (['daysInMonth', 'daysPresent', 'loh', 'otHours'].includes(
-                                          key
-                                        ) ||
+                                        ((key && AUTOMATIC_PAYROLL_EDIT_READONLY_KEYS.has(key)) ||
                                           payrollFormulaOptionKeys.has(key));
                                       const isEditable = Boolean(key) && !lockedByFormula && !lockedByAutomatic;
                                       const readOnlyTitle = lockedByFormula

@@ -101,6 +101,7 @@ function PayrollReport() {
       'Employee Name': row.employeeName,
       Designation: row.designation ?? row.Designation ?? '',
       Department: row.department,
+      Unit: String(row.unit ?? row.Unit ?? row.relevantExperience ?? row.RelevantExperience ?? '').trim(),
       Contractor: row.contractor,
       'Days In Month': row.daysInMonth,
       'Days Present': row.daysPresent,

@@ -165,6 +165,46 @@ app.put('/shifts/:id', async (req, res) => {
             ToDate: to.trim(),
             TotalHours: computedTotalHours
         });
+
+        // Keep Shiftmap rows that reference this shift aligned with master (name + expected in/out times).
+        try {
+            const zcql = catalyst.zcql();
+            const smTable = catalyst.datastore().table('Shiftmap');
+            const sid = String(id).replace(/'/g, "''");
+            const sn = shiftName.trim();
+            const ft = from.trim();
+            const tt = to.trim();
+            let offset = 0;
+            const pageSize = 300;
+            for (;;) {
+                const batch = await zcql.executeZCQLQuery(
+                    `SELECT ROWID, EmployeeId, Shift, Fromdate, Todate, AssignedShift, ActualShift, FirstIn, LastOut, DateWise, DateWiseShiftName FROM Shiftmap WHERE Shift = '${sid}' ORDER BY ROWID LIMIT ${pageSize} OFFSET ${offset}`
+                );
+                if (!batch || batch.length === 0) break;
+                for (const row of batch) {
+                    const sm = row.Shiftmap;
+                    if (!sm || !sm.ROWID) continue;
+                    await smTable.updateRow({
+                        ROWID: sm.ROWID,
+                        EmployeeId: sm.EmployeeId,
+                        Shift: sm.Shift,
+                        Fromdate: sm.Fromdate,
+                        Todate: sm.Todate,
+                        AssignedShift: sn,
+                        ActualShift: sm.ActualShift != null && sm.ActualShift !== '' ? sm.ActualShift : null,
+                        FirstIn: ft,
+                        LastOut: tt,
+                        DateWise: sm.DateWise != null && sm.DateWise !== '' ? sm.DateWise : null,
+                        DateWiseShiftName: sm.DateWiseShiftName != null && sm.DateWiseShiftName !== '' ? sm.DateWiseShiftName : null
+                    });
+                }
+                if (batch.length < pageSize) break;
+                offset += pageSize;
+            }
+        } catch (syncErr) {
+            console.error('Shiftmap sync after Shift master update:', syncErr);
+        }
+
         res.status(200).send({
             status: 'success',
             data: {
