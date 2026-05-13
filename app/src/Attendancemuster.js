@@ -249,9 +249,9 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
 
   /**
    * Total present for muster: do not count Sundays (calendar) or WO / Week Off as present days.
-   * halfDayWeight — table uses 1 (half day counts as 1); Excel export uses 0.5 to match prior export.
+   * halfDayWeight — half days (e.g. under 4h worked) count as 0.5; full Present/CO/H/OD count as 1.
    */
-  const countPresentDaysForMusterRow = (rowStatuses, dates, { halfDayWeight = 1 } = {}) => {
+  const countPresentDaysForMusterRow = (rowStatuses, dates, { halfDayWeight = 0.5 } = {}) => {
     if (!Array.isArray(rowStatuses)) return 0;
     return rowStatuses.reduce((sum, s, idx) => {
       if (Array.isArray(dates) && isSundayDate(dates[idx])) return sum;
@@ -1034,7 +1034,7 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
                         const formattedDateOfJoining = dateOfJoining ? new Date(dateOfJoining).toLocaleDateString('en-GB') : '-';
                         // Format date of exit for display (DD/MM/YYYY)
                         const formattedDateOfExit = dateOfExit ? new Date(dateOfExit).toLocaleDateString('en-GB') : '-';
-                        const totalPresent = countPresentDaysForMusterRow(rowStatuses, data.dates, { halfDayWeight: 1 });
+                        const totalPresent = countPresentDaysForMusterRow(rowStatuses, data.dates, { halfDayWeight: 0.5 });
                         const totalAbsent = calculateTotalAbsentExcludingSundays(rowStatuses, data.dates);
                         // Calculate total hours for the period (sum of all days)
                         const totalHoursSum = (rowTotalHours && Array.isArray(rowTotalHours)) ? rowTotalHours.reduce((sum, hoursValue) => {
@@ -1316,8 +1316,8 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
                           const dateTotal = (data.muster && Array.isArray(data.muster)) ? data.muster.reduce((sum, rowStatuses) => {
                             if (!rowStatuses || !Array.isArray(rowStatuses)) return sum;
                             const status = rowStatuses[colIdx];
-                            // Only count "Present" (>= 8 hours) as present days, not "Half Day Present"
                             if (status === 'Present' || status === 'P') return sum + 1;
+                            if (status === 'Half Day Present' || status === '0.5' || status === 0.5) return sum + 0.5;
                             return sum;
                           }, 0) : 0;
                           return (

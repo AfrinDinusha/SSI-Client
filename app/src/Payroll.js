@@ -23,6 +23,7 @@ import {
 } from './payslipPrint';
 import JSZip from 'jszip';
 import { getSidebarModulesForUser } from './modulesConfig';
+import { applyReportsLohToMusterData, fetchLohRowsForMusterOverlay } from './musterLohReportsMerge';
 
 const PAYROLL_AUTOMATIC_MODE_OPTIONS = ['Automatic', 'Manual'];
 
@@ -152,6 +153,14 @@ function managingPartnerDaysPresentValue(emp, computedPresent) {
   const dim = parseFloat(emp?.daysInMonth) || 0;
   if (isManagingPartnerPayrollRow(emp) && dim > 0) return dim;
   return computedPresent;
+}
+
+/** Monthly LOH from muster for payroll only: at or below 1.5h → 0 (reports / raw muster unchanged). */
+function payrollMusterMonthlyLohForPayrollRow(rawHours) {
+  const n = parseFloat(String(rawHours ?? '').replace(/,/g, ''));
+  if (!Number.isFinite(n)) return 0;
+  const rounded = parseFloat(n.toFixed(2));
+  return rounded <= 1.5 ? 0 : rounded;
 }
 
 const Payroll = () => {
@@ -677,7 +686,7 @@ const Payroll = () => {
       const v = normalizeStatus(s);
       if (v === 'WO' || v === 'Week Off') return sum;
       if (v === 'Present' || v === 'P') return sum + 1;
-      if (v === 'Half Day Present' || v === '0.5' || v === '0.50' || v === 0.5) return sum + 1;
+      if (v === 'Half Day Present' || v === '0.5' || v === '0.50' || v === 0.5) return sum + 0.5;
       if (v === 'CO') return sum + 1;
       if (v === 'H' && isSandwichedWoOrH(statuses, idx)) return sum;
       if (v === 'H') return sum + 1;
@@ -1609,18 +1618,41 @@ const Payroll = () => {
       if (!manualModeActiveFetch && effectiveFromDate && effectiveToDate && result.data && result.data.length > 0) {
         try {
           console.log('Fetching accurate attendance data from Attendance Muster...');
-          let musterUrl = `/server/attendance_muster_function/?startDate=${encodeURIComponent(effectiveFromDate)}&endDate=${encodeURIComponent(effectiveToDate)}&userEmail=${encodeURIComponent(userEmail || '')}`;
+          let musterUrl = `/server/attendance_muster_function/?startDate=${encodeURIComponent(effectiveFromDate)}&endDate=${encodeURIComponent(effectiveToDate)}&source=both&userEmail=${encodeURIComponent(userEmail || '')}`;
          
           // Add contractor filter if applicable
           const contractorForQuery = forcedContractor || (contractor !== 'All' ? contractor : null);
           if (contractorForQuery) {
             musterUrl += `&contractor=${encodeURIComponent(contractorForQuery)}`;
           }
+          if (department !== 'All') {
+            musterUrl += `&department=${encodeURIComponent(department)}`;
+          }
 
           const musterRes = await fetch(musterUrl);
          
           if (musterRes.ok) {
-            const musterData = await musterRes.json();
+            let musterData = await musterRes.json();
+            if (musterData && musterData.employees && musterData.muster) {
+              try {
+                const lohRows = await fetchLohRowsForMusterOverlay({
+                  startDate: effectiveFromDate,
+                  endDate: effectiveToDate,
+                  contractor: contractorForQuery || undefined,
+                  department: department !== 'All' ? department : undefined,
+                  userEmail,
+                  userRole
+                });
+                if (lohRows.length > 0) {
+                  musterData = applyReportsLohToMusterData(musterData, lohRows);
+                  console.log(
+                    `Payroll fetch: LOH merged from LOH Report (${lohRows.length} row(s)) — matches Attendance Muster`
+                  );
+                }
+              } catch (lohMergeErr) {
+                console.warn('Payroll fetch: LOH merge skipped:', lohMergeErr?.message || lohMergeErr);
+              }
+            }
            
             if (musterData && musterData.employees && musterData.muster) {
               console.log(`Received attendance data for ${musterData.employees.length} employees`);
@@ -1651,10 +1683,11 @@ const Payroll = () => {
                 if (rawEmpId) otHoursMap[rawEmpId] = otHours;
                 if (normalizedEmpId) otHoursMap[normalizedEmpId] = otHours;
 
-                // LOH from attendance_muster_function (monthlyLOHPreferred)
-                const loh = (musterData.monthlyLOHPreferred && musterData.monthlyLOHPreferred[idx] != null)
+                // LOH from attendance_muster_function (monthlyLOHPreferred); payroll applies ≤1.5h → 0
+                const lohRaw = (musterData.monthlyLOHPreferred && musterData.monthlyLOHPreferred[idx] != null)
                   ? parseFloat(musterData.monthlyLOHPreferred[idx]) || 0
                   : 0;
+                const loh = payrollMusterMonthlyLohForPayrollRow(lohRaw);
                 if (rawEmpId) lohMap[rawEmpId] = loh;
                 if (normalizedEmpId) lohMap[normalizedEmpId] = loh;
               });
@@ -2230,11 +2263,34 @@ const Payroll = () => {
           if (contractorForQuery) {
             musterUrl += `&contractor=${encodeURIComponent(contractorForQuery)}`;
           }
+          if (department !== 'All') {
+            musterUrl += `&department=${encodeURIComponent(department)}`;
+          }
 
           const musterRes = await fetch(musterUrl);
          
           if (musterRes.ok) {
-            const musterData = await musterRes.json();
+            let musterData = await musterRes.json();
+            if (musterData && musterData.employees && musterData.muster) {
+              try {
+                const lohRows = await fetchLohRowsForMusterOverlay({
+                  startDate: fromDate,
+                  endDate: toDate,
+                  contractor: contractorForQuery || undefined,
+                  department: department !== 'All' ? department : undefined,
+                  userEmail,
+                  userRole
+                });
+                if (lohRows.length > 0) {
+                  musterData = applyReportsLohToMusterData(musterData, lohRows);
+                  console.log(
+                    `Run payroll: LOH merged from LOH Report (${lohRows.length} row(s)) — matches Attendance Muster`
+                  );
+                }
+              } catch (lohMergeErr) {
+                console.warn('Run payroll: LOH merge skipped:', lohMergeErr?.message || lohMergeErr);
+              }
+            }
            
             if (musterData && musterData.employees && musterData.muster) {
               console.log(`Received attendance data for ${musterData.employees.length} employees`);
@@ -2260,10 +2316,11 @@ const Payroll = () => {
                   : 0;
                 if (rawEmpId) otHoursMap[rawEmpId] = otHours;
                 if (normalizedEmpId) otHoursMap[normalizedEmpId] = otHours;
-                // LOH from attendance_muster_function (monthlyLOHPreferred)
-                const loh = (musterData.monthlyLOHPreferred && musterData.monthlyLOHPreferred[idx] != null)
+                // LOH from attendance_muster_function (monthlyLOHPreferred); payroll applies ≤1.5h → 0
+                const lohRaw = (musterData.monthlyLOHPreferred && musterData.monthlyLOHPreferred[idx] != null)
                   ? parseFloat(musterData.monthlyLOHPreferred[idx]) || 0
                   : 0;
+                const loh = payrollMusterMonthlyLohForPayrollRow(lohRaw);
                 if (rawEmpId) lohMap[rawEmpId] = loh;
                 if (normalizedEmpId) lohMap[normalizedEmpId] = loh;
               });
@@ -5240,6 +5297,10 @@ EMP001,MUKESH,SALES,Unit-A,No,31,22.5,0.00,0,10000,5000,0,0,0,0,0,0,15000,7258.0
                 <div className="summary-card">
                   <h3>Total OT Amount</h3>
                   <span>₹{payrollData && Array.isArray(payrollData) ? Math.round(payrollData.reduce((sum, emp) => sum + (Number(getComponentDisplayValue(emp, 'OT Amount')) || 0), 0)).toLocaleString() : '0'}</span>
+                </div>
+                <div className="summary-card">
+                  <h3>Total Net Pay</h3>
+                  <span>₹{payrollData && Array.isArray(payrollData) ? Math.round(payrollData.reduce((sum, emp) => sum + (Number(getComponentDisplayValue(emp, 'Net Pay')) || 0), 0)).toLocaleString() : '0'}</span>
                 </div>
               </div>
             )}

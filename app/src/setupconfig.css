@@ -81,6 +81,20 @@
   margin-top: 12px;
 }
 
+/* OT Setup: stack Category and RoundOff vertically (same alignment as label + box) */
+.setup-ot-fields {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  gap: 0.5in;
+}
+
+.setup-ot-fields .setup-loh-field,
+.setup-ot-fields .setup-roundoff-field {
+  width: 100%;
+  max-width: 480px;
+}
+
 .setup-loh-field {
   flex: 0 1 auto;
   min-width: 0;
@@ -135,6 +149,76 @@
 .setup-loh-grace-input:focus {
   outline: none;
   border-color: #2563eb;
+}
+
+.setup-roundoff-field {
+  flex: 0 0 auto;
+  width: 100%;
+  max-width: 480px;
+}
+
+.setup-roundoff-panel {
+  margin-top: 12px;
+  padding: 12px 14px;
+  max-width: 480px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fafafa;
+}
+
+.setup-roundoff-yesno {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+}
+
+.setup-roundoff-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  cursor: pointer;
+  color: #1f2937;
+}
+
+.setup-roundoff-detail-input {
+  width: 100%;
+  max-width: 480px;
+  margin-top: 12px;
+  padding: 12px 16px;
+  min-height: 72px;
+  box-sizing: border-box;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: inherit;
+  line-height: 1.45;
+  background: #ffffff;
+  resize: vertical;
+}
+
+.setup-roundoff-detail-input:focus {
+  outline: none;
+  border-color: #2563eb;
+}
+
+.setup-roundoff-actions {
+  margin-top: 12px;
+}
+
+.setup-roundoff-save {
+  padding: 8px 18px;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid #2563eb;
+  background: #2563eb;
+  color: #fff;
+}
+
+.setup-roundoff-save:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
 }
 
 .setup-loh-modal {

@@ -1753,10 +1753,13 @@ module.exports = async (req, res) => {
               // Determine status based on total hours worked:
               // If >= 8 hours, mark as "Present"
               // If >= 4 hours but < 8 hours, mark as "Half Day Present"
+              // If > 0 but < 4 hours, mark as "Half Day Present" (0.5 day in muster totals)
               // Otherwise, mark as "Absent"
               if (hours >= 8) {
                 biomaxStatus = 'Present';
               } else if (hours >= 4) {
+                biomaxStatus = 'Half Day Present';
+              } else if (hours > 0) {
                 biomaxStatus = 'Half Day Present';
               }
             }
@@ -2197,8 +2200,8 @@ module.exports = async (req, res) => {
       const outDate = new Date(lastOut.replace(' ', 'T'));
       if (isNaN(inDate) || isNaN(outDate)) return 'Absent';
       const hours = (outDate - inDate) / (1000 * 60 * 60);
-      // Count >= 4 hours as Present (changed from Half Day Present)
       if (hours >= 4) return 'Present';
+      if (hours > 0) return 'Half Day Present';
       return 'Absent';
     }
 

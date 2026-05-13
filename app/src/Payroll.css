@@ -1551,12 +1551,23 @@
   border-right: none;
 }
 
-/* Summary Cards */
+/* Summary Cards — single row; scroll horizontally on narrow screens */
 .payroll-summary {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 15px;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 10px;
   margin-bottom: 20px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 4px;
+}
+
+.payroll-summary .summary-card {
+  flex: 1 1 0;
+  min-width: 100px;
+  box-sizing: border-box;
 }
 
 .summary-card {

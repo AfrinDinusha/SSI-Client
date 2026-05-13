@@ -97,13 +97,92 @@ function sourceHasCompOffTakenSegment(source) {
   return /(^|\+)CompOff($|\+)/.test(s);
 }
 
+/** Reports table (399000000022752) RoundOff text column — JSON or legacy Yes/No. */
+function parseReportsRoundOff(raw) {
+  const s = String(raw ?? '').trim();
+  if (!s) return { enabled: 'no', detail: '' };
+  try {
+    const o = JSON.parse(s);
+    if (o && typeof o === 'object') {
+      const en = String(o.enabled ?? o.y ?? '').trim().toLowerCase();
+      const yes = en === 'yes' || en === 'y' || en === '1' || o.y === 1 || o.y === true;
+      return { enabled: yes ? 'yes' : 'no', detail: String(o.detail ?? o.t ?? '').trim() };
+    }
+  } catch (_) {
+    /* legacy plain text */
+  }
+  const low = s.toLowerCase();
+  if (low === 'yes' || low === 'y' || low === '1') return { enabled: 'yes', detail: '' };
+  if (low.startsWith('yes:')) return { enabled: 'yes', detail: s.slice(4).trim() };
+  return { enabled: 'no', detail: '' };
+}
+
+function stringifyReportsRoundOff(enabled, detail) {
+  const yes = String(enabled ?? '').trim().toLowerCase() === 'yes';
+  return JSON.stringify({
+    enabled: yes ? 'Yes' : 'No',
+    detail: yes ? String(detail ?? '').trim() : ''
+  });
+}
+
+/**
+ * Same as Excel: INT(OT)+IF((OT-INT(OT))*60<=25,0,IF((OT-INT(OT))*60<=55,0.5,1))
+ * OT is decimal hours (e.g. 3.22 → 3h13m → fractional minutes ≤25 → 3.0).
+ */
+function applyOtHoursIntIfRoundOff(otHours) {
+  const h = Number(otHours);
+  if (!Number.isFinite(h) || h <= 0) return 0;
+  const whole = Math.floor(h + 1e-6);
+  const fracMin = (h - whole) * 60;
+  if (fracMin <= 25 + 1e-6) return whole;
+  if (fracMin <= 55 + 1e-6) return whole + 0.5;
+  return whole + 1;
+}
+
+/** Catalyst / proxy may pass `/server/reports_function/...` or `/reports_function/...` instead of `/...`. */
+function normalizeReportsFunctionPathname(p) {
+  if (!p || typeof p !== 'string') return '/';
+  const prefixes = ['/server/reports_function', '/reports_function'];
+  for (const prefix of prefixes) {
+    if (p === prefix) return '/';
+    if (p.startsWith(`${prefix}/`)) {
+      const rest = p.slice(prefix.length);
+      return rest.startsWith('/') ? rest : `/${rest}`;
+    }
+  }
+  return p;
+}
+
+function readRoundOffSaveInput(req, query) {
+  if (req.method !== 'POST' && req.method !== 'PUT') return Promise.resolve({ ...query });
+  return new Promise((resolve) => {
+    let raw = '';
+    req.on('data', (chunk) => {
+      raw += chunk.toString();
+    });
+    req.on('end', () => {
+      if (!raw || !raw.trim()) {
+        resolve({ ...query });
+        return;
+      }
+      try {
+        const body = JSON.parse(raw);
+        resolve({ ...query, ...body });
+      } catch (_) {
+        resolve({ ...query });
+      }
+    });
+    req.on('error', () => resolve({ ...query }));
+  });
+}
+
 /**
  * @param {import('http').IncomingMessage} req
  * @param {import('http').ServerResponse} res
  */
 module.exports = async (req, res) => {
   const parsedUrl = url.parse(req.url, true);
-  const pathname = parsedUrl.pathname;
+  const pathname = normalizeReportsFunctionPathname(parsedUrl.pathname);
   const query = parsedUrl.query;
 
   if (pathname === '/monthly-overtime') {
@@ -181,7 +260,9 @@ module.exports = async (req, res) => {
             .map((v) => String(v || '').trim())
             .filter((v) => v && v.toLowerCase() !== 'all');
 
-      // If not sent, load latest saved Category OT Applicable To from Setup Configuration
+      let monthlyOtRoundOffEnabled = false;
+
+      // If not sent, load latest saved Category OT Applicable To + RoundOff (Setup Configuration) from Reports table
       if (designationApplicableToList.length === 0) {
         try {
           const otApplicableTable = catalystApp.datastore().table('399000000022752');
@@ -203,10 +284,34 @@ module.exports = async (req, res) => {
                 .map((v) => String(v || '').trim())
                 .filter((v) => v && v.toLowerCase() !== 'all');
             }
+            const roundRaw = latest.RoundOff ?? latest.roundOff ?? latest.Roundoff ?? '';
+            monthlyOtRoundOffEnabled = parseReportsRoundOff(roundRaw).enabled === 'yes';
           }
         } catch (savedErr) {
           console.log('Monthly OT: failed to read saved Department OT Applicable To:', savedErr.message);
         }
+      } else {
+        try {
+          const otApplicableTable = catalystApp.datastore().table('399000000022752');
+          const savedRows = await otApplicableTable.getAllRows();
+          if (savedRows.length > 0) {
+            const latest = savedRows
+              .slice()
+              .sort((a, b) => {
+                const aTime = new Date(a.MODIFIEDTIME || a.CREATEDTIME || 0).getTime();
+                const bTime = new Date(b.MODIFIEDTIME || b.CREATEDTIME || 0).getTime();
+                return bTime - aTime;
+              })[0];
+            const roundRaw = latest.RoundOff ?? latest.roundOff ?? latest.Roundoff ?? '';
+            monthlyOtRoundOffEnabled = parseReportsRoundOff(roundRaw).enabled === 'yes';
+          }
+        } catch (roundErr) {
+          console.log('Monthly OT: failed to read RoundOff from Reports:', roundErr.message);
+        }
+      }
+
+      if (monthlyOtRoundOffEnabled) {
+        console.log('Monthly OT: applying Setup RoundOff (INT + 0 / 0.5 / 1 h by fractional minutes 25/55)');
       }
 
       const designationApplicableToSet = new Set(
@@ -985,6 +1090,22 @@ module.exports = async (req, res) => {
         }
       };
 
+      /** Full standard day (8h 30m) on site before OT counts: OT = max(0, LastOUT − FirstIN − 8.5h). */
+      const STANDARD_DAY_HOURS_BEFORE_OT = 8.5;
+      const otHoursFromFirstInLastOutSpan = (firstInStr, lastOutStr) => {
+        if (!firstInStr || !lastOutStr) return 0;
+        try {
+          const a = new Date(String(firstInStr).trim().replace(' ', 'T'));
+          const b = new Date(String(lastOutStr).trim().replace(' ', 'T'));
+          if (isNaN(a.getTime()) || isNaN(b.getTime()) || b <= a) return 0;
+          const totalWorkingHours = (b - a) / (1000 * 60 * 60);
+          if (totalWorkingHours <= STANDARD_DAY_HOURS_BEFORE_OT) return 0;
+          return Math.max(0, parseFloat((totalWorkingHours - STANDARD_DAY_HOURS_BEFORE_OT).toFixed(3)));
+        } catch (_) {
+          return 0;
+        }
+      };
+
       // Helper function to calculate overtime for General shift
       // Uses 17:55:00 as the cutoff time (no OT if checkout is 17:55 or earlier)
       // If checkout is after 17:55, calculate OT as (checkout time - 16:55)
@@ -1349,13 +1470,8 @@ module.exports = async (req, res) => {
                 Source: 'BHR_H'
               });
             } else if (!hasNewShiftMapEntry(empDateData.EmployeeID, dateStr) && !assignedShiftDef && !isHousekeeping) {
-              // No shift assigned in NewShiftMap for this date → use General shift OT (e.g. 08:12-16:55 = 0 OT).
-              {
-                const fallbackGeneralShift = getGeneralShiftDefinition();
-                overtimeHours = fallbackGeneralShift
-                  ? calculateOvertimeForDynamicShift(lastOut, dateStr, fallbackGeneralShift.toTime, fallbackGeneralShift.fromTime)
-                  : calculateOvertimeForGeneralShift(lastOut, dateStr);
-              }
+              // No shift in NewShiftMap: OT = time on site (FirstIn→LastOut) minus 8h30 standard day.
+              overtimeHours = otHoursFromFirstInLastOutSpan(firstIn, lastOut);
               if (overtimeHours > 0 || dateStr === '2026-01-03') {
                 overtimeRecords.push({
                   EmployeeID: empDateData.EmployeeID,
@@ -1383,8 +1499,7 @@ module.exports = async (req, res) => {
                   console.log(`Employee ${empDateData.EmployeeID} on ${dateStr} (Housekeeping): ${totalHours.toFixed(2)} hours, OT: ${overtimeHours.toFixed(2)} hours (total − 8h)`);
                 }
               } else if (assignedShiftDef) {
-                overtimeHours =
-                  calculateOvertimeForDynamicShift(lastOut, dateStr, assignedShiftDef.toTime, assignedShiftDef.fromTime);
+                overtimeHours = otHoursFromFirstInLastOutSpan(firstIn, lastOut);
                 if (overtimeHours > 0 || dateStr === '2026-01-03') {
                   overtimeRecords.push({
                     EmployeeID: empDateData.EmployeeID,
@@ -1397,7 +1512,7 @@ module.exports = async (req, res) => {
                   });
                 }
               } else if (isThird) {
-                overtimeHours = totalHours > 8.5 ? totalHours - 8.5 : 0;
+                overtimeHours = otHoursFromFirstInLastOutSpan(firstIn, lastOut);
                 if (overtimeHours > 0 || dateStr === '2026-01-03') {
                   overtimeRecords.push({
                     EmployeeID: empDateData.EmployeeID,
@@ -1410,11 +1525,8 @@ module.exports = async (req, res) => {
                   });
                 }
               } else if (hasNewShiftMapEntry(empDateData.EmployeeID, dateStr)) {
-                // Shift is assigned in NewShiftMap but not resolved in Shift master -> fallback to General shift.
-                const fallbackGeneralShift = getGeneralShiftDefinition();
-                overtimeHours = fallbackGeneralShift
-                  ? calculateOvertimeForDynamicShift(lastOut, dateStr, fallbackGeneralShift.toTime, fallbackGeneralShift.fromTime)
-                  : calculateOvertimeForGeneralShift(lastOut, dateStr);
+                // Shift in NewShiftMap but not in Shift master → FirstIn–LastOUT − 8.5h.
+                overtimeHours = otHoursFromFirstInLastOutSpan(firstIn, lastOut);
                 if (overtimeHours > 0 || dateStr === '2026-01-03') {
                   overtimeRecords.push({
                     EmployeeID: empDateData.EmployeeID,
@@ -1427,8 +1539,7 @@ module.exports = async (req, res) => {
                   });
                 }
               } else if (isGeneralII) {
-                // For General II shift: 12:00-20:00, OT if checkout after 21:00.
-                overtimeHours = calculateOvertimeForGeneralIIShift(lastOut, dateStr);
+                overtimeHours = otHoursFromFirstInLastOutSpan(firstIn, lastOut);
                 if (overtimeHours > 0 || dateStr === '2026-01-03') {
                   overtimeRecords.push({
                     EmployeeID: empDateData.EmployeeID,
@@ -1441,13 +1552,7 @@ module.exports = async (req, res) => {
                   });
                 }
               } else if (isGeneral) {
-                // For General shift: Calculate OT if checkout is after 17:55.
-                {
-                  const fallbackGeneralShift = getGeneralShiftDefinition();
-                  overtimeHours = fallbackGeneralShift
-                    ? calculateOvertimeForDynamicShift(lastOut, dateStr, fallbackGeneralShift.toTime, fallbackGeneralShift.fromTime)
-                    : calculateOvertimeForGeneralShift(lastOut, dateStr);
-                }
+                overtimeHours = otHoursFromFirstInLastOutSpan(firstIn, lastOut);
                 if (overtimeHours > 0 || dateStr === '2026-01-03') {
                   overtimeRecords.push({
                     EmployeeID: empDateData.EmployeeID,
@@ -1458,11 +1563,10 @@ module.exports = async (req, res) => {
                     LastOut: lastOut,
                     Source: 'BHR'
                   });
-                  console.log(`Employee ${empDateData.EmployeeID} on ${dateStr} (General shift): ${totalHours.toFixed(2)} hours, checkout ${lastOut.split(' ')[1]}, OT: ${overtimeHours.toFixed(2)} hours`);
+                  console.log(`Employee ${empDateData.EmployeeID} on ${dateStr} (General shift): ${totalHours.toFixed(2)}h on site, OT (after 8h30): ${overtimeHours.toFixed(2)}h`);
                 }
               } else if (isFirst) {
-                // For 1st shift: Calculate OT if checkout is after 15:00.
-                overtimeHours = calculateOvertimeForFirstShift(lastOut, dateStr);
+                overtimeHours = otHoursFromFirstInLastOutSpan(firstIn, lastOut);
                 if (overtimeHours > 0 || dateStr === '2026-01-03') {
                   overtimeRecords.push({
                     EmployeeID: empDateData.EmployeeID,
@@ -1473,11 +1577,10 @@ module.exports = async (req, res) => {
                     LastOut: lastOut,
                     Source: 'BHR'
                   });
-                  console.log(`Employee ${empDateData.EmployeeID} on ${dateStr} (1st shift): ${totalHours.toFixed(2)} hours, checkout ${lastOut.split(' ')[1]}, OT: ${overtimeHours.toFixed(2)} hours`);
+                  console.log(`Employee ${empDateData.EmployeeID} on ${dateStr} (1st shift): ${totalHours.toFixed(2)}h on site, OT (after 8h30): ${overtimeHours.toFixed(2)}h`);
                 }
               } else if (isSecond) {
-                // For 2nd shift: Calculate OT if checkout is after 23:00.
-                overtimeHours = calculateOvertimeForSecondShift(lastOut, dateStr);
+                overtimeHours = otHoursFromFirstInLastOutSpan(firstIn, lastOut);
                 if (overtimeHours > 0 || dateStr === '2026-01-03') {
                   overtimeRecords.push({
                     EmployeeID: empDateData.EmployeeID,
@@ -1488,12 +1591,12 @@ module.exports = async (req, res) => {
                     LastOut: lastOut,
                     Source: 'BHR'
                   });
-                  console.log(`Employee ${empDateData.EmployeeID} on ${dateStr} (2nd shift): ${totalHours.toFixed(2)} hours, checkout ${lastOut.split(' ')[1]}, OT: ${overtimeHours.toFixed(2)} hours`);
+                  console.log(`Employee ${empDateData.EmployeeID} on ${dateStr} (2nd shift): ${totalHours.toFixed(2)}h on site, OT (after 8h30): ${overtimeHours.toFixed(2)}h`);
                 }
               } else {
-                // For other shifts: Only include if total hours is above 8.5 hours.
+                // Other shifts: FirstIn–LastOUT on site minus 8h30.
                 if (totalHours > 8.5 || dateStr === '2026-01-03') {
-                  overtimeHours = (totalHours > 8.5 ? totalHours - 8.5 : 0);
+                  overtimeHours = otHoursFromFirstInLastOutSpan(firstIn, lastOut);
                   overtimeRecords.push({
                     EmployeeID: empDateData.EmployeeID,
                     Date: dateStr,
@@ -1686,13 +1789,7 @@ module.exports = async (req, res) => {
               });
               console.log(`Added overtime record (WO - Sunday): ${row.EmployeeId} on ${dateStr} - ${totalHours}h worked, OT (total): ${overtimeHours.toFixed(3)}h`);
             } else if (!hasNewShiftMapEntry(row.EmployeeId, dateStr) && !assignedShiftDef && !isHousekeeping) {
-              // No shift assigned in NewShiftMap for this date → use General shift OT (e.g. 08:12-16:55 = 0 OT).
-              {
-                const fallbackGeneralShift = getGeneralShiftDefinition();
-                overtimeHours = fallbackGeneralShift
-                  ? calculateOvertimeForDynamicShift(row.LastOut, dateStr, fallbackGeneralShift.toTime, fallbackGeneralShift.fromTime)
-                  : calculateOvertimeForGeneralShift(row.LastOut, dateStr);
-              }
+              overtimeHours = otHoursFromFirstInLastOutSpan(row.FirstIn, row.LastOut);
               if (overtimeHours > 0 || dateStr === '2026-01-03') {
                 overtimeRecords.push({
                   EmployeeID: row.EmployeeId,
@@ -1720,8 +1817,7 @@ module.exports = async (req, res) => {
                 console.log(`Added overtime record (Housekeeping): ${row.EmployeeId} on ${dateStr} - ${totalHours}h total, ${overtimeHours.toFixed(3)}h OT (total − 8h)`);
               }
             } else if (assignedShiftDef) {
-              overtimeHours =
-                calculateOvertimeForDynamicShift(row.LastOut, dateStr, assignedShiftDef.toTime, assignedShiftDef.fromTime);
+              overtimeHours = otHoursFromFirstInLastOutSpan(row.FirstIn, row.LastOut);
               if (overtimeHours > 0 || dateStr === '2026-01-03') {
                 overtimeRecords.push({
                   EmployeeID: row.EmployeeId,
@@ -1734,7 +1830,7 @@ module.exports = async (req, res) => {
                 });
               }
             } else if (isThird) {
-              overtimeHours = totalHours > 8.5 ? totalHours - 8.5 : 0;
+              overtimeHours = otHoursFromFirstInLastOutSpan(row.FirstIn, row.LastOut);
               if (overtimeHours > 0 || dateStr === '2026-01-03') {
                 overtimeRecords.push({
                   EmployeeID: row.EmployeeId,
@@ -1747,11 +1843,7 @@ module.exports = async (req, res) => {
                 });
               }
             } else if (hasNewShiftMapEntry(row.EmployeeId, dateStr)) {
-              // Shift is assigned in NewShiftMap but not resolved in Shift master -> fallback to General shift.
-              const fallbackGeneralShift = getGeneralShiftDefinition();
-              overtimeHours = fallbackGeneralShift
-                ? calculateOvertimeForDynamicShift(row.LastOut, dateStr, fallbackGeneralShift.toTime, fallbackGeneralShift.fromTime)
-                : calculateOvertimeForGeneralShift(row.LastOut, dateStr);
+              overtimeHours = otHoursFromFirstInLastOutSpan(row.FirstIn, row.LastOut);
               if (overtimeHours > 0 || dateStr === '2026-01-03') {
                 overtimeRecords.push({
                   EmployeeID: row.EmployeeId,
@@ -1764,8 +1856,7 @@ module.exports = async (req, res) => {
                 });
               }
             } else if (isGeneralII) {
-              // For General II shift: 12:00-20:00, OT if checkout after 21:00.
-              overtimeHours = calculateOvertimeForGeneralIIShift(row.LastOut, dateStr);
+              overtimeHours = otHoursFromFirstInLastOutSpan(row.FirstIn, row.LastOut);
               if (overtimeHours > 0 || dateStr === '2026-01-03') {
                 overtimeRecords.push({
                   EmployeeID: row.EmployeeId,
@@ -1778,13 +1869,7 @@ module.exports = async (req, res) => {
                 });
               }
             } else if (isGeneral) {
-              // For General shift: Calculate OT if checkout is after 17:55.
-              {
-                const fallbackGeneralShift = getGeneralShiftDefinition();
-                overtimeHours = fallbackGeneralShift
-                  ? calculateOvertimeForDynamicShift(row.LastOut, dateStr, fallbackGeneralShift.toTime, fallbackGeneralShift.fromTime)
-                  : calculateOvertimeForGeneralShift(row.LastOut, dateStr);
-              }
+              overtimeHours = otHoursFromFirstInLastOutSpan(row.FirstIn, row.LastOut);
               if (overtimeHours > 0 || dateStr === '2026-01-03') {
                 overtimeRecords.push({
                   EmployeeID: row.EmployeeId,
@@ -1795,11 +1880,10 @@ module.exports = async (req, res) => {
                   LastOut: row.LastOut,
                   Source: 'Attendance'
                 });
-                console.log(`Added overtime record (General shift): ${row.EmployeeId} on ${dateStr} - ${totalHours}h total, checkout after 17:55, ${overtimeHours.toFixed(3)}h OT`);
+                console.log(`Added overtime record (General shift): ${row.EmployeeId} on ${dateStr} - ${totalHours}h on site, OT (after 8h30): ${overtimeHours.toFixed(3)}h`);
               }
             } else if (isFirst) {
-              // For 1st shift: Calculate OT if checkout is after 15:00.
-              overtimeHours = calculateOvertimeForFirstShift(row.LastOut, dateStr);
+              overtimeHours = otHoursFromFirstInLastOutSpan(row.FirstIn, row.LastOut);
               if (overtimeHours > 0 || dateStr === '2026-01-03') {
                 overtimeRecords.push({
                   EmployeeID: row.EmployeeId,
@@ -1810,11 +1894,10 @@ module.exports = async (req, res) => {
                   LastOut: row.LastOut,
                   Source: 'Attendance'
                 });
-                console.log(`Added overtime record (1st shift): ${row.EmployeeId} on ${dateStr} - ${totalHours}h total, checkout after 15:00, ${overtimeHours.toFixed(2)}h OT`);
+                console.log(`Added overtime record (1st shift): ${row.EmployeeId} on ${dateStr} - ${totalHours}h on site, OT (after 8h30): ${overtimeHours.toFixed(2)}h`);
               }
             } else if (isSecond) {
-              // For 2nd shift: Calculate OT if checkout is after 23:00.
-              overtimeHours = calculateOvertimeForSecondShift(row.LastOut, dateStr);
+              overtimeHours = otHoursFromFirstInLastOutSpan(row.FirstIn, row.LastOut);
               if (overtimeHours > 0 || dateStr === '2026-01-03') {
                 overtimeRecords.push({
                   EmployeeID: row.EmployeeId,
@@ -1825,12 +1908,12 @@ module.exports = async (req, res) => {
                   LastOut: row.LastOut,
                   Source: 'Attendance'
                 });
-                console.log(`Added overtime record (2nd shift): ${row.EmployeeId} on ${dateStr} - ${totalHours}h total, checkout after 23:00, ${overtimeHours.toFixed(2)}h OT`);
+                console.log(`Added overtime record (2nd shift): ${row.EmployeeId} on ${dateStr} - ${totalHours}h on site, OT (after 8h30): ${overtimeHours.toFixed(2)}h`);
               }
             } else {
-              // For other shifts: Only include if total hours above 8.5h.
+              // Other shifts: FirstIn–LastOUT minus 8h30.
               if (totalHours > 8.5 || dateStr === '2026-01-03') {
-                overtimeHours = (totalHours > 8.5 ? totalHours - 8.5 : 0);
+                overtimeHours = otHoursFromFirstInLastOutSpan(row.FirstIn, row.LastOut);
                 overtimeRecords.push({
                   EmployeeID: row.EmployeeId,
                   Date: dateStr,
@@ -2651,10 +2734,7 @@ module.exports = async (req, res) => {
           const isHousekeeping = hasShiftInfo ? isHousekeepingShift(rec.EmployeeID, rec.Date) : false;
           const assignedShiftDef = getShiftDefinitionForEmployeeDate(rec.EmployeeID, rec.Date);
           if (!hasNewShiftMapEntry(rec.EmployeeID, rec.Date) && !assignedShiftDef && !isHousekeeping) {
-            const fallbackGeneralShift = getGeneralShiftDefinition();
-            const otHoursGeneral = fallbackGeneralShift
-              ? calculateOvertimeForDynamicShift(rec.LastOUT, rec.Date, fallbackGeneralShift.toTime, fallbackGeneralShift.fromTime)
-              : calculateOvertimeForGeneralShift(rec.LastOUT, rec.Date);
+            const otHoursGeneral = otHoursFromFirstInLastOutSpan(rec.FirstIN, rec.LastOUT);
             const finalOtHours = isOTExcluded(rec.EmployeeID, rec.Date) ? 0 : otHoursGeneral;
             overtimeFromByKey.push({
               EmployeeID: rec.EmployeeID,
@@ -2689,52 +2769,25 @@ module.exports = async (req, res) => {
               }
             }
           } else if (assignedShiftDef) {
-            otHours =
-              calculateOvertimeForDynamicShift(rec.LastOUT, rec.Date, assignedShiftDef.toTime, assignedShiftDef.fromTime);
+            otHours = otHoursFromFirstInLastOutSpan(rec.FirstIN, rec.LastOUT);
           } else if (isThirdShift(rec.EmployeeID, rec.Date)) {
-            if (!isNaN(firstInDate) && !isNaN(lastOutDate)) {
-              const diffMs = lastOutDate - firstInDate;
-              if (diffMs > 0) {
-                const totalWorkingHours = diffMs / (1000 * 60 * 60);
-                if (totalWorkingHours > 8.5) {
-                  otHours = totalWorkingHours - 8.5;
-                }
-              }
-            }
+            otHours = otHoursFromFirstInLastOutSpan(rec.FirstIN, rec.LastOUT);
           } else if (hasNewShiftMapEntry(rec.EmployeeID, rec.Date)) {
-            // Shift is assigned in NewShiftMap but not resolved in Shift master -> fallback to General shift.
-            const fallbackGeneralShift = getGeneralShiftDefinition();
-            otHours = fallbackGeneralShift
-              ? calculateOvertimeForDynamicShift(rec.LastOUT, rec.Date, fallbackGeneralShift.toTime, fallbackGeneralShift.fromTime)
-              : calculateOvertimeForGeneralShift(rec.LastOUT, rec.Date);
+            // Shift is assigned in NewShiftMap but not resolved in Shift master → same span rule.
+            otHours = otHoursFromFirstInLastOutSpan(rec.FirstIN, rec.LastOUT);
           } else if (isGeneralII) {
-            // For General II shift: 12:00-20:00, OT if checkout after 21:00.
-            otHours = calculateOvertimeForGeneralIIShift(rec.LastOUT, rec.Date);
+            otHours = otHoursFromFirstInLastOutSpan(rec.FirstIN, rec.LastOUT);
           } else if (isGeneral) {
-            // For General shift: OT if checkout after 17:55.
-            {
-              const fallbackGeneralShift = getGeneralShiftDefinition();
-              otHours = fallbackGeneralShift
-                ? calculateOvertimeForDynamicShift(rec.LastOUT, rec.Date, fallbackGeneralShift.toTime, fallbackGeneralShift.fromTime)
-                : calculateOvertimeForGeneralShift(rec.LastOUT, rec.Date);
-            }
+            otHours = otHoursFromFirstInLastOutSpan(rec.FirstIN, rec.LastOUT);
             if (rec.EmployeeID && rec.Date && (rec.LastOUT && rec.LastOUT.includes('23:59') || rec.LastOUT && rec.LastOUT.includes('23:5'))) {
-              console.log(`[Monthly OT Debug] General shift OT calculated: ${otHours} hours for Employee ${rec.EmployeeID} on ${rec.Date}`);
+              console.log(`[Monthly OT Debug] General shift OT (FirstIN–LastOUT − 8.5h): ${otHours} hours for Employee ${rec.EmployeeID} on ${rec.Date}`);
             }
           } else if (isFirst) {
-            // For 1st shift: OT if checkout after 15:00.
-            otHours = calculateOvertimeForFirstShift(rec.LastOUT, rec.Date);
+            otHours = otHoursFromFirstInLastOutSpan(rec.FirstIN, rec.LastOUT);
           } else if (isSecond) {
-            // For 2nd shift: OT if checkout after 23:00.
-            otHours = calculateOvertimeForSecondShift(rec.LastOUT, rec.Date);
+            otHours = otHoursFromFirstInLastOutSpan(rec.FirstIN, rec.LastOUT);
           } else {
-            // Shift not matched (should not happen when NewShiftMap has entry). Default to General shift logic.
-            {
-              const fallbackGeneralShift = getGeneralShiftDefinition();
-              otHours = fallbackGeneralShift
-                ? calculateOvertimeForDynamicShift(rec.LastOUT, rec.Date, fallbackGeneralShift.toTime, fallbackGeneralShift.fromTime)
-                : calculateOvertimeForGeneralShift(rec.LastOUT, rec.Date);
-            }
+            otHours = otHoursFromFirstInLastOutSpan(rec.FirstIN, rec.LastOUT);
           }
 
           const finalOtHours = isOTExcluded(rec.EmployeeID, rec.Date) ? 0 : otHours;
@@ -3079,15 +3132,16 @@ module.exports = async (req, res) => {
         const existingRecordIndex = empOvertimeMap[empId].records.findIndex(r => r.date === row.Date);
         if (existingRecordIndex === -1) {
           // Add the record
-          const overtimeHours = parseFloat(row.OvertimeHours) || 0;
-        empOvertimeMap[empId].totalOvertimeHours += overtimeHours;
+          const rawOt = parseFloat(row.OvertimeHours) || 0;
+          const overtimeHours = monthlyOtRoundOffEnabled ? applyOtHoursIntIfRoundOff(rawOt) : rawOt;
+          empOvertimeMap[empId].totalOvertimeHours += overtimeHours;
           if (overtimeHours > 0) {
-        empOvertimeMap[empId].overtimeDays += 1;
+            empOvertimeMap[empId].overtimeDays += 1;
           }
-        empOvertimeMap[empId].records.push({
-          date: row.Date,
+          empOvertimeMap[empId].records.push({
+            date: row.Date,
             totalHours: parseFloat(row.TotalHours) || 0,
-          overtimeHours: overtimeHours,
+            overtimeHours: overtimeHours,
             firstIn: row.FirstIn || '',
             lastOut: row.LastOut || '',
             source: row.Source || ''
@@ -3399,6 +3453,131 @@ module.exports = async (req, res) => {
     } catch (err) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: err.message || 'Failed to save Category OT Applicable To' }));
+    }
+    return;
+  }
+
+  // Latest Reports row (399000000022752) — same table as Category OT Applicable To
+  if (pathname === '/reports-roundoff') {
+    try {
+      const catalystApp = catalyst.initialize(req);
+      const reportsTable = catalystApp.datastore().table('399000000022752');
+      const rows = await reportsTable.getAllRows();
+      if (!rows || rows.length === 0) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ data: { enabled: 'no', detail: '' } }));
+        return;
+      }
+      const latest = rows
+        .slice()
+        .sort((a, b) => {
+          const aTime = new Date(a.MODIFIEDTIME || a.CREATEDTIME || 0).getTime();
+          const bTime = new Date(b.MODIFIEDTIME || b.CREATEDTIME || 0).getTime();
+          return bTime - aTime;
+        })[0];
+      const roundRaw = latest.RoundOff ?? latest.roundOff ?? latest.Roundoff ?? '';
+      const parsed = parseReportsRoundOff(roundRaw);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        data: {
+          enabled: parsed.enabled === 'yes' ? 'Yes' : 'No',
+          detail: parsed.detail
+        }
+      }));
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
+  // Save RoundOff on Reports table; preserves latest Category OT columns on new row
+  if (pathname === '/reports-roundoff/save') {
+    try {
+      const catalystApp = catalyst.initialize(req);
+      const reportsTable = catalystApp.datastore().table('399000000022752');
+      const q = await readRoundOffSaveInput(req, query);
+      const enabledParam = String(q.enabled ?? q.roundOff ?? '').trim();
+      const detail = String(q.detail ?? q.roundOffDetail ?? '').trim();
+      const rows = await reportsTable.getAllRows();
+      let latest = null;
+      if (rows && rows.length > 0) {
+        latest = rows
+          .slice()
+          .sort((a, b) => {
+            const aTime = new Date(a.MODIFIEDTIME || a.CREATEDTIME || 0).getTime();
+            const bTime = new Date(b.MODIFIEDTIME || b.CREATEDTIME || 0).getTime();
+            return bTime - aTime;
+          })[0];
+      }
+      const categoriesRaw = latest
+        ? String(
+          latest.DepartmnetApplicableTo ||
+          latest.DepartmentApplicableTo ||
+          latest.CategoryApplicableTo ||
+          'All'
+        ).trim() || 'All'
+        : 'All';
+      const department = latest
+        ? String(latest.Department || 'All').trim()
+        : 'All';
+      const startDate = latest ? String(latest.StartDate || '').trim() : '';
+      const endDate = latest ? String(latest.EndDate || '').trim() : '';
+      const roundOffValue = stringifyReportsRoundOff(enabledParam, detail);
+
+      let savedRow = null;
+      let lastErr = null;
+      const categoryColumnNames = ['DepartmnetApplicableTo', 'DepartmentApplicableTo'];
+      const roundOffColumnNames = ['RoundOff', 'roundOff', 'Roundoff'];
+
+      const tryInsert = async (payload) => {
+        try {
+          const row = await reportsTable.insertRow(payload);
+          return { row, err: null };
+        } catch (insertErr) {
+          return { row: null, err: insertErr };
+        }
+      };
+
+      outer: for (const roundCol of roundOffColumnNames) {
+        for (const colName of categoryColumnNames) {
+          const tryPayload = {
+            Department: department,
+            [roundCol]: roundOffValue,
+            [colName]: categoriesRaw
+          };
+          if (startDate) tryPayload.StartDate = startDate;
+          if (endDate) tryPayload.EndDate = endDate;
+          const { row, err } = await tryInsert(tryPayload);
+          if (row) {
+            savedRow = row;
+            lastErr = null;
+            break outer;
+          }
+          lastErr = err;
+        }
+      }
+
+      if (!savedRow && lastErr) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          error: lastErr.message || 'Failed to save RoundOff. Add column RoundOff (text) to table 399000000022752 (Reports), redeploy reports_function, or check datastore permissions.'
+        }));
+        return;
+      }
+      const parsed = parseReportsRoundOff(roundOffValue);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        status: 'success',
+        data: {
+          id: savedRow ? savedRow.ROWID : null,
+          enabled: parsed.enabled === 'yes' ? 'Yes' : 'No',
+          detail: parsed.detail
+        }
+      }));
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message || 'Failed to save RoundOff' }));
     }
     return;
   }

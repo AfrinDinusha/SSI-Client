@@ -79,6 +79,10 @@ function SetupConfig({ userRole, userEmail }) {
   const [otDraft, setOtDraft] = useState([]);
   const [savingOt, setSavingOt] = useState(false);
   const [otError, setOtError] = useState('');
+  const [roundOffPanelOpen, setRoundOffPanelOpen] = useState(false);
+  const [roundOffEnabled, setRoundOffEnabled] = useState('No'); // 'Yes' | 'No'
+  const [roundOffDetail, setRoundOffDetail] = useState('');
+  const [savingRoundOff, setSavingRoundOff] = useState(false);
 
   const userAvatar = 'https://images.pexels.com/photos/2379004/pexels-photo-2379004.jpeg?auto=compress&cs=tinysrgb&w=150';
   const userName = userRole === 'App Administrator' ? 'Admin User' : 'App User';
@@ -312,6 +316,62 @@ function SetupConfig({ userRole, userEmail }) {
       })
       .catch(() => setCategoryOtApplicableTo(['All']));
   }, [activePillar]);
+
+  useEffect(() => {
+    if (activePillar !== 'ot') return;
+    fetch('/server/reports_function/reports-roundoff')
+      .then((res) => res.json())
+      .then((data) => {
+        const en = String(data?.data?.enabled ?? 'No').trim();
+        setRoundOffEnabled(en.toLowerCase() === 'yes' ? 'Yes' : 'No');
+        setRoundOffDetail(String(data?.data?.detail ?? '').trim());
+      })
+      .catch(() => {
+        setRoundOffEnabled('No');
+        setRoundOffDetail('');
+      });
+  }, [activePillar]);
+
+  const saveRoundOff = async () => {
+    setSavingRoundOff(true);
+    setOtError('');
+    try {
+      const res = await fetch('/server/reports_function/reports-roundoff/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          enabled: roundOffEnabled,
+          detail: roundOffEnabled === 'Yes' ? roundOffDetail : ''
+        })
+      });
+      const text = await res.text();
+      let body = {};
+      try {
+        body = text ? JSON.parse(text) : {};
+      } catch (_) {
+        setOtError(text ? text.slice(0, 240) : `Save failed (${res.status})`);
+        return;
+      }
+      if (!res.ok) {
+        throw new Error(body.error || body.message || `Failed to save RoundOff (${res.status})`);
+      }
+      if (body.data) {
+        const en = String(body.data.enabled ?? 'No').trim();
+        const yes = en.toLowerCase() === 'yes';
+        setRoundOffEnabled(yes ? 'Yes' : 'No');
+        const d = String(body.data.detail ?? '').trim();
+        if (yes || d) {
+          setRoundOffDetail(d);
+        }
+        // Saving as No returns empty detail from API; keep local formula so toggling Yes still shows it.
+      }
+      setFlash('RoundOff saved');
+    } catch (err) {
+      setOtError(err.message || 'Failed to save RoundOff');
+    } finally {
+      setSavingRoundOff(false);
+    }
+  };
 
   const openDesignationLohModal = () => {
     const current = Array.isArray(designationLohApplicableTo)
@@ -1190,7 +1250,7 @@ function SetupConfig({ userRole, userEmail }) {
                 <div className="setup-pillar-content">
                   <h3 className="setup-pillar-title">OT Setup</h3>
                   {otError && <div className="setup-msg setup-msg-error">{otError}</div>}
-                  <div className="setup-loh-fields">
+                  <div className="setup-loh-fields setup-ot-fields">
                     <div className="setup-loh-field">
                       <label>Category OT Applicable To:</label>
                       <button
@@ -1206,6 +1266,63 @@ function SetupConfig({ userRole, userEmail }) {
                           return onlyCategories.length > 0 ? onlyCategories.join(', ') : 'All';
                         })()}
                       </button>
+                    </div>
+                    <div className="setup-loh-field setup-roundoff-field">
+                      <label htmlFor="setup-roundoff-toggle">RoundOff:</label>
+                      <button
+                        id="setup-roundoff-toggle"
+                        type="button"
+                        className="setup-loh-category-btn"
+                        onClick={() => setRoundOffPanelOpen((o) => !o)}
+                        aria-expanded={roundOffPanelOpen}
+                      >
+                        RoundOff
+                      </button>
+                      {roundOffPanelOpen && (
+                        <div className="setup-roundoff-panel">
+                          <div className="setup-roundoff-yesno" role="group" aria-label="RoundOff">
+                            <label className="setup-roundoff-radio">
+                              <input
+                                type="radio"
+                                name="setup-roundoff"
+                                checked={roundOffEnabled === 'Yes'}
+                                onChange={() => setRoundOffEnabled('Yes')}
+                              />
+                              <span>Yes</span>
+                            </label>
+                            <label className="setup-roundoff-radio">
+                              <input
+                                type="radio"
+                                name="setup-roundoff"
+                                checked={roundOffEnabled === 'No'}
+                                onChange={() => setRoundOffEnabled('No')}
+                              />
+                              <span>No</span>
+                            </label>
+                          </div>
+                          {roundOffEnabled === 'Yes' && (
+                            <textarea
+                              className="setup-roundoff-detail-input"
+                              value={roundOffDetail}
+                              onChange={(e) => setRoundOffDetail(e.target.value)}
+                              placeholder="Enter round off details or formula"
+                              aria-label="Round off details"
+                              rows={4}
+                              spellCheck={false}
+                            />
+                          )}
+                          <div className="setup-roundoff-actions">
+                            <button
+                              type="button"
+                              className="setup-roundoff-save"
+                              onClick={saveRoundOff}
+                              disabled={savingRoundOff}
+                            >
+                              {savingRoundOff ? 'Saving...' : 'Save'}
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                   {otModalOpen && (

@@ -763,8 +763,8 @@ async function calculatePresentDaysFromMuster(catalystApp, month, contractor, de
       const outDate = new Date(lastOut.replace(' ', 'T'));
       if (isNaN(inDate) || isNaN(outDate)) return 'Absent';
       const hours = (outDate - inDate) / (1000 * 60 * 60);
-      // Count >= 4 hours as Present (changed from Half Day Present)
       if (hours >= 4) return 'Present';
+      if (hours > 0) return 'Half Day Present';
       return 'Absent';
     }
  
@@ -819,8 +819,7 @@ async function calculatePresentDaysFromMuster(catalystApp, month, contractor, de
           if (status === 'Present') {
             presentDaysMap[empId] += 1;
           } else if (status === 'Half Day Present') {
-            // Count Half Day Present as 1 day (changed from 0.5 to match >= 4 hours = Present rule)
-            presentDaysMap[empId] += 1;
+            presentDaysMap[empId] += 0.5;
           } else if (status === 'CO') {
             // Comp Off (CO) counts as 1 day present (matching attendance muster logic)
             presentDaysMap[empId] += 1;
@@ -872,8 +871,8 @@ async function calculatePresentDaysFromMuster(catalystApp, month, contractor, de
               presentCount += 1; // Changed OD-0.5 from 0.5 to 1 to match frontend
               console.log(`  ${date} (Sunday): ${status} -> +1`);
             } else if (status === 'Half Day Present') {
-              halfDayCount += 1; // Changed from 0.5 to 1 to match >= 4 hours = Present rule
-              console.log(`  ${date} (Sunday): Half Day Present -> +1`);
+              halfDayCount += 0.5;
+              console.log(`  ${date} (Sunday): Half Day Present -> +0.5`);
             } else if (status === 'H') {
               presentCount += 1;
               console.log(`  ${date} (Sunday): Holiday -> +1`);
@@ -894,8 +893,8 @@ async function calculatePresentDaysFromMuster(catalystApp, month, contractor, de
             presentCount++;
             console.log(`  ${date}: Present -> +1`);
           } else if (status === 'Half Day Present') {
-            halfDayCount += 1; // Changed from 0.5 to 1 to match >= 4 hours = Present rule
-            console.log(`  ${date}: Half Day Present -> +1`);
+            halfDayCount += 0.5;
+            console.log(`  ${date}: Half Day Present -> +0.5`);
           } else if (status === 'CO') {
             coCount++;
             console.log(`  ${date}: Comp Off -> +1`);
@@ -1623,6 +1622,17 @@ async function calculateLOHFromMuster(catalystApp, month, contractor, department
   return lohMap;
 }
 
+/**
+ * Payroll only: monthly LOH from muster (after LOH-report overlay) at or below 1.5h is stored as 0.
+ * Reports and attendance muster responses are unchanged; matches payslip Late grace.
+ */
+function payrollMusterMonthlyLohForPayrollRow(rawHours) {
+  const n = parseFloat(String(rawHours ?? '').replace(/,/g, ''));
+  if (!Number.isFinite(n)) return 0;
+  const rounded = parseFloat(n.toFixed(2));
+  return rounded <= 1.5 ? 0 : rounded;
+}
+
 // Helper function to fetch LOH hours from attendance_muster_function
 // This fetches the LOH column data directly from attendance muster (which uses LOH report data)
 async function fetchLOHHours(catalystApp, month, contractor, department, employeeId, fromDate, toDate, userEmail, userRole) {
@@ -1769,9 +1779,7 @@ async function fetchLOHHours(catalystApp, month, contractor, department, employe
                 const monthlyLOH = monthlyLOHPreferred[empIdx];
                
                 if (monthlyLOH !== undefined && monthlyLOH !== null && monthlyLOH !== '' && !isNaN(monthlyLOH)) {
-                  const lohValue = parseFloat(monthlyLOH);
-                  // Include 0.00 values (same as attendance muster does)
-                  lohMap[empIdStr] = parseFloat(lohValue.toFixed(2));
+                  lohMap[empIdStr] = payrollMusterMonthlyLohForPayrollRow(monthlyLOH);
                 }
               });
              
@@ -2374,6 +2382,192 @@ async function fetchOTHoursFromMuster(catalystApp, month, contractor, department
   }
 }
 
+/** HTTP GET JSON for server-to-server calls (muster / reports). */
+function payrollHttpGetJson(hostname, port, client, pathWithQuery, timeoutMs) {
+  return new Promise((resolve) => {
+    const options = {
+      hostname,
+      port,
+      path: pathWithQuery,
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json', 'User-Agent': 'Catalyst-PayrollFunction/1.0' },
+      timeout: timeoutMs
+    };
+    const reqHttp = client.request(options, (resHttp) => {
+      let data = '';
+      resHttp.on('data', (chunk) => {
+        data += chunk;
+      });
+      resHttp.on('end', () => {
+        if (resHttp.statusCode !== 200) return resolve(null);
+        try {
+          resolve(JSON.parse(data));
+        } catch (_) {
+          resolve(null);
+        }
+      });
+    });
+    reqHttp.on('error', () => resolve(null));
+    reqHttp.setTimeout(timeoutMs, () => {
+      try {
+        reqHttp.destroy();
+      } catch (_) {
+        /* ignore */
+      }
+      resolve(null);
+    });
+    reqHttp.end();
+  });
+}
+
+function payrollNormalizeLohReportDateYmd(value) {
+  if (!value) return '';
+  const s = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toISOString().slice(0, 10);
+}
+
+function payrollBuildLohHoursMapFromReportsRows(lohRows) {
+  const map = {};
+  if (!Array.isArray(lohRows)) return map;
+  for (const row of lohRows) {
+    const empId = String(row.employeeId ?? row.EmployeeId ?? '').trim();
+    if (!empId) continue;
+    const dateStr = payrollNormalizeLohReportDateYmd(row.date);
+    if (!dateStr) continue;
+    const hours = parseFloat(String(row.lossOfHours ?? '0').replace(/,/g, ''));
+    if (!Number.isFinite(hours)) continue;
+    map[`${empId}_${dateStr}`] = hours;
+  }
+  return map;
+}
+
+function payrollIsMusterCellLohExcluded(status, shiftTypeLabel) {
+  const st = String(status ?? '').trim();
+  if (st === 'WO' || st === 'H' || st === 'Week Off') return true;
+  const sh = String(shiftTypeLabel ?? '').toLowerCase();
+  if (sh.includes('housekeeping') || sh.includes('house keeping')) return true;
+  return false;
+}
+
+/** Same overlay as Attendance Muster UI: LOH Report rows → monthly totals. */
+function payrollApplyReportsLohToMusterData(musterData, lohRows) {
+  if (!musterData || !Array.isArray(musterData.employees) || !Array.isArray(musterData.dates)) {
+    return musterData;
+  }
+  const hourMap = payrollBuildLohHoursMapFromReportsRows(lohRows);
+  if (Object.keys(hourMap).length === 0) return musterData;
+
+  const dates = musterData.dates;
+  const newLoh = musterData.employees.map((empId, rowIdx) => {
+    const empStr = String(empId).trim();
+    const rowStatuses = musterData.muster?.[rowIdx] || [];
+    const rowShiftTypes = musterData.shiftTypes?.[rowIdx] || [];
+    return dates.map((dateStr, colIdx) => {
+      if (payrollIsMusterCellLohExcluded(rowStatuses[colIdx], rowShiftTypes[colIdx])) return '';
+      const key = `${empStr}_${dateStr}`;
+      if (hourMap[key] === undefined) return '';
+      return parseFloat((hourMap[key] || 0).toFixed(2));
+    });
+  });
+
+  const monthlyLOHPreferred = newLoh.map((row) => {
+    const total = (row || []).reduce((sum, v) => {
+      if (v !== '' && v != null && !Number.isNaN(v)) return sum + parseFloat(v);
+      return sum;
+    }, 0);
+    return parseFloat((total || 0).toFixed(2));
+  });
+
+  return {
+    ...musterData,
+    loh: newLoh,
+    monthlyLOHPreferred
+  };
+}
+
+async function payrollFetchReportsLohRows(hostname, port, client, musterStartDate, musterEndDate, contractor, department, employeeId, userEmail, userRole) {
+  let grace = '10';
+  let designationApplicableTo = '';
+  const des = await payrollHttpGetJson(hostname, port, client, '/server/reports_function/loh-designation-applicable', 15000);
+  if (des && des.data) {
+    const g = String(des.data.grace || '').trim();
+    if (g && /^\d+$/.test(g)) grace = g;
+    const designations = des.data.designations || [];
+    const only = Array.isArray(designations)
+      ? designations.filter((v) => v && String(v).toLowerCase() !== 'all')
+      : [];
+    if (only.length > 0) designationApplicableTo = only.join(',');
+  }
+  const q = new URLSearchParams({
+    _t: String(Date.now()),
+    startDate: musterStartDate,
+    endDate: musterEndDate,
+    grace
+  });
+  if (contractor && contractor !== 'All') q.set('contractor', contractor);
+  if (department && department !== 'All') q.set('department', department);
+  if (employeeId && employeeId !== 'All') q.set('employeeId', employeeId);
+  if (designationApplicableTo) q.set('designationApplicableTo', designationApplicableTo);
+  if (userEmail) q.set('userEmail', userEmail);
+  if (userRole) q.set('userRole', userRole);
+  const lohJson = await payrollHttpGetJson(hostname, port, client, `/server/reports_function/loh?${q.toString()}`, 45000);
+  return Array.isArray(lohJson && lohJson.data) ? lohJson.data : [];
+}
+
+function payrollResolveHttpTarget(fullUrl) {
+  const http = require('http');
+  const https = require('https');
+  try {
+    const u = new URL(fullUrl);
+    return {
+      hostname: u.hostname,
+      port: u.port || (u.protocol === 'https:' ? 443 : 80),
+      client: u.protocol === 'https:' ? https : http,
+      path: u.pathname + u.search
+    };
+  } catch (e) {
+    const urlMatch = fullUrl.match(/^(https?):\/\/([^/:]+)(?::(\d+))?(\/.*)?$/);
+    if (!urlMatch) return null;
+    return {
+      hostname: urlMatch[2],
+      port: urlMatch[3] || (urlMatch[1] === 'https' ? 443 : 80),
+      client: urlMatch[1] === 'https' ? https : http,
+      path: urlMatch[4] || '/'
+    };
+  }
+}
+
+function payrollFillLohOtMapsFromMusterPayload(merged, lohMap, otHoursMap) {
+  const monthlyLOHPreferred = merged.monthlyLOHPreferred || [];
+  const monthlyOvertimePreferred = merged.monthlyOvertimePreferred || [];
+  const employees = merged.employees || [];
+  employees.forEach((empId, empIdx) => {
+    const empIdStr = String(empId).trim();
+    if (
+      monthlyLOHPreferred[empIdx] !== undefined &&
+      monthlyLOHPreferred[empIdx] !== null &&
+      monthlyLOHPreferred[empIdx] !== '' &&
+      !isNaN(monthlyLOHPreferred[empIdx])
+    ) {
+      lohMap[empIdStr] = payrollMusterMonthlyLohForPayrollRow(monthlyLOHPreferred[empIdx]);
+    }
+    if (
+      monthlyOvertimePreferred[empIdx] !== undefined &&
+      monthlyOvertimePreferred[empIdx] !== null &&
+      monthlyOvertimePreferred[empIdx] !== '' &&
+      !isNaN(monthlyOvertimePreferred[empIdx])
+    ) {
+      const otVal = parseFloat(monthlyOvertimePreferred[empIdx]).toFixed(3);
+      otHoursMap[empIdStr] = parseFloat(otVal);
+      const num = parseInt(empIdStr, 10);
+      if (!isNaN(num)) otHoursMap[String(num)] = parseFloat(otVal);
+    }
+  });
+}
+
 // Single HTTP call to attendance_muster_function returning both LOH and OT maps (avoids execution time exceeded)
 async function fetchLOHAndOTFromMuster(catalystApp, month, contractor, department, employeeId, fromDate, toDate, userEmail, userRole) {
   const lohMap = {};
@@ -2401,70 +2595,47 @@ async function fetchLOHAndOTFromMuster(catalystApp, month, contractor, departmen
   if (contractor && contractor !== 'All') queryParams.set('contractor', contractor);
   if (department && department !== 'All') queryParams.set('department', department);
   if (employeeId && employeeId !== 'All') queryParams.set('employeeId', employeeId);
+  queryParams.set('source', 'both');
   if (userEmail) queryParams.set('userEmail', userEmail);
   if (userRole) queryParams.set('userRole', userRole);
-  let baseUrl = process.env.CATALYST_FUNCTION_URL ? process.env.CATALYST_FUNCTION_URL.replace(/\/$/, '') : (process.env.CATALYST_ORG_ID ? `https://${process.env.CATALYST_ORG_ID}.functions.zoho.com` : 'https://cms2-906055465.development.catalystserverless.com');
-  const path = `/server/attendance_muster_function?${queryParams.toString()}`;
-  const fullUrl = `${baseUrl}${path}`;
-  const http = require('http');
-  const https = require('https');
-  let hostname, port, requestPath, client;
+  const baseUrl = process.env.CATALYST_FUNCTION_URL
+    ? process.env.CATALYST_FUNCTION_URL.replace(/\/$/, '')
+    : process.env.CATALYST_ORG_ID
+      ? `https://${process.env.CATALYST_ORG_ID}.functions.zoho.com`
+      : 'https://cms2-906055465.development.catalystserverless.com';
+  const requestPath = `/server/attendance_muster_function?${queryParams.toString()}`;
+  const fullUrl = `${baseUrl}${requestPath}`;
+  const target = payrollResolveHttpTarget(fullUrl);
+  if (!target) return { lohMap: {}, otHoursMap: {} };
+
   try {
-    const parsedUrl = new URL(fullUrl);
-    hostname = parsedUrl.hostname;
-    port = parsedUrl.port || (parsedUrl.protocol === 'https:' ? 443 : 80);
-    requestPath = parsedUrl.pathname + parsedUrl.search;
-    client = parsedUrl.protocol === 'https:' ? https : http;
-  } catch (e) {
-    const urlMatch = fullUrl.match(/^(https?):\/\/([^\/:]+)(?::(\d+))?(\/.*)?$/);
-    if (urlMatch) {
-      hostname = urlMatch[2];
-      port = urlMatch[3] || (urlMatch[1] === 'https' ? 443 : 80);
-      requestPath = urlMatch[4] || '/';
-      client = urlMatch[1] === 'https' ? https : http;
-    } else {
+    const musterJson = await payrollHttpGetJson(target.hostname, target.port, target.client, target.path, 35000);
+    if (!musterJson || !Array.isArray(musterJson.employees)) {
       return { lohMap: {}, otHoursMap: {} };
     }
-  }
-  try {
-    const result = await new Promise((resolve, reject) => {
-      const options = { hostname, port, path: requestPath, method: 'GET', headers: { 'Content-Type': 'application/json', 'User-Agent': 'Catalyst-PayrollFunction/1.0' }, timeout: 35000 };
-      const reqHttp = client.request(options, (resHttp) => {
-        let data = '';
-        resHttp.on('data', (chunk) => { data += chunk; });
-        resHttp.on('end', () => {
-          try {
-            if (resHttp.statusCode === 200) {
-              const result = JSON.parse(data);
-              const monthlyLOHPreferred = result.monthlyLOHPreferred || [];
-              const monthlyOvertimePreferred = result.monthlyOvertimePreferred || [];
-              const employees = result.employees || [];
-              employees.forEach((empId, empIdx) => {
-                const empIdStr = String(empId).trim();
-                if (monthlyLOHPreferred[empIdx] !== undefined && monthlyLOHPreferred[empIdx] !== null && monthlyLOHPreferred[empIdx] !== '' && !isNaN(monthlyLOHPreferred[empIdx])) {
-                  lohMap[empIdStr] = parseFloat(parseFloat(monthlyLOHPreferred[empIdx]).toFixed(2));
-                }
-                if (monthlyOvertimePreferred[empIdx] !== undefined && monthlyOvertimePreferred[empIdx] !== null && monthlyOvertimePreferred[empIdx] !== '' && !isNaN(monthlyOvertimePreferred[empIdx])) {
-                  const otVal = parseFloat(monthlyOvertimePreferred[empIdx]).toFixed(3);
-                  otHoursMap[empIdStr] = parseFloat(otVal);
-                  const num = parseInt(empIdStr, 10);
-                  if (!isNaN(num)) otHoursMap[String(num)] = parseFloat(otVal);
-                }
-              });
-              resolve({ lohMap, otHoursMap });
-            } else {
-              resolve({ lohMap: {}, otHoursMap: {} });
-            }
-          } catch (e) {
-            resolve({ lohMap: {}, otHoursMap: {} });
-          }
-        });
-      });
-      reqHttp.on('error', () => resolve({ lohMap: {}, otHoursMap: {} }));
-      reqHttp.setTimeout(35000, () => { reqHttp.destroy(); resolve({ lohMap: {}, otHoursMap: {} }); });
-      reqHttp.end();
-    });
-    return result;
+    let merged = musterJson;
+    try {
+      const lohRows = await payrollFetchReportsLohRows(
+        target.hostname,
+        target.port,
+        target.client,
+        musterStartDate,
+        musterEndDate,
+        contractor,
+        department,
+        employeeId,
+        userEmail,
+        userRole
+      );
+      if (lohRows.length > 0) {
+        merged = payrollApplyReportsLohToMusterData(musterJson, lohRows);
+        console.log(`fetchLOHAndOTFromMuster: LOH merged from reports_function (${lohRows.length} row(s))`);
+      }
+    } catch (overlayErr) {
+      console.warn('fetchLOHAndOTFromMuster: LOH overlay skipped:', overlayErr.message);
+    }
+    payrollFillLohOtMapsFromMusterPayload(merged, lohMap, otHoursMap);
+    return { lohMap, otHoursMap };
   } catch (err) {
     console.error('fetchLOHAndOTFromMuster error:', err.message);
     return { lohMap: {}, otHoursMap: {} };
@@ -5461,17 +5632,15 @@ async function computePayrollData(catalystApp, month, contractor, department, em
         };
       }
  
-      // Check if status is provided first (count "Present" as 1, "Half Day Present" as 1 to match >= 4 hours rule)
+      // Check if status is provided first; time-based fallback matches attendance muster (under 4h = 0.5 day)
       const providedStatus = normalizeProvidedStatus(a.Status);
       const rawStatus = String(a.Status || '').trim().toUpperCase();
       let daysToAdd = 0;
 
       if (providedStatus === 'Present') {
-        // "Present" counts as 1 day (>= 4 hours)
         daysToAdd = 1;
       } else if (providedStatus === 'Half Day Present') {
-        // Half Day Present counts as 1 day (changed from 0.5 to match >= 4 hours = Present rule)
-        daysToAdd = 1;
+        daysToAdd = 0.5;
       } else if (rawStatus === 'H') {
         // Holiday (H) counts as 1 day
         daysToAdd = 1;
@@ -5479,12 +5648,13 @@ async function computePayrollData(catalystApp, month, contractor, department, em
         // Week Off (WO) counts as 1 day
         daysToAdd = 1;
       } else if (a.AttendanceDate && a.FirstIn && a.LastOut) {
-        // Calculate from hours worked
+        // Calculate from hours worked (same thresholds as attendance muster getStatus)
         const hoursWorked = calculateHoursWorked(a.FirstIn, a.LastOut, a.AttendanceDate);
         if (hoursWorked >= 4) {
-          daysToAdd = 1; // Full day (changed from 0.5 for >= 4 hours)
+          daysToAdd = 1;
+        } else if (hoursWorked > 0) {
+          daysToAdd = 0.5;
         }
-        // Less than 4 hours does NOT count as present
       }
  
       if (daysToAdd > 0) {
@@ -7537,7 +7707,7 @@ module.exports = async (req, res) => {
                 finalStatus = providedStatus;
                 recordsWithStatus++;
               } else if (providedStatus === 'Half Day Present') {
-                daysToAdd = 1; // Half Day Present counts as 1 day (changed from 0.5 to match >= 4 hours = Present rule)
+                daysToAdd = 0.5;
                 finalStatus = providedStatus;
                 recordsWithStatus++;
               } else if (rawStatus === 'H') {
@@ -7559,12 +7729,14 @@ module.exports = async (req, res) => {
                   if (hoursWorked >= 8) {
                     recordsWith8PlusHours++;
                   }
-                  daysToAdd = 1; // Full day (changed from 0.5 for >= 4 hours)
+                  daysToAdd = 1;
                   finalStatus = 'Present';
+                } else if (hoursWorked > 0) {
+                  daysToAdd = 0.5;
+                  finalStatus = 'Half Day Present';
                 } else {
-                  // Less than 4 hours does NOT count as present
                   finalStatus = 'Absent';
-                  console.log(`Employee ${empId} on ${attendanceDate}: Only worked ${hoursWorked.toFixed(2)} hours (less than 4, not counting as present)`);
+                  console.log(`Employee ${empId} on ${attendanceDate}: Zero hours between FirstIn and LastOut`);
                 }
               } else {
                 // No status and no times - cannot determine
@@ -7629,6 +7801,8 @@ module.exports = async (req, res) => {
               if (hours >= 8) {
                 attendanceByKey[key].daysToAdd = 1;
               } else if (hours >= 4) {
+                attendanceByKey[key].daysToAdd = 0.5;
+              } else if (hours > 0) {
                 attendanceByKey[key].daysToAdd = 0.5;
               }
             } else if (detail.status === 'Present') {
