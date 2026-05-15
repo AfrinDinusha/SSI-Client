@@ -15,7 +15,7 @@ import {
   BarChart3, User, TrendingUp, TrendingDown,
   Activity, Plus, CheckCircle, Bell, Settings, LayoutDashboard, Home as HomeIcon,
   Shield, AlertOctagon, CreditCard, FileSignature, Search, Clock3, Database, CalendarDays,
-  FileInput, FileOutput, Filter, RefreshCw, Trash2, X
+  FileInput, FileOutput, Filter, RefreshCw, Trash2, X, Download
 } from 'lucide-react';
 // import DOMPurify from 'dompurify'; // Uncomment if you install DOMPurify for XSS sanitization
 
@@ -96,6 +96,93 @@ function getActualTotalSalaryDisplay(employee) {
   return String(sum);
 }
 
+async function downloadEmployeeDocument(employeeId, docType, fileName, event) {
+  const trigger = event?.currentTarget;
+  const originalText = trigger?.textContent;
+  try {
+    const downloadUrl = `/server/cms_function/employees/${employeeId}/file/${docType}`;
+    if (trigger) {
+      trigger.textContent = 'Downloading...';
+      trigger.style.pointerEvents = 'none';
+    }
+    const axiosOk = await downloadBlobWithAxios(downloadUrl, fileName);
+    if (!axiosOk) {
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = fileName || 'download';
+      link.target = '_blank';
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      setTimeout(() => {
+        if (document.body.contains(link)) document.body.removeChild(link);
+      }, 100);
+    }
+  } catch (error) {
+    console.error('Download error:', error);
+    alert(`Download failed: ${error.message}`);
+  } finally {
+    if (trigger) {
+      setTimeout(() => {
+        trigger.textContent = originalText;
+        trigger.style.pointerEvents = 'auto';
+      }, 500);
+    }
+  }
+}
+
+function downloadPendingFileLocal(file) {
+  if (!file) return;
+  const url = URL.createObjectURL(file);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = file.name || 'download';
+  link.style.display = 'none';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+function EmployeeFileDownloadCell({ employeeId, docType, fileId, fileName }) {
+  if (!fileId || !fileName) {
+    return <span style={{ color: '#aaa' }}>No file</span>;
+  }
+  const handleDownload = (e) => {
+    e.stopPropagation();
+    downloadEmployeeDocument(employeeId, docType, fileName, e);
+  };
+  return (
+    <div
+      className="employee-file-download dF aI-center"
+      style={{ gap: 8, flexWrap: 'wrap' }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <span
+        style={{
+          color: '#1976d2',
+          fontWeight: 500,
+          fontSize: 13,
+          wordBreak: 'break-word',
+        }}
+        title={fileName}
+      >
+        {fileName}
+      </span>
+      <button
+        type="button"
+        className="btn btn-primary employee-file-download-btn"
+        title="Download file"
+        onClick={handleDownload}
+        style={{ fontSize: 11, padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+      >
+        <Download size={14} aria-hidden />
+        Download
+      </button>
+    </div>
+  );
+}
+
 // Employee Row Component
 function EmployeeRow({ employee, index, removeEmployee, editEmployee, isSelected, onSelect }) {
   // Debug: Log emergency contact fields for first few rows
@@ -113,76 +200,6 @@ function EmployeeRow({ employee, index, removeEmployee, editEmployee, isSelected
  
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
-
-  // Function to download file
-  const downloadFile = useCallback(async (employeeId, docType, fileName, event) => {
-    // Store original text outside try block so it's accessible in catch
-    const originalText = event?.target?.textContent;
-   
-    try {
-      const downloadUrl = `/server/cms_function/employees/${employeeId}/file/${docType}`;
-      console.log('Downloading file:', { downloadUrl, fileName, employeeId, docType });
-     
-      // Show loading indicator
-      if (event?.target) {
-        event.target.textContent = 'Downloading...';
-        event.target.style.pointerEvents = 'none';
-      }
-     
-      // Try axios blob approach (handles cookies and content-disposition)
-      const axiosOk = await downloadBlobWithAxios(downloadUrl, fileName);
-      if (!axiosOk) {
-        console.log('Axios blob download failed, trying direct link.');
-        const link = document.createElement('a');
-        link.href = downloadUrl;
-        link.download = fileName || 'download';
-        link.target = '_blank';
-        link.style.display = 'none';
-        document.body.appendChild(link);
-        link.click();
-        setTimeout(() => {
-          if (document.body.contains(link)) document.body.removeChild(link);
-        }, 100);
-      }
-     
-      // Restore original text after a short delay
-      setTimeout(() => {
-        if (event?.target) {
-          event.target.textContent = originalText;
-          event.target.style.pointerEvents = 'auto';
-        }
-      }, 1000);
-     
-    } catch (error) {
-      console.error('Download error:', error);
-      alert(`Download failed: ${error.message}`);
-     
-      // Restore original text on error
-      if (event?.target) {
-        event.target.textContent = originalText;
-        event.target.style.pointerEvents = 'auto';
-      }
-    }
-  }, []);
-
-  // Style for download links
-  const downloadLinkStyle = {
-    cursor: 'pointer',
-    color: '#1976d2',
-    textDecoration: 'underline',
-    fontWeight: 500,
-    transition: 'color 0.2s ease'
-  };
-
-  const handleLinkHover = (e, isEntering) => {
-    if (isEntering) {
-      e.target.style.color = '#0d47a1';
-      e.target.style.textDecoration = 'underline';
-    } else {
-      e.target.style.color = '#1976d2';
-      e.target.style.textDecoration = 'underline';
-    }
-  };
 
   const deleteEmployee = useCallback((e) => {
     e.stopPropagation(); // Prevent row click when clicking delete
@@ -475,208 +492,52 @@ function EmployeeRow({ employee, index, removeEmployee, editEmployee, isSelected
       <td>{employee.addedTime ? String(employee.addedTime).replace('T', ' ').slice(0, 19) : '-'}</td>
       <td>{employee.modifiedTime ? String(employee.modifiedTime).replace('T', ' ').slice(0, 19) : '-'}</td>
       <td>
-        {employee.aadharCopyFileId && employee.aadharCopyFileName ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span
-              style={downloadLinkStyle}
-              onClick={(e) => {
-                e.stopPropagation();
-                downloadFile(employee.id, 'AadharCopy', employee.aadharCopyFileName, e);
-              }}
-              onMouseEnter={(e) => handleLinkHover(e, true)}
-              onMouseLeave={(e) => handleLinkHover(e, false)}
-              title="Click to download file"
-            >
-              {employee.aadharCopyFileName}
-            </span>
-            <i
-              className="fas fa-download"
-              style={{
-                color: '#1976d2',
-                cursor: 'pointer',
-                fontSize: '12px',
-                opacity: 0.7
-              }}
-              onClick={(e) => {
-                e.stopPropagation();
-                downloadFile(employee.id, 'AadharCopy', employee.aadharCopyFileName, e);
-              }}
-              title="Download file"
-            ></i>
-          </div>
-        ) : (
-          <span style={{ color: '#aaa' }}>No file</span>
-        )}
+        <EmployeeFileDownloadCell
+          employeeId={employee.id}
+          docType="AadharCopy"
+          fileId={employee.aadharCopyFileId}
+          fileName={employee.aadharCopyFileName}
+        />
       </td>
       <td>
-        {employee.educationalCertificatesFileId && employee.educationalCertificatesFileName ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span
-              style={downloadLinkStyle}
-              onClick={(e) => {
-                e.stopPropagation();
-                downloadFile(employee.id, 'EducationalCertificates', employee.educationalCertificatesFileName, e);
-              }}
-              onMouseEnter={(e) => handleLinkHover(e, true)}
-              onMouseLeave={(e) => handleLinkHover(e, false)}
-              title="Click to download file"
-            >
-              {employee.educationalCertificatesFileName}
-            </span>
-            <i
-              className="fas fa-download"
-              style={{
-                color: '#1976d2',
-                cursor: 'pointer',
-                fontSize: '12px',
-                opacity: 0.7
-              }}
-              onClick={(e) => {
-                e.stopPropagation();
-                downloadFile(employee.id, 'EducationalCertificates', employee.educationalCertificatesFileName, e);
-              }}
-              title="Download file"
-            ></i>
-          </div>
-        ) : (
-          <span style={{ color: '#aaa' }}>No file</span>
-        )}
+        <EmployeeFileDownloadCell
+          employeeId={employee.id}
+          docType="EducationalCertificates"
+          fileId={employee.educationalCertificatesFileId}
+          fileName={employee.educationalCertificatesFileName}
+        />
       </td>
       <td>
-        {employee.bankPassbookFileId && employee.bankPassbookFileName ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span
-              style={downloadLinkStyle}
-              onClick={(e) => {
-                e.stopPropagation();
-                downloadFile(employee.id, 'BankPassbook', employee.bankPassbookFileName, e);
-              }}
-              onMouseEnter={(e) => handleLinkHover(e, true)}
-              onMouseLeave={(e) => handleLinkHover(e, false)}
-              title="Click to download file"
-            >
-              {employee.bankPassbookFileName}
-            </span>
-            <i
-              className="fas fa-download"
-              style={{
-                color: '#1976d2',
-                cursor: 'pointer',
-                fontSize: '12px',
-                opacity: 0.7
-              }}
-              onClick={(e) => {
-                e.stopPropagation();
-                downloadFile(employee.id, 'BankPassbook', employee.bankPassbookFileName, e);
-              }}
-              title="Download file"
-            ></i>
-          </div>
-        ) : (
-          <span style={{ color: '#aaa' }}>No file</span>
-        )}
+        <EmployeeFileDownloadCell
+          employeeId={employee.id}
+          docType="BankPassbook"
+          fileId={employee.bankPassbookFileId}
+          fileName={employee.bankPassbookFileName}
+        />
       </td>
       <td>
-        {employee.experienceCertificateFileId && employee.experienceCertificateFileName ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span
-              style={downloadLinkStyle}
-              onClick={(e) => {
-                e.stopPropagation();
-                downloadFile(employee.id, 'ExperienceCertificate', employee.experienceCertificateFileName, e);
-              }}
-              onMouseEnter={(e) => handleLinkHover(e, true)}
-              onMouseLeave={(e) => handleLinkHover(e, false)}
-              title="Click to download file"
-            >
-              {employee.experienceCertificateFileName}
-            </span>
-            <i
-              className="fas fa-download"
-              style={{
-                color: '#1976d2',
-                cursor: 'pointer',
-                fontSize: '12px',
-                opacity: 0.7
-              }}
-              onClick={(e) => {
-                e.stopPropagation();
-                downloadFile(employee.id, 'ExperienceCertificate', employee.experienceCertificateFileName, e);
-              }}
-              title="Download file"
-            ></i>
-          </div>
-        ) : (
-          <span style={{ color: '#aaa' }}>No file</span>
-        )}
+        <EmployeeFileDownloadCell
+          employeeId={employee.id}
+          docType="ExperienceCertificate"
+          fileId={employee.experienceCertificateFileId}
+          fileName={employee.experienceCertificateFileName}
+        />
       </td>
       <td>
-        {employee.pANCardFileId && employee.pANCardFileName ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span
-              style={downloadLinkStyle}
-              onClick={(e) => {
-                e.stopPropagation();
-                downloadFile(employee.id, 'PANCard', employee.pANCardFileName, e);
-              }}
-              onMouseEnter={(e) => handleLinkHover(e, true)}
-              onMouseLeave={(e) => handleLinkHover(e, false)}
-              title="Click to download file"
-            >
-              {employee.pANCardFileName}
-            </span>
-            <i
-              className="fas fa-download"
-              style={{
-                color: '#1976d2',
-                cursor: 'pointer',
-                fontSize: '12px',
-                opacity: 0.7
-              }}
-              onClick={(e) => {
-                e.stopPropagation();
-                downloadFile(employee.id, 'PANCard', employee.pANCardFileName, e);
-              }}
-              title="Download file"
-            ></i>
-          </div>
-        ) : (
-          <span style={{ color: '#aaa' }}>No file</span>
-        )}
+        <EmployeeFileDownloadCell
+          employeeId={employee.id}
+          docType="PANCard"
+          fileId={employee.pANCardFileId}
+          fileName={employee.pANCardFileName}
+        />
       </td>
       <td>
-        {employee.resumeFileId && employee.resumeFileName ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span
-              style={downloadLinkStyle}
-              onClick={(e) => {
-                e.stopPropagation();
-                downloadFile(employee.id, 'Resume', employee.resumeFileName, e);
-              }}
-              onMouseEnter={(e) => handleLinkHover(e, true)}
-              onMouseLeave={(e) => handleLinkHover(e, false)}
-              title="Click to download file"
-            >
-              {employee.resumeFileName}
-            </span>
-            <i
-              className="fas fa-download"
-              style={{
-                color: '#1976d2',
-                cursor: 'pointer',
-                fontSize: '12px',
-                opacity: 0.7
-              }}
-              onClick={(e) => {
-                e.stopPropagation();
-                downloadFile(employee.id, 'Resume', employee.resumeFileName, e);
-              }}
-              title="Download file"
-            ></i>
-          </div>
-        ) : (
-          <span style={{ color: '#aaa' }}>No file</span>
-        )}
+        <EmployeeFileDownloadCell
+          employeeId={employee.id}
+          docType="Resume"
+          fileId={employee.resumeFileId}
+          fileName={employee.resumeFileName}
+        />
       </td>
     </tr>
   );
@@ -5412,7 +5273,6 @@ function EmployeeManagement({ userRole = 'App Administrator', userEmail = null }
                 </div>
                
                 {/* Employee Files */}
-                {console.log('Rendering EmployeeFilesSection with form:', form)}
                 <EmployeeFilesSection
                   employeeId={isEditing ? editingEmployeeId : null}
                   employee={form}
@@ -5644,55 +5504,13 @@ function EmployeeFilesSection({ employeeId, employee, pendingFiles, setPendingFi
 
   // Select a new file
   const handleFileSelect = (key, file) => {
-    console.log('File selected:', { key, file, fileName: file.name, fileSize: file.size, fileType: file.type });
-    console.log('Current pending files before update:', pendingFiles);
-    const newPendingFiles = { ...pendingFiles, [key]: file };
-    console.log('New pending files after update:', newPendingFiles);
-    setPendingFiles(newPendingFiles);
+    setPendingFiles({ ...pendingFiles, [key]: file });
     setUploadErrors({ ...uploadErrors, [key]: undefined });
   };
 
-  // Reliable blob-based download (mirrors table downloader behavior)
-  const downloadEmployeeFile = async (docKey, fileName, event) => {
-    if (!employeeId) {
-      console.warn('Download requested without employeeId');
-      return;
-    }
-    const originalText = event?.target?.textContent;
-    try {
-      const downloadUrl = `/server/cms_function/employees/${employeeId}/file/${docKey}`;
-
-      if (event?.target) {
-        event.target.textContent = 'Downloading...';
-        event.target.style.pointerEvents = 'none';
-      }
-
-      const axiosOk = await downloadBlobWithAxios(downloadUrl, fileName);
-      if (!axiosOk) {
-        const link = document.createElement('a');
-        link.href = downloadUrl;
-        link.download = fileName || 'download';
-        link.target = '_blank';
-        link.style.display = 'none';
-        document.body.appendChild(link);
-        link.click();
-        setTimeout(() => {
-          if (document.body.contains(link)) document.body.removeChild(link);
-        }, 100);
-      }
-    } catch (error) {
-      console.error('Download error:', error);
-      alert(`Download failed: ${error.message}`);
-    } finally {
-      if (event?.target) {
-        event.target.textContent = originalText;
-        event.target.style.pointerEvents = 'auto';
-      }
-    }
-  };
-
   return (
-    <table className="employee-files-table" style={{ width: '100%', marginTop: 10 }}>
+    <div className="employee-files-table-container document-uploads-section">
+    <table className="employee-files-table">
       <thead>
         <tr>
           <th style={{ textAlign: 'left' }}>Document</th>
@@ -5712,25 +5530,9 @@ function EmployeeFilesSection({ employeeId, employee, pendingFiles, setPendingFi
           const pendingFile = pendingFiles?.[key];
           const error = uploadErrors?.[key];
 
-          // Debug logging for file display
-          if (key === 'Photo') {
-            console.log(`File display debug for ${key}:`, {
-              key,
-              fieldKey,
-              normalizedKey,
-              fileId,
-              fileName,
-              pendingFile,
-              error,
-              employeeId,
-              isNewEmployee,
-              formStateKeys: Object.keys(employee).filter(key => key.includes('FileId') || key.includes('FileName'))
-            });
-          }
-
-          // For Photo, display image preview if fileName exists and no pending file
           const isPhoto = key === 'Photo';
           const photoUrl = isPhoto && fileId && employeeId ? `/server/cms_function/employees/${employeeId}/file/${key}` : null;
+          const fileAccept = isPhoto ? '.jpg,.jpeg,.png' : accept;
 
           return (
             <tr key={key}>
@@ -5740,18 +5542,7 @@ function EmployeeFilesSection({ employeeId, employee, pendingFiles, setPendingFi
               </td>
               <td>
                 {pendingFile ? (
-                  <div className="dF aI-center">
-                    <span style={{ marginRight: 8 }}>{pendingFile.name}</span>
-                    <button
-                      type="button"
-                      className="btn btn-icon btn-danger-icon"
-                      title="Remove selected file"
-                      onClick={() => removePendingFile(key)}
-                      disabled={uploading}
-                    >
-                      <i className="fas fa-times"></i>
-                    </button>
-                  </div>
+                  <span>{pendingFile.name}</span>
                 ) : (fileId && fileName) ? (
                   <div className="dF aI-center" style={{ alignItems: 'center' }}>
                     {isPhoto && photoUrl ? (
@@ -5769,80 +5560,92 @@ function EmployeeFilesSection({ employeeId, employee, pendingFiles, setPendingFi
                 ) : (
                   <span style={{ color: '#aaa' }}>No file uploaded</span>
                 )}
-                {/* Debug info */}
-                {key === 'Photo' && (
-                  <div style={{ fontSize: '10px', color: '#999', marginTop: '4px' }}>
-                    Debug: pendingFile={!!pendingFile}, fileId={!!fileId}, fileName={!!fileName},
-                    fileIdValue={fileId}, fileNameValue={fileName}
-                  </div>
+                {uploading && pendingFile && (
+                  <div style={{ color: '#666', fontSize: 12, marginTop: 4 }}>Uploading...</div>
+                )}
+                {!uploading && !error && pendingFile && (
+                  <div style={{ color: '#28a745', fontSize: 12, marginTop: 4 }}>File ready for submission</div>
                 )}
                 {error && <div style={{ color: 'red', fontSize: 12 }}>{error}</div>}
               </td>
               <td>
-                {pendingFile ? null : fileId && fileName && employeeId ? (
-                  <>
+                {pendingFile ? (
+                  <div className="dF" style={{ gap: 8, flexWrap: 'wrap' }}>
                     <button
                       type="button"
-                      className="btn btn-icon"
-                      title="Download"
-                      onClick={(e) => downloadEmployeeFile(key, fileName, e)}
-                      style={{ marginRight: 8 }}
+                      className="btn btn-primary"
+                      title="Download selected file"
+                      onClick={() => downloadPendingFileLocal(pendingFile)}
                       disabled={uploading}
+                      style={{ fontSize: 12, padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: 4 }}
                     >
-                      <i className="fas fa-download"></i>
+                      <Download size={14} aria-hidden />
+                      Download
                     </button>
-                    <label className="btn btn-icon" title="Replace file" style={{ marginRight: 8 }}>
-                      <i className="fas fa-exchange-alt"></i>
+                    <button
+                      type="button"
+                      className="btn btn-danger"
+                      title="Remove selected file"
+                      onClick={() => removePendingFile(key)}
+                      disabled={uploading}
+                      style={{ fontSize: 12, padding: '6px 12px' }}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ) : fileId && fileName && employeeId ? (
+                  <div className="dF" style={{ gap: 8, flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      title="Download"
+                      onClick={(e) => downloadEmployeeDocument(employeeId, key, fileName, e)}
+                      disabled={uploading}
+                      style={{ fontSize: 12, padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                    >
+                      <Download size={14} aria-hidden />
+                      Download
+                    </button>
+                    <label
+                      className="btn btn-primary"
+                      title="Replace file"
+                      style={{ fontSize: 12, padding: '6px 12px', cursor: uploading ? 'not-allowed' : 'pointer' }}
+                    >
+                      Replace
                       <input
                         type="file"
-                        accept={isPhoto ? '.jpg,.jpeg,.png' : accept}
+                        accept={fileAccept}
                         style={{ display: 'none' }}
                         disabled={uploading}
                         onChange={e => {
-                          console.log('File input change event for key:', key, 'files:', e.target.files, 'event:', e);
-                          if (e.target.files && e.target.files[0]) {
-                            console.log('File selected in input for key:', key, 'file:', e.target.files[0]);
+                          if (e.target.files?.[0]) {
                             handleFileSelect(key, e.target.files[0]);
                             e.target.value = '';
-                          } else {
-                            console.log('No file selected for key:', key);
                           }
-                        }}
-                        onClick={e => {
-                          console.log('File input clicked for key:', key);
-                        }}
-                        onFocus={e => {
-                          console.log('File input focused for key:', key);
                         }}
                       />
                     </label>
-                  </>
+                  </div>
                 ) : (
-                                      <label className="btn btn-icon" title="Upload file">
-                      <i className="fas fa-cloud-upload-alt"></i>
-                      <input
-                        type="file"
-                        accept={isPhoto ? '.jpg,.jpeg,.png' : accept}
-                        style={{ display: 'none' }}
-                        disabled={uploading}
-                        onChange={e => {
-                          console.log('File input change event for new upload key:', key, 'files:', e.target.files, 'event:', e);
-                          if (e.target.files && e.target.files[0]) {
-                            console.log('File selected in input for new upload key:', key, 'file:', e.target.files[0]);
-                            handleFileSelect(key, e.target.files[0]);
-                            e.target.value = '';
-                          } else {
-                            console.log('No file selected for new upload key:', key);
-                          }
-                        }}
-                        onClick={e => {
-                          console.log('File input clicked for new upload key:', key);
-                        }}
-                        onFocus={e => {
-                          console.log('File input focused for new upload key:', key);
-                        }}
-                      />
-                    </label>
+                  <label
+                    className="btn btn-primary"
+                    title="Upload file"
+                    style={{ fontSize: 12, padding: '6px 12px', cursor: uploading ? 'not-allowed' : 'pointer' }}
+                  >
+                    Choose file
+                    <input
+                      type="file"
+                      accept={fileAccept}
+                      style={{ display: 'none' }}
+                      disabled={uploading}
+                      onChange={e => {
+                        if (e.target.files?.[0]) {
+                          handleFileSelect(key, e.target.files[0]);
+                          e.target.value = '';
+                        }
+                      }}
+                    />
+                  </label>
                 )}
               </td>
             </tr>
@@ -5850,6 +5653,7 @@ function EmployeeFilesSection({ employeeId, employee, pendingFiles, setPendingFi
         })}
       </tbody>
     </table>
+    </div>
   );
 }
 

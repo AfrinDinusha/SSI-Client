@@ -4587,6 +4587,8 @@ body {
 /* Ensure checkboxes, edit buttons, and payslip actions work (row td uses pointer-events: none) */
 .clickable-row input[type="checkbox"],
 .clickable-row .btn-icon,
+.clickable-row .employee-file-download,
+.clickable-row .employee-file-download-btn,
 .clickable-row .btn-outline-primary,
 .clickable-row .payslip-view-btn,
 .clickable-row .payslip-download-pdf-btn,

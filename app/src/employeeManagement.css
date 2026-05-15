@@ -851,6 +851,49 @@
   background-color: #f9fafb;
 }
 
+.employee-files-table-container {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  margin-top: 10px;
+  margin-bottom: 20px;
+}
+
+.employee-files-table-container .employee-files-table {
+  margin-top: 0;
+  table-layout: fixed;
+  min-width: 600px;
+}
+
+.employee-files-table-container .employee-files-table th:nth-child(1),
+.employee-files-table-container .employee-files-table td:nth-child(1) {
+  width: 35%;
+}
+
+.employee-files-table-container .employee-files-table th:nth-child(2),
+.employee-files-table-container .employee-files-table td:nth-child(2) {
+  width: 40%;
+}
+
+.employee-files-table-container .employee-files-table th:nth-child(3),
+.employee-files-table-container .employee-files-table td:nth-child(3) {
+  width: 25%;
+}
+
+.employee-files-table label.btn-primary {
+  margin: 0;
+}
+
+/* Allow download buttons in clickable employee table rows */
+.clickable-row .employee-file-download,
+.clickable-row .employee-file-download-btn {
+  pointer-events: auto;
+  position: relative;
+  z-index: 1;
+}
+
 /* --- Button Styles --- */
 .btn {
   padding: 8px 16px;

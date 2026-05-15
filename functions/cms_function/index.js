@@ -1929,17 +1929,17 @@ app.delete('/employees/:ROWID', async (req, res) => {
 
 // Mapping of document types to Catalyst File Store folder IDs
 const DOC_TYPE_TO_FOLDER_ID = {
-    Passport: '21320000000042810',
-    Resume: '21320000000042782',
-    PANCard: '21320000000042763',
-    ExperienceCertificate: '21320000000042735',
-    BankPassbook: '21320000000042707',
-    EducationalCertificates: '21320000000042688',
-    PFEpassbook: '21320000000042660',
-    OfferLetter: '21320000000042613',
+    Passport: '399000000047714',
+    Resume: '399000000047733',
+    PANCard: '399000000047752',
+    ExperienceCertificate: '399000000047771',
+    BankPassbook: '399000000047790',
+    EducationalCertificates: '399000000047809',
+    PFEpassbook: '399000000047828',
+    OfferLetter: '399000000047866',
     PaySlip: '21320000000042585',
-    Photo: '21320000000042529',
-    AadharCopy: '21320000000042510' // Updated to correct folder ID
+    Photo: '399000000047923',
+    AadharCopy: '399000000047942' // Updated to correct folder ID
 };
 
 // Helper to get file columns for a docType
