@@ -217,6 +217,44 @@ const getAttendanceDeductionFallback = (emp, selectedMonth) => {
   return doj <= oneYearBefore ? 1200 : 800;
 };
 
+const formatPayslipHoursSuffix = (raw) => {
+  if (raw == null || raw === '') return null;
+  const n = Number(String(raw).replace(/,/g, '').trim());
+  if (!Number.isFinite(n)) return null;
+  if (n === 0) return '0';
+  if (Number.isInteger(n)) return String(n);
+  return String(Math.round(n * 100) / 100);
+};
+
+const getPayslipOtHours = (emp) => {
+  if (!emp) return null;
+  const raw = Number(String(emp.otHours ?? emp.OTHours ?? '').replace(/,/g, '').trim());
+  if (!Number.isFinite(raw)) return null;
+  return formatPayslipHoursSuffix(Math.min(raw, 20));
+};
+
+const getPayslipIncentiveHours = (emp) => {
+  if (!emp) return null;
+  const raw = Number(String(emp.otHours ?? emp.OTHours ?? '').replace(/,/g, '').trim());
+  if (!Number.isFinite(raw)) return null;
+  const extra = Math.max(0, raw - 20);
+  return formatPayslipHoursSuffix(extra);
+};
+
+const earningDisplayLabel = (label, emp) => {
+  const text = String(label || '').trim();
+  const lower = text.toLowerCase();
+  if (lower.includes('ot hours') || lower === 'ot' || (lower.includes('ot') && lower.includes('amount'))) {
+    const hours = getPayslipOtHours(emp);
+    return hours == null ? text : `${text} | ${hours}`;
+  }
+  if (lower === 'incentive' || lower.includes('incentive')) {
+    const hours = getPayslipIncentiveHours(emp);
+    return hours == null ? text : `${text} | ${hours}`;
+  }
+  return text;
+};
+
 export default function PayslipTemplateDrawer({
   open,
   onClose,
@@ -527,7 +565,7 @@ export default function PayslipTemplateDrawer({
           <tbody>
             {earningsRows.map((r) => (
               <tr key={r.key}>
-                <td>{r.label}</td>
+                <td>{earningDisplayLabel(r.label, emp)}</td>
                 <td className="amount">{hideZero(r.actual)}</td>
                 <td className="amount">{hideZero(r.earned)}</td>
               </tr>

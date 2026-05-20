@@ -44,7 +44,8 @@
       "permission_function",
       "samplepayroll_function",
       "sample_function",
-      "attendance_job_function"
+      "attendance_job_function",
+      "permissionreport_function"
     ],
     "ignore": [],
     "source": "functions"

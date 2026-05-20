@@ -98,8 +98,13 @@
 }
 
 /* Date input - single icon (browser native calendar) */
+.newshiftmap-date-filter .date-input-ddmm {
+  min-width: 200px;
+}
+
 .newshiftmap-date-filter .newshiftmap-date-input,
-.newshiftmap-date-filter .date-input-group input[type="date"] {
+.newshiftmap-date-filter .date-input-group input[type="date"],
+.newshiftmap-date-filter .date-input-ddmm input[type="text"] {
   padding: 8px 14px;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
@@ -108,7 +113,8 @@
 }
 
 .newshiftmap-date-filter .newshiftmap-date-input:focus,
-.newshiftmap-date-filter .date-input-group input[type="date"]:focus {
+.newshiftmap-date-filter .date-input-group input[type="date"]:focus,
+.newshiftmap-date-filter .date-input-ddmm input[type="text"]:focus {
   outline: none;
   border-color: #2563eb;
   box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);

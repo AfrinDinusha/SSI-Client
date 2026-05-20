@@ -1,0 +1,171 @@
+/* Permission Report — extends Permission Management UI (permission.css) */
+
+.permission-report-top-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+/* Month picker + export in one bordered box */
+.permission-report-controls-box {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  height: 56px;
+  padding: 0 8px 0 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  box-sizing: border-box;
+}
+
+.permission-report-month-input {
+  border: none;
+  background: transparent;
+  font-size: 0.95rem;
+  color: #232323;
+  height: 100%;
+  min-width: 140px;
+  padding: 0 8px 0 0;
+  box-shadow: none;
+  outline: none;
+}
+
+.permission-report-month-input:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.permission-report-export-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #2563eb;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color 0.2s, transform 0.15s;
+}
+
+.permission-report-export-btn:hover:not(:disabled) {
+  background: #eff6ff;
+  transform: scale(1.05);
+}
+
+.permission-report-export-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.permission-report-table-container {
+  margin-top: 8px;
+}
+
+.permission-report-table {
+  width: 100%;
+  table-layout: fixed;
+}
+
+.permission-report-table thead tr {
+  background: #f5f5f5 !important;
+}
+
+.permission-report-table th {
+  padding: 18px 12px !important;
+  font-size: 1.05rem !important;
+  font-weight: 700 !important;
+  color: #1f2937 !important;
+  letter-spacing: 0.02em;
+}
+
+.permission-report-col-sno {
+  width: 72px;
+}
+
+.permission-report-col-code {
+  width: 140px;
+}
+
+.permission-report-col-name {
+  width: auto;
+}
+
+.permission-report-col-applicable {
+  width: 160px;
+}
+
+.permission-report-col-used {
+  width: 140px;
+}
+
+.permission-report-table .permission-sno-cell {
+  font-weight: 600;
+  color: #374151;
+  text-align: center;
+}
+
+.permission-report-table th:nth-child(1),
+.permission-report-table td:nth-child(1) {
+  text-align: center;
+}
+
+.permission-report-td-code {
+  white-space: nowrap;
+}
+
+.permission-report-td-name {
+  word-break: break-word;
+}
+
+.permission-report-td-num {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.permission-report-table th:nth-child(4),
+.permission-report-table th:nth-child(5) {
+  text-align: center;
+}
+
+/* No row highlight on hover */
+.permission-report-table tbody tr:hover {
+  background: inherit !important;
+}
+
+.permission-report-table tbody tr:nth-child(even):hover {
+  background: #fafbfc !important;
+}
+
+.permission-report-table tbody tr:nth-child(odd):hover {
+  background: #fff !important;
+}
+
+@media (max-width: 768px) {
+  .permission-report-top-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .permission-report-controls-box {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .permission-report-table {
+    table-layout: auto;
+  }
+
+  .permission-report-table th {
+    font-size: 0.95rem !important;
+  }
+}

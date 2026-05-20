@@ -29,7 +29,12 @@
   letter-spacing: 0.5px;
 }
 
-.attendance-date-group input {
+.attendance-date-group .date-input-ddmm {
+  width: 100%;
+}
+
+.attendance-date-group input,
+.attendance-date-group .date-input-ddmm input[type="text"] {
   padding: 1rem;
   border: 2px solid #e2e8f0;
   border-radius: 12px;
@@ -40,14 +45,16 @@
   font-weight: 500;
 }
 
-.attendance-date-group input:focus {
+.attendance-date-group input:focus,
+.attendance-date-group .date-input-ddmm input[type="text"]:focus {
   outline: none;
   border-color: #3b82f6;
   box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
   transform: translateY(-2px);
 }
 
-.attendance-date-group input:hover {
+.attendance-date-group input:hover,
+.attendance-date-group .date-input-ddmm input[type="text"]:hover {
   border-color: #60a5fa;
   transform: translateY(-1px);
 }

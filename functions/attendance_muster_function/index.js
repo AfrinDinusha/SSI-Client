@@ -24,6 +24,7 @@ module.exports = async (req, res) => {
     const userRole = url.searchParams.get('userRole');
     const contractor = url.searchParams.get('contractor');
     const department = url.searchParams.get('department');
+    const category = url.searchParams.get('category');
     const status = url.searchParams.get('status');
     const source = (url.searchParams.get('source') || 'both').toLowerCase();
     const normalizedUserEmail = String(userEmail || '').trim().toLowerCase();
@@ -40,6 +41,7 @@ module.exports = async (req, res) => {
       endDateRaw,
       contractor,
       department,
+      category,
       status,
       source
     });
@@ -875,6 +877,29 @@ module.exports = async (req, res) => {
         }
       } catch (error) {
         console.error('Error applying department filter:', error);
+      }
+    }
+
+    // Category filter
+    if (category && category !== 'All') {
+      try {
+        const categoryEmployeeQuery = await zcql.executeZCQLQuery(
+          `SELECT EmployeeCode FROM Employee WHERE Category = '${String(category).replace(/'/g, "''")}'`
+        );
+
+        if (categoryEmployeeQuery && categoryEmployeeQuery.length > 0) {
+          const categoryEmployeeIds = categoryEmployeeQuery.map(emp => emp.Employee.EmployeeCode);
+          if (employeeIds.length > 0) {
+            employeeIds = employeeIds.filter(id => categoryEmployeeIds.includes(id));
+          } else {
+            employeeIds = categoryEmployeeIds;
+          }
+          console.log(`Category filter applied: ${category}, Employee IDs: ${employeeIds.join(', ')}`);
+        } else {
+          employeeIds = [];
+        }
+      } catch (error) {
+        console.error('Error applying category filter:', error);
       }
     }
 
@@ -2061,7 +2086,7 @@ module.exports = async (req, res) => {
       try {
         // Build query to fetch employee master data for all employees in scope
         const employeeIdList = employees.map(id => `'${id}'`).join(',');
-        const employeeInfoQuery = `SELECT EmployeeCode, EmployeeName, ContractorName, Department, DateofJoining, DateofExit FROM Employee WHERE EmployeeCode IN (${employeeIdList})`;
+        const employeeInfoQuery = `SELECT EmployeeCode, EmployeeName, ContractorName, Department, Category, DateofJoining, DateofExit FROM Employee WHERE EmployeeCode IN (${employeeIdList})`;
         console.log(`Fetching employee info for ${employees.length} employees`);
        
         const employeeInfoResult = await zcql.executeZCQLQuery(employeeInfoQuery);
@@ -2103,6 +2128,7 @@ module.exports = async (req, res) => {
               employeeName: emp.EmployeeName || '',
               contractor: emp.ContractorName || '',
               department: emp.Department || '',
+              category: emp.Category || '',
               dateOfJoining: dateOfJoining,
               dateOfExit: dateOfExit
             };
@@ -2555,6 +2581,12 @@ module.exports = async (req, res) => {
       const empInfo = employeeInfoMap[empId] || {};
       const dept = empInfo.department || '';
       return dates.map(() => dept); // Repeat the same department for each date
+    });
+
+    const categories = employees.map(empId => {
+      const empInfo = employeeInfoMap[empId] || {};
+      const cat = empInfo.category || '';
+      return dates.map(() => cat); // Repeat the same category for each date
     });
 
     // Generate dateOfJoining array (same value repeated for each date per employee)
@@ -3900,6 +3932,7 @@ module.exports = async (req, res) => {
       employeeNames,
       contractors,
       departments,
+      categories,
       dateOfJoining,
       dateOfExit,
       sources,

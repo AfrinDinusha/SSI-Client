@@ -89,6 +89,7 @@ export const sidebarModules = [
       { icon: <Clock3 size={20} />, label: 'Late In Report', path: '/latein-report' },
       { icon: <Clock3 size={20} />, label: 'Miss Punch Report', path: '/misspunch-report' },
       { icon: <FolderOpen size={20} />, label: 'Attendance Muster', path: '/attendancemuster' },
+      { icon: <FileSignature size={20} />, label: 'Permission Report', path: '/permission-report' },
       { icon: <AlertTriangle size={20} />, label: 'Shiftmap Deviation', path: '/shiftmapdeviation' },
       { icon: <Clock3 size={20} />, label: 'Grace', path: '/grace' },
     ],

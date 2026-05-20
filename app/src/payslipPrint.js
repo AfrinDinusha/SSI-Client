@@ -95,12 +95,39 @@ const formatLohHoursForPayslipCell = (raw) => {
   return String(Math.round(n * 100) / 100);
 };
 
-const getPayslipLateHoursFromLoh = (rawLoh) => {
-  if (rawLoh == null || rawLoh === '') return null;
-  const loh = Number(String(rawLoh).replace(/,/g, '').trim());
+/** Payroll LOH is already post-grace (raw − 1.5 when raw > 1.5); use as Late hours on payslip. */
+const getPayslipLateHoursFromLoh = (payrollLoh) => {
+  if (payrollLoh == null || payrollLoh === '') return null;
+  const loh = Number(String(payrollLoh).replace(/,/g, '').trim());
   if (!Number.isFinite(loh)) return null;
-  if (loh <= 1.5) return 0;
-  return Math.round((loh - 1.5) * 100) / 100;
+  if (loh <= 0) return 0;
+  return Math.round(loh * 100) / 100;
+};
+
+const formatPayslipHoursSuffix = (raw) => {
+  if (raw == null || raw === '') return null;
+  const n = Number(String(raw).replace(/,/g, '').trim());
+  if (!Number.isFinite(n)) return null;
+  if (n === 0) return '0';
+  if (Number.isInteger(n)) return String(n);
+  return String(Math.round(n * 100) / 100);
+};
+
+const earningDisplayLabel = (rowLabel, emp) => {
+  const label = String(rowLabel || '').trim();
+  const lower = normalizeLabelForMatch(label.toLowerCase()).replace(/\s+/g, ' ');
+  if (lower.includes('ot hours') || lower === 'ot' || (lower.includes('ot') && lower.includes('amount'))) {
+    const otRaw = Number(String(emp?.otHours ?? emp?.OTHours ?? '').replace(/,/g, '').trim());
+    const hours = Number.isFinite(otRaw) ? formatPayslipHoursSuffix(Math.min(otRaw, 20)) : null;
+    return hours == null ? label : `${label} | ${hours}`;
+  }
+  if (lower === 'incentive' || lower.includes('incentive')) {
+    const otRaw = Number(String(emp?.otHours ?? emp?.OTHours ?? '').replace(/,/g, '').trim());
+    const incentiveHours = Number.isFinite(otRaw) ? Math.max(0, otRaw - 20) : null;
+    const hours = formatPayslipHoursSuffix(incentiveHours);
+    return hours == null ? label : `${label} | ${hours}`;
+  }
+  return label;
 };
 
 const getLohRawForPayslipLate = (emp, getVal) => {
@@ -722,7 +749,7 @@ const buildPayslipSheetHtml = ({
   const earningsTr = earningsRows
     .map(
       (r) =>
-        `<tr><td>${escapeHtml(r.label)}</td><td class="amount">${escapeHtml(amountForEarningsActualColumn(r.actual, r.label))}</td><td class="amount">${escapeHtml(amountForEarningsEarnedColumn(r.earned, r.label))}</td></tr>`
+        `<tr><td>${escapeHtml(earningDisplayLabel(r.label, emp))}</td><td class="amount">${escapeHtml(amountForEarningsActualColumn(r.actual, r.label))}</td><td class="amount">${escapeHtml(amountForEarningsEarnedColumn(r.earned, r.label))}</td></tr>`
     )
     .join('');
 

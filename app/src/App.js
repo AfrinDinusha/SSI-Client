@@ -25,6 +25,7 @@ import BankFormatReport from './BankFormatReport';
 import BankNeftReport from './BankNeftReport';
 import Misspunch from './Misspunch';
 import LateInReport from './LateInReport';
+import PermissionReport from './Permissionreport';
 import Dashboard from './Dashboard';
 import CriticalIncident from './criticalIncident';
 import Payment from './Payment';
@@ -1078,6 +1079,16 @@ function App() {
             <ProtectedRoute>
               <RoleProtectedRoute allowedRoles={['App User', 'App Administrator']} userRole={userRole}>
                 <LOHReport userRole={userRole} userEmail={userEmail} />
+              </RoleProtectedRoute>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/permission-report"
+          element={
+            <ProtectedRoute>
+              <RoleProtectedRoute allowedRoles={['App User', 'App Administrator']} userRole={userRole}>
+                <PermissionReport userRole={userRole} userEmail={userEmail} />
               </RoleProtectedRoute>
             </ProtectedRoute>
           }

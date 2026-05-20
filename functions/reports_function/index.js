@@ -3742,6 +3742,7 @@ module.exports = async (req, res) => {
     const endDateParam = query.endDate;
     let contractor = query.contractor;
     const department = query.department;
+    const category = query.category;
     const employeeId = query.employeeId;
     const userEmail = query.userEmail;
     const userRole = query.userRole;
@@ -3874,7 +3875,7 @@ module.exports = async (req, res) => {
         }
       }
 
-      if ((employeeId && employeeId !== 'All') || (contractor && contractor !== 'All') || (department && department !== 'All')) {
+      if ((employeeId && employeeId !== 'All') || (contractor && contractor !== 'All') || (department && department !== 'All') || (category && category !== 'All')) {
         if (employeeIds.length === 0) {
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ data: [] }));
@@ -4037,7 +4038,7 @@ module.exports = async (req, res) => {
       for (let i = 0; i < uniqueEmpIds.length; i += 100) {
         const batch = uniqueEmpIds.slice(i, i + 100);
         const idList = batch.map((id) => `'${String(id).replace(/'/g, "''")}'`).join(',');
-        const q = `SELECT EmployeeCode, EmployeeName, Department, Designation, ContractorName FROM Employee WHERE EmployeeCode IN (${idList}) AND ${activeWhere}`;
+        const q = `SELECT EmployeeCode, EmployeeName, Department, Category, Designation, ContractorName FROM Employee WHERE EmployeeCode IN (${idList}) AND ${activeWhere}`;
         try {
           const rows = await zcql.executeZCQLQuery(q);
           for (const row of rows) {
@@ -4047,6 +4048,7 @@ module.exports = async (req, res) => {
             empDetailsMap[code] = {
               employeeName: emp.EmployeeName || '',
               department: emp.Department || '',
+              category: emp.Category || '',
               designation: emp.Designation || '',
               contractorName: emp.ContractorName || ''
             };
@@ -4065,6 +4067,7 @@ module.exports = async (req, res) => {
           employeeId: row.employeeId,
           employeeName: details.employeeName || '',
           department: details.department || '',
+          category: details.category || '',
           designation: details.designation || '',
           contractorName: details.contractorName || '',
           date: row.date,
@@ -5108,6 +5111,7 @@ module.exports = async (req, res) => {
     const endDateParam = query.endDate; // format: YYYY-MM-DD
     let contractor = query.contractor;
     const department = query.department;
+    const category = query.category;
     const employeeId = query.employeeId;
     const designationApplicableToRaw = isLateInReport ? 'All' : (query.designationApplicableTo || query.designationLohApplicableTo);
     const userEmail = query.userEmail;
@@ -5373,6 +5377,27 @@ module.exports = async (req, res) => {
           }
         } catch (error) {
           console.error('Error applying department filter:', error);
+        }
+      }
+
+      if (category && category !== 'All') {
+        try {
+          const escapedCategory = String(category).replace(/'/g, "''");
+          const categoryEmployeeQuery = await zcql.executeZCQLQuery(
+            `SELECT EmployeeCode FROM Employee WHERE Category = '${escapedCategory}'`
+          );
+          if (categoryEmployeeQuery && categoryEmployeeQuery.length > 0) {
+            const categoryEmployeeIds = categoryEmployeeQuery.map(emp => emp.Employee.EmployeeCode);
+            if (employeeIds.length > 0) {
+              employeeIds = employeeIds.filter(id => categoryEmployeeIds.includes(id));
+            } else {
+              employeeIds = categoryEmployeeIds;
+            }
+          } else {
+            employeeIds = [];
+          }
+        } catch (error) {
+          console.error('Error applying category filter:', error);
         }
       }
 
@@ -7205,6 +7230,7 @@ module.exports = async (req, res) => {
               employeeId: empId,
               employeeName: details.employeeName || '',
               department: details.department || '',
+              category: details.category || '',
               date: eventDate,
               firstIn: firstInTime,
               expectedIn: '-',
@@ -7260,6 +7286,7 @@ module.exports = async (req, res) => {
                       employeeId: empId,
                       employeeName: details.employeeName || '',
                       department: details.department || '',
+                      category: details.category || '',
                       date: eventDate,
                       firstIn: firstInTime,
                       expectedIn: expectedIn,

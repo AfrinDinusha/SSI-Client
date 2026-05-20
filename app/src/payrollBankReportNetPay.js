@@ -741,9 +741,9 @@ function computeBankReportPayrollAmounts(row, options) {
     }
     if (n === 'late') {
       if (isYashaswi(row)) return 0;
-      // Bank report Late: 0 if LOH ≤ 1.5; else Actual Basic ÷ days in month ÷ 8 × 2 × (LOH − 1.5)
+      // Bank report Late: payroll LOH is post-grace; 0 if LOH ≤ 0, else Basic ÷ days ÷ 8 × 2 × LOH
       const lohVal = pickNum(row, 'loh', 'LOH');
-      if (!Number.isFinite(lohVal) || lohVal <= 1.5) return 0;
+      if (!Number.isFinite(lohVal) || lohVal <= 0) return 0;
       let dimLate = dimForEb;
       if (dimLate <= 0) {
         dimLate = pickNum(
@@ -759,8 +759,7 @@ function computeBankReportPayrollAmounts(row, options) {
       if (dimLate <= 0 || !Number.isFinite(abForEarned)) {
         return Math.round(pickNum(row, 'late', 'Late'));
       }
-      const lateHoursAfterGrace = Math.max(0, lohVal - 1.5);
-      const lateAmt = (abForEarned / dimLate / 8) * 2 * lateHoursAfterGrace;
+      const lateAmt = (abForEarned / dimLate / 8) * 2 * lohVal;
       return Math.round(lateAmt);
     }
 

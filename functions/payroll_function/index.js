@@ -1623,14 +1623,15 @@ async function calculateLOHFromMuster(catalystApp, month, contractor, department
 }
 
 /**
- * Payroll only: monthly LOH from muster (after LOH-report overlay) at or below 1.5h is stored as 0.
+ * Payroll only: monthly LOH from muster — ≤1.5h stored as 0; else raw − 1.5h grace.
  * Reports and attendance muster responses are unchanged; matches payslip Late grace.
  */
 function payrollMusterMonthlyLohForPayrollRow(rawHours) {
   const n = parseFloat(String(rawHours ?? '').replace(/,/g, ''));
   if (!Number.isFinite(n)) return 0;
   const rounded = parseFloat(n.toFixed(2));
-  return rounded <= 1.5 ? 0 : rounded;
+  if (rounded <= 1.5) return 0;
+  return Math.round((rounded - 1.5) * 100) / 100;
 }
 
 // Helper function to fetch LOH hours from attendance_muster_function
@@ -4550,6 +4551,114 @@ async function syncRunPayrollFromPayrollImport(catalystApp, month, payrollData) 
   }
   console.log(`syncRunPayrollFromPayrollImport: RunPayroll ${ok} inserted, ${failed} failed (month=${month})`);
   return { ok: failed === 0, inserted: ok, failed };
+}
+
+/** Monthly LOH grace (hours) — same as payslip Late / payroll LOH threshold. */
+const PERMISSION_LOH_GRACE_HOURS = 1.5;
+
+function parsePayrollLohHours(raw) {
+  const n = parseFloat(String(raw ?? '').replace(/,/g, '').trim());
+  if (!Number.isFinite(n)) return 0;
+  return parseFloat(n.toFixed(2));
+}
+
+/** Qualify when payroll row has any LOH hours saved (> 0). */
+function employeeQualifiesForPermissionReport(lohHours) {
+  return parsePayrollLohHours(lohHours) > 0;
+}
+
+function permissionUsedFromPayrollLoh(lohHours) {
+  const stored = parsePayrollLohHours(lohHours);
+  if (stored <= 0) return String(PERMISSION_LOH_GRACE_HOURS);
+  if (stored < PERMISSION_LOH_GRACE_HOURS) return String(stored);
+  return String(PERMISSION_LOH_GRACE_HOURS);
+}
+
+async function getPermissionReportTable(catalystApp) {
+  try {
+    const table = catalystApp.datastore().table('PermissionReport');
+    await table.getAllRows({ maxRecords: 1 });
+    return table;
+  } catch (e) {
+    console.log('getPermissionReportTable: table unavailable:', e?.message || e);
+    return null;
+  }
+}
+
+async function clearPermissionReportTable(catalystApp, permissionTable) {
+  const zcql = catalystApp.zcql();
+  let existing = [];
+  try {
+    existing = await zcql.executeZCQLQuery('SELECT ROWID FROM PermissionReport');
+  } catch (e) {
+    console.log('clearPermissionReportTable: no rows or query failed:', e?.message || e);
+    return;
+  }
+  for (const row of existing || []) {
+    const rid = row?.PermissionReport?.ROWID ?? row?.ROWID;
+    if (!rid) continue;
+    try {
+      await permissionTable.deleteRow({ ROWID: rid });
+    } catch (delErr) {
+      console.warn(`clearPermissionReportTable: delete ROWID ${rid}:`, delErr?.message || delErr);
+    }
+  }
+}
+
+/**
+ * Rebuild PermissionReport from payroll rows where monthly LOH exceeds 1.5h grace
+ * (employees for whom payroll applies the 1.5h subtraction on Late / LOH).
+ */
+async function syncPermissionReportFromPayrollMonth(catalystApp, month, payrollDataOptional) {
+  const permissionTable = await getPermissionReportTable(catalystApp);
+  if (!permissionTable) {
+    return { ok: false, skipped: true, reason: 'PermissionReport table not found' };
+  }
+
+  let qualifying = [];
+  if (Array.isArray(payrollDataOptional) && payrollDataOptional.length > 0) {
+    qualifying = payrollDataOptional
+      .filter((r) => employeeQualifiesForPermissionReport(r.loh ?? r.LOH))
+      .map((r) => ({
+        EmployeeName: String(r.employeeName ?? r.EmployeeName ?? '').trim(),
+        EmployeeId: String(r.employeeCode ?? r.EmployeeId ?? r.employeeId ?? '').trim(),
+        PermissionApplicable: String(PERMISSION_LOH_GRACE_HOURS),
+        PermissionUsed: permissionUsedFromPayrollLoh(r.loh ?? r.LOH),
+      }))
+      .filter((r) => r.EmployeeId);
+  } else if (month) {
+    const monthEsc = String(month).replace(/'/g, "''").trim();
+    const rows = await catalystApp.zcql().executeZCQLQuery(
+      `SELECT EmployeeName, EmployeeCode, LOH FROM Payroll WHERE Month_filter = '${monthEsc}'`
+    );
+    qualifying = (rows || [])
+      .map((row) => row.Payroll || row)
+      .filter((p) => employeeQualifiesForPermissionReport(p.LOH))
+      .map((p) => ({
+        EmployeeName: String(p.EmployeeName || '').trim(),
+        EmployeeId: String(p.EmployeeCode || '').trim(),
+        PermissionApplicable: String(PERMISSION_LOH_GRACE_HOURS),
+        PermissionUsed: permissionUsedFromPayrollLoh(p.LOH),
+      }))
+      .filter((r) => r.EmployeeId);
+  }
+
+  await clearPermissionReportTable(catalystApp, permissionTable);
+  let inserted = 0;
+  let failed = 0;
+  for (const row of qualifying) {
+    try {
+      await permissionTable.insertRow(row);
+      inserted++;
+    } catch (insErr) {
+      failed++;
+      console.error(`syncPermissionReportFromPayrollMonth: insert ${row.EmployeeId}:`, insErr?.message || insErr);
+    }
+  }
+  console.log(
+    `syncPermissionReportFromPayrollMonth: month=${month}, inserted=${inserted}, failed=${failed}, qualifying=${qualifying.length}`
+  );
+  return { ok: failed === 0, inserted, failed, qualifying: qualifying.length };
 }
 
 function isAutomaticDatastoreYes(value) {
@@ -12224,6 +12333,14 @@ module.exports = async (req, res) => {
             } catch (runPayrollErr) {
               console.error('RunPayroll sync error (Payroll import still succeeded):', runPayrollErr?.message || runPayrollErr);
             }
+            try {
+              await syncPermissionReportFromPayrollMonth(catalystApp, month, payrollData);
+            } catch (permissionReportErr) {
+              console.error(
+                'PermissionReport sync error (Payroll import still succeeded):',
+                permissionReportErr?.message || permissionReportErr
+              );
+            }
           }
      
           // Verify the data was actually stored
@@ -12876,6 +12993,15 @@ module.exports = async (req, res) => {
             console.error('Verification query failed:', verifyErr);
           }
      
+          try {
+            await syncPermissionReportFromPayrollMonth(catalystApp, month);
+          } catch (permissionReportErr) {
+            console.error(
+              'PermissionReport sync after payroll update:',
+              permissionReportErr?.message || permissionReportErr
+            );
+          }
+
           console.log('=== BACKEND UPDATE DEBUG - SENDING SUCCESS RESPONSE ===');
           const successResponse = {
             status: 'success',

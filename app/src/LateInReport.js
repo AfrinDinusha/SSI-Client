@@ -50,6 +50,7 @@ function transformToDateColumns(rawData, dateRange) {
         employeeId: row.employeeId,
         employeeName: row.employeeName || '',
         department: row.department || '',
+        category: row.category || '',
         dateData: {}
       };
     }
@@ -62,13 +63,14 @@ function transformToDateColumns(rawData, dateRange) {
 }
 
 function exportToCSV(calendarData, dateRange, filename) {
-  const headerRow = ['Employee Code', 'Employee Name', 'Department', ...dateRange.map(formatDateHeader)];
+  const headerRow = ['Employee Code', 'Employee Name', 'Department', 'Category', ...dateRange.map(formatDateHeader)];
   const csvRows = [headerRow.join(',')];
   calendarData.forEach((emp) => {
     const row = [
       emp.employeeId,
       emp.employeeName,
       emp.department || '',
+      emp.category || '',
       ...dateRange.map((d) => emp.dateData[d] || '-')
     ];
     csvRows.push(row.map((cell) => (typeof cell === 'string' && cell.includes(',')) ? `"${cell}"` : cell).join(','));
@@ -94,6 +96,7 @@ export default function LateInReport({ userRole = 'App Administrator', userEmail
   const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [endDate, setEndDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [department, setDepartment] = useState('All');
+  const [category, setCategory] = useState('All');
   const [employeeId, setEmployeeId] = useState('All');
   const [grace, setGrace] = useState('10');
   const [tableData, setTableData] = useState([]);
@@ -101,6 +104,7 @@ export default function LateInReport({ userRole = 'App Administrator', userEmail
   const [error, setError] = useState('');
 
   const [departments, setDepartments] = useState(['All']);
+  const [categories, setCategories] = useState(['All']);
   const [employees, setEmployees] = useState(['All']);
 
   const modulesToShow = useMemo(
@@ -136,6 +140,7 @@ export default function LateInReport({ userRole = 'App Administrator', userEmail
         let url = `/server/reports_function/latein?_t=${Date.now()}`;
         url += `&startDate=${startDate}&endDate=${endDate}`;
         if (department !== 'All') url += `&department=${encodeURIComponent(department)}`;
+        if (category !== 'All') url += `&category=${encodeURIComponent(category)}`;
         if (employeeId !== 'All') url += `&employeeId=${encodeURIComponent(employeeId)}`;
         if (grace !== '' && /^\d+$/.test(grace)) url += `&grace=${encodeURIComponent(grace)}`;
         if (userEmail) url += `&userEmail=${encodeURIComponent(userEmail)}`;
@@ -148,6 +153,7 @@ export default function LateInReport({ userRole = 'App Administrator', userEmail
           employeeId: row.employeeId,
           employeeName: row.employeeName,
           department: row.department || '',
+          category: row.category || '',
           date: row.date || startDate,
           firstIn: row.firstIn || '',
           expectedIn: row.expectedIn || '',
@@ -162,7 +168,7 @@ export default function LateInReport({ userRole = 'App Administrator', userEmail
       }
     }
     fetchLateInData();
-  }, [startDate, endDate, department, employeeId, grace, userRole, userEmail]);
+  }, [startDate, endDate, department, category, employeeId, grace, userRole, userEmail]);
 
   useEffect(() => {
     fetch('/server/payroll_function/departments')
@@ -170,6 +176,17 @@ export default function LateInReport({ userRole = 'App Administrator', userEmail
       .then(data => setDepartments(['All', ...(data.data || [])]))
       .catch(() => setDepartments(['All']));
   }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (userEmail) params.set('userEmail', userEmail);
+    if (userRole) params.set('userRole', userRole);
+    const query = params.toString();
+    fetch(`/server/cms_function/employees/categories${query ? `?${query}` : ''}`)
+      .then(res => res.json())
+      .then(data => setCategories(['All', ...((data.data?.categories) || [])]))
+      .catch(() => setCategories(['All']));
+  }, [userEmail, userRole]);
 
   useEffect(() => {
     fetch('/server/payroll_function/employee-codes')
@@ -189,6 +206,7 @@ export default function LateInReport({ userRole = 'App Administrator', userEmail
   ];
 
   const departmentOptions = departments.map(d => ({ value: d, label: d }));
+  const categoryOptions = categories.map(c => ({ value: c, label: c }));
   const employeeOptions = employees.map(e => ({ value: e, label: e }));
 
   return (
@@ -362,6 +380,18 @@ export default function LateInReport({ userRole = 'App Administrator', userEmail
                   </select>
                 </div>
                 <div>
+                  <label>Category:</label>
+                  <select
+                    value={category}
+                    onChange={(e) => setCategory(e.target.value)}
+                    style={{ width: '100%', padding: '8px 12px' }}
+                  >
+                    {categoryOptions.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
                   <label>Employee Code:</label>
                   <select
                     value={employeeId}
@@ -408,6 +438,7 @@ export default function LateInReport({ userRole = 'App Administrator', userEmail
                             <th>Employee Code</th>
                             <th>Employee Name</th>
                             <th>Department</th>
+                            <th>Category</th>
                             {dateRange.map((d) => (
                               <th key={d}>{formatDateHeader(d)}</th>
                             ))}
@@ -419,6 +450,7 @@ export default function LateInReport({ userRole = 'App Administrator', userEmail
                               <td>{emp.employeeId}</td>
                               <td>{emp.employeeName}</td>
                               <td>{emp.department || '-'}</td>
+                              <td>{emp.category || '-'}</td>
                               {dateRange.map((d) => (
                                 <td key={d}>{emp.dateData[d] || '-'}</td>
                               ))}

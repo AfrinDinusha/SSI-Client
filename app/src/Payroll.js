@@ -24,6 +24,8 @@ import {
 import JSZip from 'jszip';
 import { getSidebarModulesForUser } from './modulesConfig';
 import { applyReportsLohToMusterData, fetchLohRowsForMusterOverlay } from './musterLohReportsMerge';
+import { payrollMusterMonthlyLohForPayrollRow } from './payrollLiveLoh';
+import DateInputDdMm from './DateInputDdMm';
 
 const PAYROLL_AUTOMATIC_MODE_OPTIONS = ['Automatic', 'Manual'];
 
@@ -153,14 +155,6 @@ function managingPartnerDaysPresentValue(emp, computedPresent) {
   const dim = parseFloat(emp?.daysInMonth) || 0;
   if (isManagingPartnerPayrollRow(emp) && dim > 0) return dim;
   return computedPresent;
-}
-
-/** Monthly LOH from muster for payroll only: at or below 1.5h → 0 (reports / raw muster unchanged). */
-function payrollMusterMonthlyLohForPayrollRow(rawHours) {
-  const n = parseFloat(String(rawHours ?? '').replace(/,/g, ''));
-  if (!Number.isFinite(n)) return 0;
-  const rounded = parseFloat(n.toFixed(2));
-  return rounded <= 1.5 ? 0 : rounded;
 }
 
 const Payroll = () => {
@@ -1683,7 +1677,7 @@ const Payroll = () => {
                 if (rawEmpId) otHoursMap[rawEmpId] = otHours;
                 if (normalizedEmpId) otHoursMap[normalizedEmpId] = otHours;
 
-                // LOH from attendance_muster_function (monthlyLOHPreferred); payroll applies ≤1.5h → 0
+                // LOH from muster; payroll applies 1.5h grace (≤1.5 → 0, else raw − 1.5)
                 const lohRaw = (musterData.monthlyLOHPreferred && musterData.monthlyLOHPreferred[idx] != null)
                   ? parseFloat(musterData.monthlyLOHPreferred[idx]) || 0
                   : 0;
@@ -2316,7 +2310,7 @@ const Payroll = () => {
                   : 0;
                 if (rawEmpId) otHoursMap[rawEmpId] = otHours;
                 if (normalizedEmpId) otHoursMap[normalizedEmpId] = otHours;
-                // LOH from attendance_muster_function (monthlyLOHPreferred); payroll applies ≤1.5h → 0
+                // LOH from muster; payroll applies 1.5h grace (≤1.5 → 0, else raw − 1.5)
                 const lohRaw = (musterData.monthlyLOHPreferred && musterData.monthlyLOHPreferred[idx] != null)
                   ? parseFloat(musterData.monthlyLOHPreferred[idx]) || 0
                   : 0;
@@ -5035,12 +5029,10 @@ EMP001,MUKESH,SALES,Unit-A,No,31,22.5,0.00,0,10000,5000,0,0,0,0,0,0,15000,7258.0
                 </div>
                 <div className="filter-group">
                   <label htmlFor="fromDate">From Date:</label>
-                  <input
-                    type="date"
+                  <DateInputDdMm
                     id="fromDate"
                     value={fromDate}
-                    onChange={(e) => {
-                      const newFromDate = e.target.value;
+                    onChange={(newFromDate) => {
                       setFromDate(newFromDate);
                       if (payrollRun && newFromDate && toDate) {
                         fetchPayrollData(newFromDate, toDate);
@@ -5051,19 +5043,17 @@ EMP001,MUKESH,SALES,Unit-A,No,31,22.5,0.00,0,10000,5000,0,0,0,0,0,0,15000,7258.0
                 </div>
                 <div className="filter-group">
                   <label htmlFor="toDate">To Date:</label>
-                  <input
-                    type="date"
+                  <DateInputDdMm
                     id="toDate"
                     value={toDate}
-                    onChange={(e) => {
-                      const newToDate = e.target.value;
+                    onChange={(newToDate) => {
                       setToDate(newToDate);
                       if (payrollRun && fromDate && newToDate) {
                         fetchPayrollData(fromDate, newToDate);
                       }
                     }}
                     className="filter-select"
-                    min={fromDate}
+                    min={fromDate || undefined}
                   />
                 </div>
                 <div className="filter-group">

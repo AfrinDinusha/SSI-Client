@@ -9,7 +9,7 @@ import HeaderBranding from './HeaderBranding';
 import { getSidebarModulesForUser } from './modulesConfig';
 import Button from './Button';
 
-import {
+import { 
   Users, Calendar, FileText, AlertTriangle, FolderOpen,
   ClipboardList, Building, Handshake, Landmark, Clock,
   BarChart3, User, TrendingUp, TrendingDown,
@@ -17,12 +17,149 @@ import {
   Shield, AlertOctagon, CreditCard, FileSignature, Search, Clock3, Database, CalendarDays,
   FileInput, FileOutput, Filter, RefreshCw, Trash2, X, Download
 } from 'lucide-react';
+
+const EMPLOYEE_CATEGORY_OPTIONS = ['Worker', 'Staff'];
+const EMPLOYEE_DATE_FIELDS = ['dateOfJoining', 'dateOfBirth', 'drivingLicenseExpiryDate', 'dateData', 'dateOfExit'];
 // import DOMPurify from 'dompurify'; // Uncomment if you install DOMPurify for XSS sanitization
 
 // Add a helper function at the top (after imports):
 function formatDate(dateStr) {
   if (!dateStr) return '-';
-  return String(dateStr).slice(0, 10);
+  const value = String(dateStr).trim();
+  const isoMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoMatch) {
+    return `${isoMatch[3]}/${isoMatch[2]}/${isoMatch[1]}`;
+  }
+  const parsed = new Date(value);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toLocaleDateString('en-GB');
+  }
+  return value;
+}
+
+function formatDateForDisplay(dateStr) {
+  if (!dateStr) return '';
+  const value = String(dateStr).trim();
+  const isoMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoMatch) {
+    return `${isoMatch[3]}/${isoMatch[2]}/${isoMatch[1]}`;
+  }
+  const displayMatch = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (displayMatch) {
+    return value;
+  }
+  const parsed = new Date(value);
+  if (!Number.isNaN(parsed.getTime())) {
+    const day = String(parsed.getDate()).padStart(2, '0');
+    const month = String(parsed.getMonth() + 1).padStart(2, '0');
+    const year = parsed.getFullYear();
+    return `${day}/${month}/${year}`;
+  }
+  return value;
+}
+
+function parseDisplayDateToIso(dateStr) {
+  if (!dateStr) return '';
+  const value = String(dateStr).trim();
+  if (!value) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return value;
+  }
+  const match = value.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
+  if (!match) {
+    return '';
+  }
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  const yearText = match[3];
+  const year = yearText.length === 2 ? Number(`20${yearText}`) : Number(yearText);
+  const parsed = new Date(year, month - 1, day);
+  if (
+    Number.isNaN(parsed.getTime()) ||
+    parsed.getFullYear() !== year ||
+    parsed.getMonth() !== month - 1 ||
+    parsed.getDate() !== day
+  ) {
+    return '';
+  }
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function DateInputField({ name, value, onChange, placeholder = 'DD/MM/YYYY' }) {
+  const hiddenDateInputRef = useRef(null);
+
+  const openDatePicker = useCallback(() => {
+    const input = hiddenDateInputRef.current;
+    if (!input) return;
+    if (typeof input.showPicker === 'function') {
+      input.showPicker();
+      return;
+    }
+    input.focus();
+    input.click();
+  }, []);
+
+  const hiddenValue = parseDisplayDateToIso(value);
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <input
+        className="input"
+        type="text"
+        name={name}
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        style={{ paddingRight: '44px' }}
+      />
+      <button
+        type="button"
+        onClick={openDatePicker}
+        aria-label={`Open ${name} calendar`}
+        style={{
+          position: 'absolute',
+          right: '12px',
+          top: '50%',
+          transform: 'translateY(-50%)',
+          border: 'none',
+          background: 'transparent',
+          padding: 0,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          cursor: 'pointer',
+          color: '#2c3e50',
+        }}
+      >
+        <CalendarDays size={18} />
+      </button>
+      <input
+        ref={hiddenDateInputRef}
+        type="date"
+        value={hiddenValue}
+        onChange={(e) => {
+          const isoValue = e.target.value;
+          const displayValue = formatDateForDisplay(isoValue);
+          onChange({
+            target: {
+              name,
+              value: displayValue,
+            },
+          });
+        }}
+        tabIndex={-1}
+        aria-hidden="true"
+        style={{
+          position: 'absolute',
+          inset: 0,
+          opacity: 0,
+          pointerEvents: 'none',
+          width: '100%',
+          height: '100%',
+        }}
+      />
+    </div>
+  );
 }
 
 // Helper: robust download via axios (handles auth cookies and blobs)
@@ -795,6 +932,13 @@ function EmployeeManagement({ userRole = 'App Administrator', userEmail = null }
   const [showForm, setShowForm] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editingEmployeeId, setEditingEmployeeId] = useState(null);
+  const [dateInputDisplays, setDateInputDisplays] = useState({
+    dateOfJoining: '',
+    dateOfBirth: '',
+    drivingLicenseExpiryDate: '',
+    dateData: '',
+    dateOfExit: '',
+  });
 
   // Add refs for dropdowns at the top of EmployeeManagement
 
@@ -832,6 +976,16 @@ function EmployeeManagement({ userRole = 'App Administrator', userEmail = null }
       }));
     }
   }, [sameAsPresent, form.presentAddressLine1, form.presentAddressLine2, form.presentCity, form.presentState, form.presentPostalCode, form.presentCountry]);
+
+  useEffect(() => {
+    setDateInputDisplays({
+      dateOfJoining: formatDateForDisplay(form.dateOfJoining),
+      dateOfBirth: formatDateForDisplay(form.dateOfBirth),
+      drivingLicenseExpiryDate: formatDateForDisplay(form.drivingLicenseExpiryDate),
+      dateData: formatDateForDisplay(form.dateData),
+      dateOfExit: formatDateForDisplay(form.dateOfExit),
+    });
+  }, [form.dateOfJoining, form.dateOfBirth, form.drivingLicenseExpiryDate, form.dateData, form.dateOfExit]);
 
   // Fetch employees with pagination
   const fetchEmployees = useCallback(() => {
@@ -2114,6 +2268,12 @@ function EmployeeManagement({ userRole = 'App Administrator', userEmail = null }
   // Validate employee data (similar to validateForm but for imports)
   const validateImportedEmployee = useCallback((emp, rowIndex) => {
     const errors = [];
+    const isValidImportedDate = (value) => {
+      if (value == null || value === '') return true;
+      const normalized = parseDisplayDateToIso(value);
+      return /^\d{4}-\d{2}-\d{2}$/.test(normalized || String(value).trim());
+    };
+
     if (!emp.employeeCode) errors.push('Employee Code is required.');
     if (!emp.employeeName) errors.push('Employee Name is required.');
     if (emp.personalEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emp.personalEmail)) {
@@ -2122,11 +2282,11 @@ function EmployeeManagement({ userRole = 'App Administrator', userEmail = null }
     if (emp.phone != null && !/^\d{10}$/.test(String(emp.phone))) {
       errors.push('Phone must be a 10-digit number if provided.');
     }
-    if (emp.dateOfJoining && !/^\d{4}-\d{2}-\d{2}$/.test(emp.dateOfJoining)) {
-      errors.push('Date of Joining must be in YYYY-MM-DD format.');
+    if (emp.dateOfJoining && !isValidImportedDate(emp.dateOfJoining)) {
+      errors.push('Date of Joining must be in DD/MM/YYYY format.');
     }
-    if (emp.dateOfBirth && !/^\d{4}-\d{2}-\d{2}$/.test(emp.dateOfBirth)) {
-      errors.push('Date of Birth must be in YYYY-MM-DD format.');
+    if (emp.dateOfBirth && !isValidImportedDate(emp.dateOfBirth)) {
+      errors.push('Date of Birth must be in DD/MM/YYYY format.');
     }
     if (emp.emergencyContactNumber != null && !/^\d{10}$/.test(String(emp.emergencyContactNumber))) {
       errors.push('Emergency Contact Number must be a 10-digit number if provided.');
@@ -2184,7 +2344,10 @@ function EmployeeManagement({ userRole = 'App Administrator', userEmail = null }
           throw new Error('No sheets found in the Excel file.');
         }
         const worksheet = workbook.Sheets[sheetName];
-        const jsonData = XLSX.utils.sheet_to_json(worksheet);
+        const jsonData = XLSX.utils.sheet_to_json(worksheet, {
+          raw: false,
+          defval: '',
+        });
 
         if (!jsonData || jsonData.length === 0) {
           throw new Error('No data found in the Excel file.');
@@ -2196,9 +2359,22 @@ function EmployeeManagement({ userRole = 'App Administrator', userEmail = null }
         const duplicateCodes = new Set();
 
         // Helper function to convert date values to YYYY-MM-DD format.
-        // Accepts: 01/11/2012 (DD/MM/YYYY), 01-11-2012, 01.11.2012, yyyy-mm-dd, Excel serial, Date object
+        // Accepts: 01/11/2012 (DD/MM/YYYY), 01-11-2012, 01.11.2012, YYYY-MM-DD, Excel serial, Date object
         const convertDateValue = (value) => {
           if (value == null || value === '') return '';
+
+          const isValidDateParts = (year, month, day) => {
+            const y = Number(year);
+            const m = Number(month);
+            const d = Number(day);
+            const parsed = new Date(y, m - 1, d);
+            return (
+              !Number.isNaN(parsed.getTime()) &&
+              parsed.getFullYear() === y &&
+              parsed.getMonth() === m - 1 &&
+              parsed.getDate() === d
+            );
+          };
          
           // If it's already a Date object (from XLSX with cellDates: true)
           if (value instanceof Date) {
@@ -2214,38 +2390,50 @@ function EmployeeManagement({ userRole = 'App Administrator', userEmail = null }
           if (/^\d{4}-\d{2}-\d{2}$/.test(strValue)) {
             return strValue;
           }
+
+          // YYYY/MM/DD
+          const ymdSlash = strValue.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/);
+          if (ymdSlash) {
+            const y = ymdSlash[1];
+            const m = ymdSlash[2].padStart(2, '0');
+            const d = ymdSlash[3].padStart(2, '0');
+            if (isValidDateParts(y, m, d)) return `${y}-${m}-${d}`;
+          }
+
+          // YYYY.MM.DD
+          const ymdDot = strValue.match(/^(\d{4})\.(\d{1,2})\.(\d{1,2})$/);
+          if (ymdDot) {
+            const y = ymdDot[1];
+            const m = ymdDot[2].padStart(2, '0');
+            const d = ymdDot[3].padStart(2, '0');
+            if (isValidDateParts(y, m, d)) return `${y}-${m}-${d}`;
+          }
          
-          // DD/MM/YYYY or D/M/YYYY (e.g. 01/11/2012, 1/11/2012) - primary format for import
-          const dmySlash = strValue.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+          // DD/MM/YYYY or D/M/YYYY or DD/MM/YY - primary format for import
+          const dmySlash = strValue.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
           if (dmySlash) {
             const d = dmySlash[1].padStart(2, '0');
             const m = dmySlash[2].padStart(2, '0');
-            const y = dmySlash[3];
-            const day = parseInt(d, 10);
-            const month = parseInt(m, 10);
-            if (month >= 1 && month <= 12 && day >= 1 && day <= 31) return `${y}-${m}-${d}`;
+            const y = dmySlash[3].length === 2 ? `20${dmySlash[3]}` : dmySlash[3];
+            if (isValidDateParts(y, m, d)) return `${y}-${m}-${d}`;
           }
          
-          // DD-MM-YYYY or D-M-YYYY (e.g. 01-11-2012)
-          const dmyDash = strValue.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+          // DD-MM-YYYY or D-M-YYYY or DD-MM-YY
+          const dmyDash = strValue.match(/^(\d{1,2})-(\d{1,2})-(\d{2}|\d{4})$/);
           if (dmyDash) {
             const d = dmyDash[1].padStart(2, '0');
             const m = dmyDash[2].padStart(2, '0');
-            const y = dmyDash[3];
-            const day = parseInt(d, 10);
-            const month = parseInt(m, 10);
-            if (month >= 1 && month <= 12 && day >= 1 && day <= 31) return `${y}-${m}-${d}`;
+            const y = dmyDash[3].length === 2 ? `20${dmyDash[3]}` : dmyDash[3];
+            if (isValidDateParts(y, m, d)) return `${y}-${m}-${d}`;
           }
          
-          // DD.MM.YYYY or D.M.YYYY (e.g. 01.11.2012)
-          const dmyDot = strValue.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+          // DD.MM.YYYY or D.M.YYYY or DD.MM.YY
+          const dmyDot = strValue.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2}|\d{4})$/);
           if (dmyDot) {
             const d = dmyDot[1].padStart(2, '0');
             const m = dmyDot[2].padStart(2, '0');
-            const y = dmyDot[3];
-            const day = parseInt(d, 10);
-            const month = parseInt(m, 10);
-            if (month >= 1 && month <= 12 && day >= 1 && day <= 31) return `${y}-${m}-${d}`;
+            const y = dmyDot[3].length === 2 ? `20${dmyDot[3]}` : dmyDot[3];
+            if (isValidDateParts(y, m, d)) return `${y}-${m}-${d}`;
           }
          
           // Check if it's an Excel serial date (numeric)
@@ -2274,10 +2462,12 @@ function EmployeeManagement({ userRole = 'App Administrator', userEmail = null }
             }
           }
          
-          // Try to parse as a date string (e.g. locale or ISO)
+          // Only fall back to Date parsing for clearly non-ambiguous textual formats.
+          // Avoid parsing slash/dash numeric dates here because JS can treat them as MM/DD/YYYY.
           try {
-            const date = new Date(strValue);
-            if (!isNaN(date.getTime())) {
+            const looksNumericDate = /^[\d./-]+$/.test(strValue);
+            const date = looksNumericDate ? null : new Date(strValue);
+            if (date && !isNaN(date.getTime())) {
               const year = date.getFullYear();
               const month = String(date.getMonth() + 1).padStart(2, '0');
               const day = String(date.getDate()).padStart(2, '0');
@@ -2684,8 +2874,8 @@ function EmployeeManagement({ userRole = 'App Administrator', userEmail = null }
           'Email': emp.personalEmail || '',
           'Phone': emp.phone || '',
           'Secondary Contact Number': emp.secondaryContactNumber || '',
-          'Date of Joining': emp.dateOfJoining || '',
-          'Date of Exit': emp.dateOfExit || '',
+          'Date of Joining': emp.dateOfJoining ? formatDate(emp.dateOfJoining) : '',
+          'Date of Exit': emp.dateOfExit ? formatDate(emp.dateOfExit) : '',
           'Employment Type': emp.employmentType || '',
           'Employee Status': emp.employeeStatus || '',
           'Overall Experience': emp.overallExperience || '',
@@ -2706,7 +2896,7 @@ function EmployeeManagement({ userRole = 'App Administrator', userEmail = null }
           'National Head': emp.nationalHead || '',
           'Aadhaar Number': emp.aadhaarNumber || '',
           'PAN Number': emp.panNumber || '',
-          'Date of Birth': emp.dateOfBirth || '',
+          'Date of Birth': emp.dateOfBirth ? formatDate(emp.dateOfBirth) : '',
           "FatherName": emp.fathersName || '',
           'Age': emp.age || '',
           'Emergency Contact': emp.emergencyContactNumber || '',
@@ -2750,10 +2940,10 @@ function EmployeeManagement({ userRole = 'App Administrator', userEmail = null }
           'Revised Actual DA': emp.revisedActualDA || '',
           'Revised Other Allowance': emp.revisedOtherAllowance || '',
           'Month Data': emp.monthData || '',
-          'Date Data': emp.dateData || '',
+          'Date Data': emp.dateData ? formatDate(emp.dateData) : '',
           'Revised Total Salary': emp.revisedTotalSalary || '',
           'Driving License Number': emp.drivingLicenseNumber || '',
-          'Driving License Expiry Date': emp.drivingLicenseExpiryDate || '',
+          'Driving License Expiry Date': emp.drivingLicenseExpiryDate ? formatDate(emp.drivingLicenseExpiryDate) : '',
           'Bank Holder Name': emp.bankHolderName || '',
           'Bank Name': emp.bankName || '',
           'Account Number': emp.accountNumber || '',
@@ -3021,6 +3211,46 @@ function EmployeeManagement({ userRole = 'App Administrator', userEmail = null }
   const onChange = useCallback((e) => {
     const { name, value } = e.target;
     console.log(`Field changed: ${name}=${value}`);
+
+    if (EMPLOYEE_DATE_FIELDS.includes(name)) {
+      setDateInputDisplays((prev) => ({
+        ...prev,
+        [name]: value,
+      }));
+
+      const normalizedDateValue = parseDisplayDateToIso(value);
+
+      if (name === 'dateOfBirth') {
+        const calculatedAge = normalizedDateValue ? calculateAge(normalizedDateValue) : '';
+        setForm((prev) => ({
+          ...prev,
+          [name]: normalizedDateValue,
+          age: calculatedAge,
+        }));
+
+        setAgeAutoCalculated(!!calculatedAge);
+
+        if (calculatedAge) {
+          const ageValidation = validateAge(calculatedAge);
+          if (!ageValidation.isValid) {
+            setFormError(ageValidation.message);
+            setAgeValid(false);
+          } else {
+            setFormError('');
+            setAgeValid(true);
+          }
+        } else {
+          setFormError('');
+          setAgeValid(false);
+        }
+      } else {
+        setForm((prev) => ({
+          ...prev,
+          [name]: normalizedDateValue,
+        }));
+      }
+      return;
+    }
    
     // If date of birth is changed, automatically calculate age
     if (name === 'dateOfBirth') {
@@ -4796,7 +5026,7 @@ function EmployeeManagement({ userRole = 'App Administrator', userEmail = null }
                   <div className="form-grid">
                     <div className="form-group">
                       <label>Date of Joining *</label>
-                      <input className="input" type="date" name="dateOfJoining" value={form.dateOfJoining} onChange={onChange} />
+                      <DateInputField name="dateOfJoining" value={dateInputDisplays.dateOfJoining} onChange={onChange} />
                     </div>
                     <div className="form-group">
                       <label>Employment Type</label>
@@ -4839,7 +5069,7 @@ function EmployeeManagement({ userRole = 'App Administrator', userEmail = null }
                     <div className="form-grid">
                       <div className="form-group">
                         <label>Date of Birth</label>
-                        <input className="input" type="date" name="dateOfBirth" value={form.dateOfBirth} onChange={onChange} />
+                        <DateInputField name="dateOfBirth" value={dateInputDisplays.dateOfBirth} onChange={onChange} />
                       </div>
                       <div className="form-group">
                         <label>Age</label>
@@ -5055,7 +5285,7 @@ function EmployeeManagement({ userRole = 'App Administrator', userEmail = null }
                     </div>
                     <div className="form-group">
                       <label>Driving License Expiry Date</label>
-                      <input className="input" type="date" name="drivingLicenseExpiryDate" value={form.drivingLicenseExpiryDate} onChange={onChange} />
+                      <DateInputField name="drivingLicenseExpiryDate" value={dateInputDisplays.drivingLicenseExpiryDate} onChange={onChange} />
                     </div>
                   </div>
                 </div>
@@ -5206,7 +5436,7 @@ function EmployeeManagement({ userRole = 'App Administrator', userEmail = null }
                         </div>
                         <div className="form-group">
                           <label>Date Data</label>
-                          <input className="input" type="date" name="dateData" value={form.dateData} onChange={onChange} />
+                          <DateInputField name="dateData" value={dateInputDisplays.dateData} onChange={onChange} />
                         </div>
                         <div className="form-group">
                           <label>Revised Total Salary (Auto-calculated)</label>
@@ -5245,7 +5475,12 @@ function EmployeeManagement({ userRole = 'App Administrator', userEmail = null }
                       {/* Removed HR Partner and National Head fields as requested */}
                       <div className="form-group">
                         <label>Category</label>
-                        <input className="input" name="category" value={form.category} onChange={onChange} />
+                        <select className="input" name="category" value={form.category} onChange={onChange}>
+                          <option value="">-Select-</option>
+                          {EMPLOYEE_CATEGORY_OPTIONS.map((option) => (
+                            <option key={option} value={option}>{option}</option>
+                          ))}
+                        </select>
                       </div>
                   <div className="form-group">
                     <label>Employee Status</label>
@@ -5265,7 +5500,7 @@ function EmployeeManagement({ userRole = 'App Administrator', userEmail = null }
                     return showDateOfExit ? (
                       <div className="form-group">
                         <label>Date of Exit</label>
-                        <input className="input" type="date" name="dateOfExit" value={form.dateOfExit} onChange={onChange} />
+                        <DateInputField name="dateOfExit" value={dateInputDisplays.dateOfExit} onChange={onChange} />
                       </div>
                     ) : null;
                   })()}

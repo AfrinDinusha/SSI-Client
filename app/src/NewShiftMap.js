@@ -16,6 +16,7 @@ import {
   Map, BarChart3, User, TrendingUp, TrendingDown,
   Activity, Plus, CheckCircle, Bell, Settings, LayoutDashboard, Home as HomeIcon, AlertOctagon, CreditCard, Shield, FileSignature, Search, Clock3, CalendarDays,   Database, Download, Trash2, X
 } from 'lucide-react';
+import DateInputDdMm from './DateInputDdMm';
 
 const VALID_SHIFT_NAMES = ['1st Shift', 'General', '2nd Shift'];
 
@@ -1062,14 +1063,13 @@ function NewShiftMap({ userRole = 'App Administrator', userEmail = null }) {
                           </div>
                           <div className="form-group">
                             <label htmlFor="add-roster-from">From date</label>
-                            <input
+                            <DateInputDdMm
                               id="add-roster-from"
-                              type="date"
                               value={addRosterForm.fromDate}
-                              onChange={(e) =>
+                              onChange={(iso) =>
                                 setAddRosterForm((prev) => ({
                                   ...prev,
-                                  fromDate: e.target.value
+                                  fromDate: iso
                                 }))
                               }
                               className="form-input"
@@ -1077,17 +1077,17 @@ function NewShiftMap({ userRole = 'App Administrator', userEmail = null }) {
                           </div>
                           <div className="form-group">
                             <label htmlFor="add-roster-to">To date</label>
-                            <input
+                            <DateInputDdMm
                               id="add-roster-to"
-                              type="date"
                               value={addRosterForm.toDate}
-                              onChange={(e) =>
+                              onChange={(iso) =>
                                 setAddRosterForm((prev) => ({
                                   ...prev,
-                                  toDate: e.target.value
+                                  toDate: iso
                                 }))
                               }
                               className="form-input"
+                              min={addRosterForm.fromDate || undefined}
                             />
                           </div>
                           <div className="form-group">
@@ -1180,20 +1180,19 @@ function NewShiftMap({ userRole = 'App Administrator', userEmail = null }) {
               <div className="newshiftmap-date-filter-left">
                 <div className="date-input-group">
                   <label>Start Date:</label>
-                  <input
-                    type="date"
+                  <DateInputDdMm
                     value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
+                    onChange={setStartDate}
                     className="newshiftmap-date-input"
                   />
                 </div>
                 <div className="date-input-group">
                   <label>End Date:</label>
-                  <input
-                    type="date"
+                  <DateInputDdMm
                     value={endDate}
-                    onChange={(e) => setEndDate(e.target.value)}
+                    onChange={setEndDate}
                     className="newshiftmap-date-input"
+                    min={startDate || undefined}
                   />
                 </div>
               </div>

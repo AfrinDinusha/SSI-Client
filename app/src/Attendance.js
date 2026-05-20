@@ -12,6 +12,7 @@ import {
   Map, BarChart3, User, TrendingUp, TrendingDown,
   Activity, Plus, CheckCircle, Bell, Settings, LayoutDashboard, Home as HomeIcon, AlertOctagon, CreditCard, Shield, Search, Clock3
 } from 'lucide-react';
+import DateInputDdMm from './DateInputDdMm';
 
 function Attendance({ userRole, userEmail }) {
   const [attendance, setAttendance] = useState([]);
@@ -714,11 +715,11 @@ function Attendance({ userRole, userEmail }) {
                 <div className="attendance-date-group">
                   <label>
                     From:
-                    <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} disabled={fetching || loading} />
+                    <DateInputDdMm value={fromDate} onChange={setFromDate} disabled={fetching || loading} />
                   </label>
                   <label>
                     To:
-                    <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} disabled={fetching || loading} />
+                    <DateInputDdMm value={toDate} onChange={setToDate} disabled={fetching || loading} min={fromDate || undefined} />
                   </label>
                 </div>
                 <div className="attendance-form-buttons">

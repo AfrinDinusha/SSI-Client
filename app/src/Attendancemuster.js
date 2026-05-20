@@ -12,6 +12,7 @@ import {
   Map, BarChart3, User, TrendingUp, TrendingDown,
   Activity, Plus, CheckCircle, Bell, Settings, LayoutDashboard, Home as HomeIcon, AlertOctagon, CreditCard, Shield, Download, FileSignature, Search, Clock3, CalendarDays, Database
 } from 'lucide-react';
+import DateInputDdMm from './DateInputDdMm';
 
 function parseOtHours(val) {
   const n = parseFloat(String(val ?? '').replace(/,/g, '').trim());
@@ -91,9 +92,11 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
   };
   const [contractor, setContractor] = useState(getInitialContractor);
   const [department, setDepartment] = useState('All');
+  const [category, setCategory] = useState('All');
   const [status, setStatus] = useState('Active');
   const [contractors, setContractors] = useState(['All']);
   const [departments, setDepartments] = useState(['All']);
+  const [categories, setCategories] = useState(['All']);
   const [shiftMasterNames, setShiftMasterNames] = useState([]);
   const [data, setData] = useState(null);
   /** Per-employee OT adjustment (hours); added to OT Hours for Final OT Value (Monthly OT parity). */
@@ -330,6 +333,9 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
       if (department && department !== 'All') {
         params.append('department', department);
       }
+      if (category && category !== 'All') {
+        params.append('category', category);
+      }
       if (status && status !== 'All') {
         params.append('status', status);
       }
@@ -385,6 +391,13 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
         setDepartments(['All', ...departmentNames]);
       })
       .catch(() => setDepartments(['All']));
+    fetch(`/server/cms_function/employees/categories${userEmail || userRole ? `?${new URLSearchParams({
+      ...(userEmail ? { userEmail } : {}),
+      ...(userRole ? { userRole } : {})
+    }).toString()}` : ''}`)
+      .then(res => res.json())
+      .then(data => setCategories(['All', ...((data.data?.categories) || [])]))
+      .catch(() => setCategories(['All']));
   }, []);
 
   useEffect(() => {
@@ -506,11 +519,22 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
       .catch(() => setDepartments(['All']));
   };
 
+  const refreshCategories = () => {
+    const params = new URLSearchParams();
+    if (userEmail) params.set('userEmail', userEmail);
+    if (userRole) params.set('userRole', userRole);
+    const query = params.toString();
+    fetch(`/server/cms_function/employees/categories${query ? `?${query}` : ''}`)
+      .then(res => res.json())
+      .then(data => setCategories(['All', ...((data.data?.categories) || [])]))
+      .catch(() => setCategories(['All']));
+  };
+
   const handleExport = async () => {
     if (!data || !data.dates || !data.employees || !data.muster) return;
     
     // Build header and sheet data for XLSX
-    const header = ['Employee ID', 'Employee Name', 'Department', 'Date of Joining', 'Date of Exit', ...data.dates.map(date => new Date(date).toLocaleDateString('en-GB')), 'Total Hours', 'LOH', 'OT Hours', 'Adjust value', 'Final OT Value', 'Total Present', 'Total Absent'];
+    const header = ['Employee ID', 'Employee Name', 'Department', 'Category', 'Date of Joining', 'Date of Exit', ...data.dates.map(date => new Date(date).toLocaleDateString('en-GB')), 'Total Hours', 'LOH', 'OT Hours', 'Adjust value', 'Final OT Value', 'Total Present', 'Total Absent'];
     const sheetData = [header];
     
     // Add data rows - use explicit for loop to ensure exact same order as display
@@ -524,15 +548,19 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
       const rowOndutyAppliedLastOut = data.ondutyAppliedLastOut ? data.ondutyAppliedLastOut[rowIdx] : [];
       const rowRealFirstIn = data.realFirstIn ? data.realFirstIn[rowIdx] : [];
       const rowRealLastOut = data.realLastOut ? data.realLastOut[rowIdx] : [];
+      const rowLohFirstIn = data.lohFirstIn ? data.lohFirstIn[rowIdx] : [];
+      const rowLohLastOut = data.lohLastOut ? data.lohLastOut[rowIdx] : [];
       const rowTotalHours = data.totalHours ? data.totalHours[rowIdx] : [];
       const rowLOH = data.loh ? data.loh[rowIdx] : [];
       const rowOvertimeHours = data.overtimeHours ? data.overtimeHours[rowIdx] : [];
       const rowEmployeeNames = data.employeeNames ? data.employeeNames[rowIdx] : [];
       const rowDepartments = data.departments ? data.departments[rowIdx] : [];
+      const rowCategories = data.categories ? data.categories[rowIdx] : [];
       const rowDateOfJoining = data.dateOfJoining ? data.dateOfJoining[rowIdx] : [];
       const rowDateOfExit = data.dateOfExit ? data.dateOfExit[rowIdx] : [];
       const employeeName = rowEmployeeNames.length > 0 ? rowEmployeeNames[0] : '';
       const department = rowDepartments.length > 0 ? rowDepartments[0] : '-';
+      const category = rowCategories.length > 0 ? rowCategories[0] : '-';
       const dateOfJoining = rowDateOfJoining.length > 0 ? rowDateOfJoining[0] : '';
       const dateOfExit = rowDateOfExit.length > 0 ? rowDateOfExit[0] : '';
       const formattedDateOfJoining = dateOfJoining ? new Date(dateOfJoining).toLocaleDateString('en-GB') : '-';
@@ -575,10 +603,14 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
         empId,
         employeeName || '-',
         department || '-',
+        category || '-',
         formattedDateOfJoining,
         formattedDateOfExit,
         ...rowStatuses.map((s, colIdx) => {
           const status = String(s || '').trim();
+          const lohFirstInTime = rowLohFirstIn && rowLohFirstIn[colIdx] ? String(rowLohFirstIn[colIdx]).trim() : '';
+          const lohLastOutTime = rowLohLastOut && rowLohLastOut[colIdx] ? String(rowLohLastOut[colIdx]).trim() : '';
+          const lohLine = (lohFirstInTime && lohLastOutTime) ? `LOH: ${lohFirstInTime} - ${lohLastOutTime}` : '';
           let statusDisplay = 'A';
           if (status === 'Present' || status === 'P') statusDisplay = 'P';
           else if (status === 'Half Day Present' || status === '0.5') statusDisplay = '0.5'; // Half Day as 0.5
@@ -606,9 +638,9 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
             const firstInTime = toTimeStr(odFirstIn);
             const lastOutTime = toTimeStr(odLastOut);
             if (firstInTime && lastOutTime) {
-              return `${statusDisplay}\n${firstInTime} - ${lastOutTime}`;
+              return [statusDisplay, `${firstInTime} - ${lastOutTime}`, lohLine].filter(Boolean).join('\n');
             }
-            return statusDisplay;
+            return [statusDisplay, lohLine].filter(Boolean).join('\n');
           }
           // OD (Half Day): two parts - OnDuty applied time, then Check-in/out (real times)
           if (status === 'OD-0.5') {
@@ -619,18 +651,19 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
             const appliedLine = (appliedFrom && appliedTo) ? `${appliedFrom} - ${appliedTo}` : '';
             const realLine = (realFrom && realTo) ? `Check-in/out: ${realFrom} - ${realTo}` : '';
             if (appliedLine || realLine) {
-              return [statusDisplay, appliedLine, realLine].filter(Boolean).join('\n');
+              const primaryLine = [appliedLine, realLine].filter(Boolean).join(' | ');
+              return [statusDisplay, primaryLine, lohLine].filter(Boolean).join('\n');
             }
-            return statusDisplay;
+            return [statusDisplay, lohLine].filter(Boolean).join('\n');
           }
           
           const firstInTime = rowFirstIn[colIdx] || '';
           const lastOutTime = rowLastOut[colIdx] || '';
           
           if (firstInTime && lastOutTime) {
-            return `${statusDisplay}\n${firstInTime} - ${lastOutTime}`;
+            return [statusDisplay, `${firstInTime} - ${lastOutTime}`, lohLine].filter(Boolean).join('\n');
           }
-          return statusDisplay;
+          return [statusDisplay, lohLine].filter(Boolean).join('\n');
         }),
         formattedTotalHours,
         formattedTotalLOH,
@@ -648,6 +681,18 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
     const worksheet = XLSX.utils.aoa_to_sheet(sheetData);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Muster');
+
+    worksheet['!cols'] = header.map((columnName, idx) => {
+      if (idx === 0) return { wch: 12 };
+      if (idx === 1) return { wch: 22 };
+      if (idx === 2) return { wch: 16 };
+      if (idx === 3) return { wch: 12 };
+      if (idx === 4 || idx === 5) return { wch: 14 };
+      if (idx >= 6 && idx < 6 + data.dates.length) return { wch: 18 };
+      if (columnName === 'Total Hours' || columnName === 'Final OT Value') return { wch: 14 };
+      if (columnName === 'LOH' || columnName === 'OT Hours' || columnName === 'Adjust value') return { wch: 12 };
+      return { wch: 13 };
+    });
 
     // Helper: status + firstIn/lastOut + shiftType -> cell style (fill + font) so export matches table (1st/2nd/HK colours)
     const getStatusStyle = (status, firstIn, lastOut, shiftType) => {
@@ -881,23 +926,20 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
                 <div className="muster-filter-grid">
                   <div className="muster-filter-group">
                     <label>Start Date:
-                      <input
-                        type="date"
+                      <DateInputDdMm
                         className="muster-input"
                         value={startDate}
-                        onChange={e => setStartDate(e.target.value)}
-                        placeholder="dd-mm-yyyy"
+                        onChange={setStartDate}
                       />
                     </label>
                   </div>
                   <div className="muster-filter-group">
                     <label>End Date:
-                      <input
-                        type="date"
+                      <DateInputDdMm
                         className="muster-input"
                         value={endDate}
-                        onChange={e => setEndDate(e.target.value)}
-                        placeholder="dd-mm-yyyy"
+                        onChange={setEndDate}
+                        min={startDate || undefined}
                       />
                     </label>
                   </div>
@@ -922,25 +964,6 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
                         <option value="Active">Active</option>
                         <option value="Inactive">Inactive</option>
                       </select>
-                    </label>
-                  </div>
-                  <div className="muster-filter-group">
-                    <label>Department:
-                      <select
-                        className="muster-input"
-                        value={department}
-                        onChange={e => setDepartment(e.target.value)}
-                        onFocus={refreshDepartments}
-                      >
-                        {departments.map(d => (
-                          <option key={d} value={d}>{d}</option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
-                  <div className="muster-filter-group">
-                    <label>Location:
-                      <input type="text" className="muster-input" placeholder="Search By Zone" />
                     </label>
                   </div>
                 </div>
@@ -990,6 +1013,7 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
                         <th>Employee ID</th>
                         <th>Employee Name</th>
                         <th>Department</th>
+                        <th>Category</th>
                         <th>Date of Joining</th>
                         <th>Date of Exit</th>
                         {(data.dates && Array.isArray(data.dates) ? data.dates : []).map(date => (
@@ -1024,10 +1048,12 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
                         const rowOvertimeHours = data.overtimeHours && data.overtimeHours[rowIdx] ? data.overtimeHours[rowIdx] : [];
                         const rowEmployeeNames = data.employeeNames && data.employeeNames[rowIdx] ? data.employeeNames[rowIdx] : [];
                         const rowDepartments = data.departments && data.departments[rowIdx] ? data.departments[rowIdx] : [];
+                        const rowCategories = data.categories && data.categories[rowIdx] ? data.categories[rowIdx] : [];
                         const rowDateOfJoining = data.dateOfJoining && data.dateOfJoining[rowIdx] ? data.dateOfJoining[rowIdx] : [];
                         const rowDateOfExit = data.dateOfExit && data.dateOfExit[rowIdx] ? data.dateOfExit[rowIdx] : [];
                         const employeeName = rowEmployeeNames.length > 0 ? rowEmployeeNames[0] : '';
                         const department = rowDepartments.length > 0 ? rowDepartments[0] : '-';
+                        const category = rowCategories.length > 0 ? rowCategories[0] : '-';
                         const dateOfJoining = rowDateOfJoining.length > 0 ? rowDateOfJoining[0] : '';
                         const dateOfExit = rowDateOfExit.length > 0 ? rowDateOfExit[0] : '';
                         // Format date of joining for display (DD/MM/YYYY)
@@ -1074,6 +1100,7 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
                             <td>{empId}</td>
                             <td>{employeeName || '-'}</td>
                             <td>{department}</td>
+                            <td>{category || '-'}</td>
                             <td>{formattedDateOfJoining}</td>
                             <td>{formattedDateOfExit}</td>
                             {(rowStatuses && Array.isArray(rowStatuses) ? rowStatuses : []).map((status, colIdx) => {
@@ -1308,6 +1335,8 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
                       {/* Total Row */}
                       <tr className="muster-total-row">
                         <td><strong>TOTAL</strong></td>
+                        <td className="total-cell">-</td>
+                        <td className="total-cell">-</td>
                         <td className="total-cell">-</td>
                         <td className="total-cell">-</td>
                         <td className="total-cell">-</td>
