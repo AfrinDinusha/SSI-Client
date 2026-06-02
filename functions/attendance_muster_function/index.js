@@ -3175,16 +3175,30 @@ module.exports = async (req, res) => {
                   console.log(`Successfully fetched ${lohData.length} LOH records from reports_function`);
                  
                   // Process LOH data from reports_function (same format as LOHReport.js)
-                  // Filter by employees list if we have one
-                  const employeeSet = employees.length > 0 ? new Set(employees.map(String)) : null;
+                  // Filter by employees list if we have one (trim + numeric aliases for codes like 1000133)
+                  const employeeSet = new Set();
+                  if (employees.length > 0) {
+                    for (const emp of employees) {
+                      const raw = String(emp ?? '').trim();
+                      if (!raw) continue;
+                      employeeSet.add(raw);
+                      if (/^\d+$/.test(raw)) {
+                        employeeSet.add(String(parseInt(raw, 10)));
+                      }
+                    }
+                  }
+                  const hasEmployeeFilter = employeeSet.size > 0;
                  
                   for (const row of lohData) {
-                    const empId = String(row.employeeId || '').trim();
+                    const empId = String(row.employeeId || row.EmployeeId || '').trim();
                     if (!empId) continue;
                    
-                    // Filter by employees list if we have one
-                    if (employeeSet && !employeeSet.has(empId)) {
-                      continue;
+                    if (hasEmployeeFilter) {
+                      const empAliases = [empId];
+                      if (/^\d+$/.test(empId)) empAliases.push(String(parseInt(empId, 10)));
+                      if (!empAliases.some((id) => employeeSet.has(id))) {
+                        continue;
+                      }
                     }
                    
                     // Normalize date to YYYY-MM-DD format (same as dates array)

@@ -1,5 +1,6 @@
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
+import { getRevisedLohForPayrollRow } from './payrollLiveLoh';
 
 const STORAGE_KEY = 'payslipTemplateConfig_v1';
 
@@ -79,13 +80,13 @@ const filterDeductionRowsForPayslip = (rows) => {
   return rows.filter((r) => !isHiddenPayslipAllowanceLabel(r.label));
 };
 
-/** Template deduction row labeled "Late" — append total LOH in label: "Late | &lt;hours&gt;". */
+/** Template deduction row labeled "Late" — append Revised LOH hours: "Late | &lt;hours&gt;". */
 const isPayslipLateDeductionLabel = (label) => {
   const n = normalizeLabelForMatch(String(label || '').trim().toLowerCase()).replace(/\s+/g, ' ');
   return n === 'late';
 };
 
-/** LOH hours for Late label; returns null if unknown, "0" when LOH is zero. */
+/** Hours for Late label; returns null if unknown, "0" when zero. */
 const formatLohHoursForPayslipCell = (raw) => {
   if (raw == null || raw === '') return null;
   const n = Number(String(raw).replace(/,/g, '').trim());
@@ -95,13 +96,18 @@ const formatLohHoursForPayslipCell = (raw) => {
   return String(Math.round(n * 100) / 100);
 };
 
-/** Payroll LOH is already post-grace (raw − 1.5 when raw > 1.5); use as Late hours on payslip. */
-const getPayslipLateHoursFromLoh = (payrollLoh) => {
-  if (payrollLoh == null || payrollLoh === '') return null;
-  const loh = Number(String(payrollLoh).replace(/,/g, '').trim());
-  if (!Number.isFinite(loh)) return null;
-  if (loh <= 0) return 0;
-  return Math.round(loh * 100) / 100;
+/** Revised LOH hours for payslip Late label (saved override or LOH − 1.5h grace). */
+const getPayslipLateHoursFromEmployee = (emp, getVal) => {
+  if (!emp || typeof emp !== 'object') return null;
+  const fromVal =
+    getPayslipValue(emp, 'revisedLOH', 'Revised LOH', getVal) ??
+    getPayslipValue(emp, 'revisedLOH', 'RevisedLOH', getVal);
+  if (fromVal !== undefined && fromVal !== null && String(fromVal).trim() !== '') {
+    const n = Number(String(fromVal).replace(/,/g, '').trim());
+    if (Number.isFinite(n)) return n;
+  }
+  const revised = getRevisedLohForPayrollRow(emp);
+  return Number.isFinite(revised) ? revised : null;
 };
 
 const formatPayslipHoursSuffix = (raw) => {
@@ -130,21 +136,9 @@ const earningDisplayLabel = (rowLabel, emp) => {
   return label;
 };
 
-const getLohRawForPayslipLate = (emp, getVal) => {
-  let raw =
-    getPayslipValue(emp, 'loh', 'Loss of Hours', getVal) ?? getPayslipValue(emp, 'loh', 'LOH', getVal);
-  if (raw !== undefined && raw !== null && raw !== '') return raw;
-  if (raw === 0 || raw === '0') return raw;
-  raw = emp?.loh ?? emp?.LOH;
-  if (raw !== undefined && raw !== null && raw !== '') return raw;
-  if (raw === 0 || raw === '0') return raw;
-  return undefined;
-};
-
 const deductionDisplayLabel = (rowLabel, emp, getVal) => {
   if (!isPayslipLateDeductionLabel(rowLabel)) return rowLabel;
-  const raw = getLohRawForPayslipLate(emp, getVal);
-  const lateHours = getPayslipLateHoursFromLoh(raw);
+  const lateHours = getPayslipLateHoursFromEmployee(emp, getVal);
   const formatted = formatLohHoursForPayslipCell(lateHours);
   if (formatted === null) return String(rowLabel).trim();
   return `${String(rowLabel).trim()} | ${formatted}`;
@@ -176,6 +170,7 @@ const getComponentDisplayValue = (employee, componentName) => {
   const lower = normalizeLabelForMatch(base.toLowerCase());
   if (lower.includes('no. of days') && lower.includes('month')) return employee.daysInMonth ?? employee.DaysInMonth ?? '';
   if (lower.includes('no. of days present') || lower.includes('days present')) return employee.daysPresent ?? employee.DaysPresent ?? '';
+  if (lower.includes('revised') && lower.includes('loh')) return getRevisedLohForPayrollRow(employee);
   if (lower === 'loh' || lower.includes('loss of hours')) return employee.loh ?? employee.LOH ?? '';
   if (lower === 'lop' || lower.includes('loss of pay')) return employee.lop ?? employee.LOP ?? '';
   if (lower.includes('ot hours') || lower === 'ot') return employee.otHours ?? employee.OTHours ?? '';

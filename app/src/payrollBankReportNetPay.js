@@ -741,8 +741,12 @@ function computeBankReportPayrollAmounts(row, options) {
     }
     if (n === 'late') {
       if (isYashaswi(row)) return 0;
-      // Bank report Late: payroll LOH is post-grace; 0 if LOH ≤ 0, else Basic ÷ days ÷ 8 × 2 × LOH
-      const lohVal = pickNum(row, 'loh', 'LOH');
+      // Bank report Late: LOH with 1.5h grace; 0 if none, else Basic ÷ days ÷ 8 × 2 × LOH
+      const lohRaw = pickNum(row, 'loh', 'LOH');
+      const lohVal =
+        Number.isFinite(lohRaw) && lohRaw > 1.5
+          ? Math.round((lohRaw - 1.5) * 100) / 100
+          : 0;
       if (!Number.isFinite(lohVal) || lohVal <= 0) return 0;
       let dimLate = dimForEb;
       if (dimLate <= 0) {

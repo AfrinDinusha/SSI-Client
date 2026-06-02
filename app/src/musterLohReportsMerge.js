@@ -1,115 +1,325 @@
 /**
- * Align muster LOH with LOH Report (`reports_function` /loh) — same overlay as Attendance Muster UI.
+
+ * Align muster LOH with LOH Report (`reports_function` /loh) — same overlay as Payroll.
+
  */
+
+
+
+import { normalizeEmployeeCode } from './bankReportPayrollShared';
+
+
 
 function normalizeLohReportDateYmd(value) {
+
   if (!value) return '';
+
   const s = String(value).trim();
+
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
   const d = new Date(s);
+
   if (Number.isNaN(d.getTime())) return '';
+
   return d.toISOString().slice(0, 10);
+
 }
+
+
+
+/** All employee-code aliases for matching muster rows to LOH report rows. */
+
+function employeeCodeAliases(code) {
+
+  const raw = String(code ?? '').trim();
+
+  if (!raw) return [];
+
+  const out = new Set([raw]);
+
+  const norm = normalizeEmployeeCode(raw);
+
+  if (norm) out.add(norm);
+
+  if (/^\d+$/.test(raw)) out.add(String(parseInt(raw, 10)));
+
+  if (norm && /^\d+$/.test(norm)) out.add(String(parseInt(norm, 10)));
+
+  return [...out];
+
+}
+
+
+
+function primaryEmployeeIdFromLohRow(row) {
+
+  return String(row.employeeId ?? row.EmployeeId ?? row.employeeID ?? '').trim();
+
+}
+
+
+
+export function employeeIdsMatchForLoh(musterEmpId, lohRowEmpId) {
+
+  const aliasesA = employeeCodeAliases(musterEmpId);
+
+  const aliasesB = employeeCodeAliases(lohRowEmpId);
+
+  return aliasesA.some((a) => aliasesB.includes(a));
+
+}
+
+
 
 function buildLohHoursMapFromReportsRows(lohRows) {
+
   const map = {};
+
   if (!Array.isArray(lohRows)) return map;
+
   for (const row of lohRows) {
-    const empId = String(row.employeeId ?? row.EmployeeId ?? '').trim();
+
+    const empId = primaryEmployeeIdFromLohRow(row);
+
     if (!empId) continue;
+
     const dateStr = normalizeLohReportDateYmd(row.date);
+
     if (!dateStr) continue;
+
     const hours = parseFloat(String(row.lossOfHours ?? '0').replace(/,/g, ''));
+
     if (!Number.isFinite(hours)) continue;
-    map[`${empId}_${dateStr}`] = hours;
+
+    for (const alias of employeeCodeAliases(empId)) {
+
+      map[`${alias}_${dateStr}`] = hours;
+
+    }
+
   }
+
   return map;
+
 }
+
+
+
+function lookupLohHoursInMap(map, empId, dateStr) {
+
+  for (const alias of employeeCodeAliases(empId)) {
+
+    const key = `${alias}_${dateStr}`;
+
+    if (map[key] !== undefined) return map[key];
+
+  }
+
+  return undefined;
+
+}
+
+
+
+/** Monthly total per employee — same sum as LOH Report calendar total. */
+
+function buildMonthlyLohTotalsFromReportsRows(lohRows, employees) {
+
+  return employees.map((empId) => {
+
+    let total = 0;
+
+    for (const row of lohRows) {
+
+      if (!employeeIdsMatchForLoh(empId, primaryEmployeeIdFromLohRow(row))) continue;
+
+      const hours = parseFloat(String(row.lossOfHours ?? '0').replace(/,/g, ''));
+
+      if (Number.isFinite(hours)) total += hours;
+
+    }
+
+    return parseFloat((total || 0).toFixed(2));
+
+  });
+
+}
+
+
 
 function isMusterCellLohExcluded(status, shiftTypeLabel) {
+
   const st = String(status ?? '').trim();
+
   if (st === 'WO' || st === 'H' || st === 'Week Off') return true;
+
   const sh = String(shiftTypeLabel ?? '').toLowerCase();
+
   if (sh.includes('housekeeping') || sh.includes('house keeping')) return true;
+
   return false;
+
 }
+
+
+
+/** Format LOH column total for display/export (show 0.50, not "-", when LOH > 0). */
+
+export function formatMusterLohTotal(value) {
+
+  const n = parseFloat(value);
+
+  if (!Number.isFinite(n) || n <= 0) return '-';
+
+  return n.toFixed(2);
+
+}
+
+
 
 /**
+
  * Replace muster `loh` / `monthlyLOHPreferred` using LOH Report data (`reports_function` /loh).
+
  */
+
 export function applyReportsLohToMusterData(musterData, lohRows) {
+
   if (!musterData || !Array.isArray(musterData.employees) || !Array.isArray(musterData.dates)) {
+
     return musterData;
+
   }
+
+  if (!Array.isArray(lohRows) || lohRows.length === 0) return musterData;
+
+
+
   const map = buildLohHoursMapFromReportsRows(lohRows);
-  if (Object.keys(map).length === 0) return musterData;
 
   const dates = musterData.dates;
+
   const newLoh = musterData.employees.map((empId, rowIdx) => {
-    const empStr = String(empId).trim();
+
     const rowStatuses = musterData.muster?.[rowIdx] || [];
+
     const rowShiftTypes = musterData.shiftTypes?.[rowIdx] || [];
+
     return dates.map((dateStr, colIdx) => {
+
       if (isMusterCellLohExcluded(rowStatuses[colIdx], rowShiftTypes[colIdx])) return '';
-      const key = `${empStr}_${dateStr}`;
-      if (map[key] === undefined) return '';
-      return parseFloat((map[key] || 0).toFixed(2));
+
+      const hours = lookupLohHoursInMap(map, empId, dateStr);
+
+      if (hours === undefined) return '';
+
+      return parseFloat((hours || 0).toFixed(2));
+
     });
+
   });
 
-  const monthlyLOHPreferred = newLoh.map((row) => {
-    const total = (row || []).reduce((sum, v) => {
-      if (v !== '' && v != null && !Number.isNaN(v)) return sum + parseFloat(v);
-      return sum;
-    }, 0);
-    return parseFloat((total || 0).toFixed(2));
-  });
+
+
+  const monthlyLOHPreferred = buildMonthlyLohTotalsFromReportsRows(lohRows, musterData.employees);
+
+
 
   return {
+
     ...musterData,
+
     loh: newLoh,
-    monthlyLOHPreferred
+
+    monthlyLOHPreferred,
+
   };
+
 }
+
+
 
 export async function fetchLohRowsForMusterOverlay({
+
   startDate,
+
   endDate,
+
   contractor,
+
   department,
+
   userEmail,
-  userRole
+
+  userRole,
+
 }) {
+
   let grace = '10';
+
   let designationApplicableTo = '';
+
   try {
+
     const desRes = await fetch('/server/reports_function/loh-designation-applicable');
+
     const desJson = await desRes.json().catch(() => ({}));
+
     const g = String(desJson?.data?.grace ?? '').trim();
+
     if (g && /^\d+$/.test(g)) grace = g;
+
     const designations = desJson?.data?.designations || [];
+
     const only = Array.isArray(designations)
+
       ? designations.filter((v) => v && String(v).toLowerCase() !== 'all')
+
       : [];
+
     if (only.length > 0) designationApplicableTo = only.join(',');
+
   } catch (_) {
+
     /* use defaults */
+
   }
 
+
+
   const q = new URLSearchParams({
+
     _t: String(Date.now()),
+
     startDate,
+
     endDate,
-    grace
+
+    grace,
+
   });
+
   if (contractor && contractor !== 'All') q.set('contractor', contractor);
+
   if (department && department !== 'All') q.set('department', department);
+
   if (designationApplicableTo) q.set('designationApplicableTo', designationApplicableTo);
+
   if (userEmail) q.set('userEmail', userEmail);
+
   if (userRole) q.set('userRole', userRole);
 
+
+
   const lohRes = await fetch(`/server/reports_function/loh?${q.toString()}`);
+
   if (!lohRes.ok) return [];
+
   const lohJson = await lohRes.json().catch(() => ({}));
+
   return Array.isArray(lohJson.data) ? lohJson.data : [];
+
 }
+
+

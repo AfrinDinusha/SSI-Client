@@ -6830,44 +6830,65 @@ module.exports = async (req, res) => {
         return hours * 60 + minutes; // Return total minutes
       };
 
-      // Helper function to calculate LOH for any shift with grace period
-      // Uses shift start + grace (e.g. 5 min). Check-in is bucketed: e.g. 08:36–09:00 → 09:00, 09:01–09:30 → 09:30, after that use actual.
-      // LOH = effective check-in - shift start. Optional: if employee works 8 hours from effective check-in, no LOH (used for Late In report only; LOH report always keeps late-arrival LOH).
+      // Helper function to calculate LOH for any shift with grace period.
+      // LOH = late arrival (after grace, 30-min buckets) + early departure (checkout before shift end).
+      // On-time check-in (within grace) AND checkout at/after shift end → no LOH.
       const calculateLOHForShift = (firstInTime, lastOutTime, shiftStart, shiftEnd, gracePeriodEnd, applyEightHourWorkedWaiver) => {
         const firstInMinutes = parseTime(firstInTime);
+        const lastOutMinutes = parseTime(lastOutTime);
         if (firstInMinutes === null) {
           return null;
         }
 
-        // If check-in before shift start → no LOH (came early)
-        if (firstInMinutes < shiftStart) {
-          return { shouldCalculate: false, lohHours: 0 };
+        const hasShiftEnd = shiftEnd != null && Number(shiftEnd) > 0;
+        if (hasShiftEnd && lastOutMinutes === null) {
+          return null;
         }
-        // If check-in within grace (shiftStart to shiftStart+graceMinutes) → no LOH
-        if (firstInMinutes <= gracePeriodEnd) {
-          return { shouldCalculate: false, lohHours: 0 };
-        }
-        // Bucket check-in: 1st bucket (after grace) → next :00 or :30; 2nd bucket → +30 min; after that use actual
-        // e.g. grace ends 8:35 → 8:36–9:00 → 9:00; 9:01–9:30 → 9:30; after 9:30 use actual check-in
-        const bucket1End = Math.ceil(gracePeriodEnd / 30) * 30;
-        const bucket2End = bucket1End + 30;
-        let adjustedFirstInMinutes = firstInMinutes;
-        if (firstInMinutes <= bucket1End) {
-          adjustedFirstInMinutes = bucket1End;
-        } else if (firstInMinutes <= bucket2End) {
-          adjustedFirstInMinutes = bucket2End;
-        }
-        const lastOutMinutes = parseTime(lastOutTime);
+
+        // For late-arrival math, treat very-early check-in as shift start (still allow early-departure LOH)
+        const arrivalForLate = Math.max(firstInMinutes, shiftStart);
+
+        // Full day on time: within grace at check-in and left at/after shift end
         if (
-          applyEightHourWorkedWaiver &&
+          hasShiftEnd &&
           lastOutMinutes !== null &&
-          lastOutMinutes >= adjustedFirstInMinutes + 8 * 60
+          arrivalForLate >= shiftStart &&
+          arrivalForLate <= gracePeriodEnd &&
+          lastOutMinutes >= shiftEnd
         ) {
           return { shouldCalculate: false, lohHours: 0 };
         }
-        const lossOfMinutes = adjustedFirstInMinutes - shiftStart;
-        const lohHours = lossOfMinutes / 60;
-        return { shouldCalculate: true, lohHours: lohHours };
+
+        let lossOfMinutes = 0;
+
+        // Late arrival (after grace) — 30-minute buckets on check-in
+        if (arrivalForLate > gracePeriodEnd) {
+          const bucket1End = Math.ceil(gracePeriodEnd / 30) * 30;
+          const bucket2End = bucket1End + 30;
+          let adjustedFirstInMinutes = arrivalForLate;
+          if (arrivalForLate <= bucket1End) {
+            adjustedFirstInMinutes = bucket1End;
+          } else if (arrivalForLate <= bucket2End) {
+            adjustedFirstInMinutes = bucket2End;
+          }
+          if (
+            applyEightHourWorkedWaiver &&
+            lastOutMinutes !== null &&
+            lastOutMinutes >= adjustedFirstInMinutes + 8 * 60
+          ) {
+            // Late In report only: worked 8h from effective check-in — waive late-arrival LOH
+          } else {
+            lossOfMinutes += (adjustedFirstInMinutes - shiftStart);
+          }
+        }
+
+        // Early departure (shift-out before shift end), e.g. General 08:30–13:00 → LOH from 13:00 to shift end
+        if (hasShiftEnd && lastOutMinutes !== null && lastOutMinutes < shiftEnd) {
+          lossOfMinutes += (shiftEnd - lastOutMinutes);
+        }
+
+        const lohHours = lossOfMinutes > 0 ? lossOfMinutes / 60 : 0;
+        return { shouldCalculate: lohHours > 0, lohHours };
       };
 
       // Helper function to calculate LOH for OnDuty half-day cases
@@ -7246,13 +7267,14 @@ module.exports = async (req, res) => {
             const isShiftHK = /HOUSEKEEPING|^HK$/i.test(defKey);
             if (!isShiftHK) {
               const shiftStartMin = parseTime(shiftDef.fromTime);
-              if (shiftStartMin !== null) {
+              const shiftEndMin = parseTime(shiftDef.toTime);
+              if (shiftStartMin !== null && shiftEndMin !== null) {
                 const gracePeriodEnd = shiftStartMin + graceMinutes;
                 const lohResult = calculateLOHForShift(
                   firstInTime,
                   lastOutTime,
                   shiftStartMin,
-                  0,
+                  shiftEndMin,
                   gracePeriodEnd,
                   isLateInReport
                 );

@@ -1622,16 +1622,69 @@ async function calculateLOHFromMuster(catalystApp, month, contractor, department
   return lohMap;
 }
 
-/**
- * Payroll only: monthly LOH from muster — ≤1.5h stored as 0; else raw − 1.5h grace.
- * Reports and attendance muster responses are unchanged; matches payslip Late grace.
- */
-function payrollMusterMonthlyLohForPayrollRow(rawHours) {
+/** Raw monthly LOH from muster (payroll LOH column / earned calculations). */
+function parsePayrollLohFromMuster(rawHours) {
   const n = parseFloat(String(rawHours ?? '').replace(/,/g, ''));
   if (!Number.isFinite(n)) return 0;
-  const rounded = parseFloat(n.toFixed(2));
+  return parseFloat(n.toFixed(2));
+}
+
+/** Late deduction only: ≤1.5h → 0; else raw − 1.5h grace. */
+function lohHoursForLateDeduction(rawHours) {
+  const rounded = parsePayrollLohFromMuster(rawHours);
   if (rounded <= 1.5) return 0;
   return Math.round((rounded - 1.5) * 100) / 100;
+}
+
+/** Parse saved RevisedLOH from Payroll (text column); undefined when unset. */
+function parseSavedRevisedLohField(raw) {
+  if (raw === null || raw === undefined || String(raw).trim() === '') return undefined;
+  const n = parseFloat(String(raw).replace(/,/g, '').trim());
+  if (!Number.isFinite(n)) return undefined;
+  return parseFloat(n.toFixed(2));
+}
+
+/** Revised LOH = LOH minus 1.5h grace; saved value only when a real manual override. */
+function resolveRevisedLohForEmployee(empId, lohHours, savedRevisedLOHMap) {
+  const derived = lohHoursForLateDeduction(lohHours ?? 0);
+  if (savedRevisedLOHMap && typeof savedRevisedLOHMap === 'object') {
+    const empIdStr = String(empId ?? '').trim();
+    const empIdNorm = normalizeEmployeeCode(empIdStr);
+    const saved =
+      savedRevisedLOHMap[empIdStr] ??
+      savedRevisedLOHMap[empIdNorm] ??
+      savedRevisedLOHMap[String(parseInt(empId, 10))];
+    if (saved !== undefined && saved !== null && Number.isFinite(saved)) {
+      const s = parseFloat(Number(saved).toFixed(2));
+      if (s === 0 && derived > 0) return derived;
+      if (Math.abs(s - derived) > 0.001) return s;
+      return s;
+    }
+  }
+  return derived;
+}
+
+/** Hours for Late formula: saved Revised LOH when set, else LOH minus 1.5h grace. */
+function lateDeductionHoursForEmployee(empId, loh, savedRevisedLOHMap) {
+  return resolveRevisedLohForEmployee(empId, loh, savedRevisedLOHMap);
+}
+
+/** Sync Revised LOH on row (LOH − grace, or manual override when it differs). */
+function applyRevisedLohToPayrollRow(row) {
+  if (!row || typeof row !== 'object') return;
+  const raw = parsePayrollLohFromMuster(row.loh ?? row.LOH ?? 0);
+  const derived = lohHoursForLateDeduction(raw);
+  const explicit = parseSavedRevisedLohField(
+    row.revisedLOH ?? row.RevisedLOH ?? row['Revised LOH']
+  );
+  let revised = derived;
+  if (explicit !== undefined) {
+    if (explicit === 0 && derived > 0) revised = derived;
+    else if (Math.abs(explicit - derived) > 0.001) revised = explicit;
+    else revised = explicit;
+  }
+  row.revisedLOH = revised;
+  row.RevisedLOH = revised;
 }
 
 // Helper function to fetch LOH hours from attendance_muster_function
@@ -1780,7 +1833,7 @@ async function fetchLOHHours(catalystApp, month, contractor, department, employe
                 const monthlyLOH = monthlyLOHPreferred[empIdx];
                
                 if (monthlyLOH !== undefined && monthlyLOH !== null && monthlyLOH !== '' && !isNaN(monthlyLOH)) {
-                  lohMap[empIdStr] = payrollMusterMonthlyLohForPayrollRow(monthlyLOH);
+                  lohMap[empIdStr] = parsePayrollLohFromMuster(monthlyLOH);
                 }
               });
              
@@ -2553,7 +2606,7 @@ function payrollFillLohOtMapsFromMusterPayload(merged, lohMap, otHoursMap) {
       monthlyLOHPreferred[empIdx] !== '' &&
       !isNaN(monthlyLOHPreferred[empIdx])
     ) {
-      lohMap[empIdStr] = payrollMusterMonthlyLohForPayrollRow(monthlyLOHPreferred[empIdx]);
+      lohMap[empIdStr] = parsePayrollLohFromMuster(monthlyLOHPreferred[empIdx]);
     }
     if (
       monthlyOvertimePreferred[empIdx] !== undefined &&
@@ -4090,6 +4143,7 @@ function normalizePayrollSourceForRunPayroll(record) {
     daysPresent: pickPayrollField(r, 'daysPresent', 'DaysPresent', 'noOfDaysPresent', 'NoOfDaysPresent'),
     otHours: pickPayrollField(r, 'otHours', 'OTHours', 'OtHours'),
     loh: pickPayrollField(r, 'loh', 'LOH'),
+    revisedLOH: pickPayrollField(r, 'revisedLOH', 'RevisedLOH'),
     lop: pickPayrollField(r, 'lop', 'LOP'),
     actualBasic: ab,
     actualHRA: ah,
@@ -4144,6 +4198,7 @@ const DEFAULT_RUNPAYROLL_DATASTORE_COLUMNS = [
   'LOP',
   'OTHours',
   'LOH',
+  'RevisedLOH',
   'ActualBasic',
   'ActualHRA',
   'ActualDA',
@@ -4329,6 +4384,11 @@ function buildRunPayrollLogicalSlugMap(month, normalized, rawRecord) {
     othrs: n(normalized.otHours),
     overtimehours: n(normalized.otHours),
     loh: n(normalized.loh),
+    revisedloh: n(
+      normalized.revisedLOH !== undefined && normalized.revisedLOH !== null && normalized.revisedLOH !== ''
+        ? normalized.revisedLOH
+        : lohHoursForLateDeduction(normalized.loh)
+    ),
     lop: n(normalized.lop),
     actualbasic: ab,
     actualbasicsalary: ab,
@@ -4383,6 +4443,7 @@ function inferRunPayrollValueForSlug(slug, logical) {
   if (slug.includes('othour') || slug === 'oth' || (slug.includes('ot') && slug.includes('hour'))) {
     return logical.othours;
   }
+  if (slug.includes('revised') && slug.includes('loh')) return logical.revisedloh;
   return undefined;
 }
 
@@ -4446,6 +4507,11 @@ async function insertRunPayrollRowCascade(runTable, month, record, schemaInfo) {
       LOP: n(normalized.lop),
       OTHours: n(normalized.otHours),
       LOH: n(normalized.loh),
+      RevisedLOH: n(
+        normalized.revisedLOH !== undefined && normalized.revisedLOH !== null && normalized.revisedLOH !== ''
+          ? normalized.revisedLOH
+          : lohHoursForLateDeduction(normalized.loh)
+      ),
       ActualBasic: n(normalized.actualBasic),
       ActualHRA: n(normalized.actualHRA),
       ActualDA: n(normalized.actualDA),
@@ -4839,6 +4905,49 @@ function buildLatestSavedOTHoursMapFromPayrollRows(payrollRowResults) {
     map[norm] = best.ot;
     const n = parseInt(code, 10);
     if (!Number.isNaN(n)) map[String(n)] = best.ot;
+  }
+  return map;
+}
+
+/**
+ * Per employee, take RevisedLOH from the Payroll row with the highest ROWID (same model as OTHours).
+ * Zero is kept when explicitly saved so manual overrides persist after refresh.
+ */
+function buildLatestSavedRevisedLOHMapFromPayrollRows(payrollRowResults) {
+  const bestByNorm = new Map();
+  const rowIdNum = (p) => {
+    const n = Number(p.ROWID ?? p.rowid ?? 0);
+    return Number.isFinite(n) ? n : 0;
+  };
+  for (const rec of payrollRowResults || []) {
+    const p = rec?.Payroll;
+    if (!p) continue;
+    const code = String(p.EmployeeCode || '').trim();
+    if (!code) continue;
+    const norm = normalizeEmployeeCode(code) || code;
+    const rid = rowIdNum(p);
+    const revRaw = p.RevisedLOH ?? p.revisedLOH ?? p.revisedloh;
+    const revParsed = parseSavedRevisedLohField(revRaw);
+    if (revParsed === undefined) continue;
+    const prev = bestByNorm.get(norm);
+    if (!prev || rid >= prev.rowId) {
+      bestByNorm.set(norm, { rowId: rid, revised: revParsed });
+    }
+  }
+  const map = {};
+  for (const rec of payrollRowResults || []) {
+    const p = rec?.Payroll;
+    if (!p) continue;
+    const code = String(p.EmployeeCode || '').trim();
+    if (!code) continue;
+    const norm = normalizeEmployeeCode(code) || code;
+    const best = bestByNorm.get(norm);
+    if (!best) continue;
+    if (rowIdNum(p) !== best.rowId) continue;
+    map[code] = best.revised;
+    map[norm] = best.revised;
+    const n = parseInt(code, 10);
+    if (!Number.isNaN(n)) map[String(n)] = best.revised;
   }
   return map;
 }
@@ -5482,6 +5591,7 @@ const PAYROLL_STANDARD_COLUMN_SKIP = new Set(
     'DaysPresent',
     'OTHours',
     'LOH',
+    'RevisedLOH',
     'LOP',
     'ActualBasic',
     'ActualHRA',
@@ -6072,6 +6182,7 @@ async function computePayrollData(catalystApp, month, contractor, department, em
   /** Payroll table had non-zero LOH for this normalized code — Sample/supplement must not overwrite that edit. */
   const payrollLohLockedNorm = new Set();
   const savedOTHoursMap = {}; // Map: employeeCode -> saved OT Hours value
+  const savedRevisedLOHMap = {}; // Map: employeeCode -> saved Revised LOH (manual override)
   const savedOTArrearAmountMap = {}; // Map: employeeCode -> saved OT Arrear Amount value
   const savedActualAttendanceAllowanceMap = {}; // Map: employeeCode -> saved Actual Attendance Allowance (Payroll.OtherAllowance); when absent, payroll uses Employee.AttendanceAllowance column
   const savedAttendanceAllowanceMap = {}; // Map: employeeCode -> saved Earned Attendance Allowance value
@@ -6164,6 +6275,14 @@ async function computePayrollData(catalystApp, month, contractor, department, em
           if (!isNaN(savedOTHours)) {
             savedOTHoursMap[normalizedCode] = parseFloat(savedOTHours.toFixed(3));
           }
+        }
+        // RevisedLOH: same persistence model as OTHours — keep explicit saved value (including 0)
+        const savedRevParsed = parseSavedRevisedLohField(p.RevisedLOH ?? p.revisedLOH ?? p.revisedloh);
+        if (savedRevParsed !== undefined) {
+          savedRevisedLOHMap[normalizedCode] = savedRevParsed;
+          if (code !== normalizedCode) savedRevisedLOHMap[code] = savedRevParsed;
+          const codeNumRev = String(parseInt(code, 10));
+          if (codeNumRev && !Number.isNaN(parseInt(code, 10))) savedRevisedLOHMap[codeNumRev] = savedRevParsed;
         }
         // OT Arrear Amount from saved Payroll
         if (p.OTArrearAmount !== null && p.OTArrearAmount !== undefined && String(p.OTArrearAmount).trim() !== '') {
@@ -6425,6 +6544,9 @@ async function computePayrollData(catalystApp, month, contractor, department, em
       }
       if (Object.keys(savedOTHoursMap).length > 0) {
         console.log(`computePayrollData: Found saved OT Hours values for ${Object.keys(savedOTHoursMap).length} employees`);
+      }
+      if (Object.keys(savedRevisedLOHMap).length > 0) {
+        console.log(`computePayrollData: Found saved Revised LOH values for ${Object.keys(savedRevisedLOHMap).length} employees`);
       }
       if (Object.keys(savedAttendanceAllowanceMap).length > 0) {
         console.log(`computePayrollData: Found saved Attendance Allowance values for ${Object.keys(savedAttendanceAllowanceMap).length} employees`);
@@ -7115,6 +7237,8 @@ async function computePayrollData(catalystApp, month, contractor, department, em
     const rent = savedRentMap[empId] ?? savedRentMap[empIdStr] ?? savedRentMap[empIdNormForAA] ?? savedRentMap[String(parseInt(empId))] ?? 0;
     // Loan Allowance for Total Deduction formula (from Setup Configuration when defined)
     const loanAllowanceVal = Number(savedLoanAllowanceMap[empId] ?? savedLoanAllowanceMap[empIdStr] ?? savedLoanAllowanceMap[empIdNormForAA] ?? savedLoanAllowanceMap[String(parseInt(empId))] ?? 0) || 0;
+    const revisedLOHForRow = resolveRevisedLohForEmployee(empId, loh, savedRevisedLOHMap);
+    const lateLohHours = lateDeductionHoursForEmployee(empId, loh, savedRevisedLOHMap);
     const lateContext = {
       'Earned Basic': earnedBasic,
       'Earned HRA': earnedHRA,
@@ -7125,7 +7249,8 @@ async function computePayrollData(catalystApp, month, contractor, department, em
       'Actual HRA': actualHRA,
       'Actual DA': actualDA,
       'Special Allowance': specialAllowance,
-      'LOH': loh,
+      'LOH': lateLohHours,
+      'Revised LOH': revisedLOHForRow,
       'Days In Month': daysInMonthForCalc,
       'Days Present': daysPresent,
       'No. of Days(In month)': daysInMonthForCalc,
@@ -7228,6 +7353,7 @@ async function computePayrollData(catalystApp, month, contractor, department, em
       daysPresent,
       otHours: otHours || 0, // OT hours: use saved value or default to 0 (never auto-fetch)
       loh,
+      revisedLOH: revisedLOHForRow,
       actualBasic,
       actualHRA,
       actualDA,
@@ -7268,6 +7394,7 @@ async function computePayrollData(catalystApp, month, contractor, department, em
           pt: Math.round(pt),
           otherDeduction: Math.round(otherDeduction),
           late: Math.round(lateAmount),
+          Late: Math.round(lateAmount),
           netPay: Math.round(netPay),
       totalNetPayable: Math.round(totalNetPayable),
       erpf: Math.round(erpf), // ERPF = PF = (Earned Basic + Earned DA) * 12%
@@ -7312,6 +7439,7 @@ async function computePayrollData(catalystApp, month, contractor, department, em
       latestRunPayrollRawByNormalizedCode.get(String(empId).trim()) ||
       latestRunPayrollRawByNormalizedCode.get(String(parseInt(empId, 10)));
     mergeRunPayrollCustomFillGaps(payrollResultRow, rawSavedRunPayroll);
+    applyRevisedLohToPayrollRow(payrollResultRow);
     result.push(payrollResultRow);
   }
   return result;
@@ -8429,6 +8557,9 @@ module.exports = async (req, res) => {
       // IMPORTANT: Imported data takes priority - it should NEVER be overwritten by auto-fetched data
       let importedPayrollData = [];
       let importedEmployeeCodeSet = new Set();
+      let latestSavedOtHoursByEmp = {};
+      let latestSavedRevisedLOHByEmp = {};
+      let latestSavedLohByEmp = {};
       try {
         // First, get ALL imported payroll data for the month (without filters)
         // Ensure month is properly escaped and normalized
@@ -8438,8 +8569,9 @@ module.exports = async (req, res) => {
         console.log('Query:', allPayrollQuery);
         console.log('Month value being queried:', monthEscaped, '(type:', typeof monthEscaped, ', length:', monthEscaped.length, ')');
         const allPayrollRecords = await catalystApp.zcql().executeZCQLQuery(allPayrollQuery);
-        const latestSavedOtHoursByEmp = buildLatestSavedOTHoursMapFromPayrollRows(allPayrollRecords);
-        const latestSavedLohByEmp = buildLatestSavedLOHMapFromPayrollRows(allPayrollRecords);
+        latestSavedOtHoursByEmp = buildLatestSavedOTHoursMapFromPayrollRows(allPayrollRecords);
+        latestSavedRevisedLOHByEmp = buildLatestSavedRevisedLOHMapFromPayrollRows(allPayrollRecords);
+        latestSavedLohByEmp = buildLatestSavedLOHMapFromPayrollRows(allPayrollRecords);
         console.log(`✅ Found ${allPayrollRecords.length} imported payroll records for month ${monthEscaped}`);
        
         // Log sample records to verify data structure
@@ -9376,6 +9508,13 @@ module.exports = async (req, res) => {
               daysPresent: actualDaysPresent, // Preserved imported value or attendance data
               otHours: totalOvertimeHours || 0, // OT hours: use saved value or fetch from attendance_muster_function
               loh: importLOH, // Preserved imported value or auto-fetched
+              revisedLOH: (() => {
+                const savedRev = parseSavedRevisedLohField(
+                  payroll.RevisedLOH ?? payroll.revisedLOH ?? payroll.revisedloh
+                );
+                if (savedRev !== undefined) return savedRev;
+                return resolveRevisedLohForEmployee(payroll.EmployeeCode, importLOH);
+              })(),
               actualBasic: parseNum(payroll.ActualBasic),
               actualHRA: parseNum(payroll.ActualHRA),
               actualDA: parseNum(payroll.ActualDA),
@@ -10650,6 +10789,7 @@ module.exports = async (req, res) => {
           daysPresent: daysPresent,
           otHours: totalOvertimeHours || 0, // OT hours: use saved value or fetch from attendance_muster_function
           loh: loh,
+          revisedLOH: resolveRevisedLohForEmployee(emp.EmployeeCode, loh, latestSavedRevisedLOHByEmp),
           actualBasic: actualBasic,
           actualHRA: actualHRA,
           actualDA: actualDA,
@@ -10716,6 +10856,7 @@ module.exports = async (req, res) => {
           latestPayrollRawByNormalizedCodeApi.get(String(empIdForMerge).trim()) ||
           latestPayrollRawByNormalizedCodeApi.get(String(parseInt(empIdForMerge, 10)));
         mergeSavedPayrollCustomColumnsIntoResultRow(payrollResultRowApi, rawSavedPayrollApi);
+        applyRevisedLohToPayrollRow(payrollResultRowApi);
         const rawSavedSampleApi =
           latestSamplePayrollRawByNormalizedCodeApi.get(empIdNormMerge) ||
           latestSamplePayrollRawByNormalizedCodeApi.get(empIdStrMerge) ||
@@ -11297,6 +11438,7 @@ module.exports = async (req, res) => {
         daysPresent: daysPresentRow,
         otHours: Number(p.OTHours) || 0,
         loh: Number(p.LOH) || 0,
+        revisedLOH: lohHoursForLateDeduction(Number(p.LOH) || 0),
         actualBasic,
         actualHRA,
         actualDA,
@@ -11648,6 +11790,7 @@ module.exports = async (req, res) => {
           /** Normalize allowance fields on every row before SamplePayroll (manual) and Payroll loops — both must see the same values. */
           const normalizeImportPayrollPayloadRecord = (record) => {
             if (!record || typeof record !== 'object') return;
+            applyRevisedLohToPayrollRow(record);
             const oaImported = pickPayrollField(
               record,
               'otherAllowance',
@@ -11933,7 +12076,8 @@ module.exports = async (req, res) => {
                 'Actual HRA': Number(record.actualHRA) || 0,
                 'Actual DA': Number(record.actualDA) || 0,
                 'Special Allowance': Number(record.specialAllowance) || 0,
-                'LOH': Number(record.loh) || 0,
+                'LOH': lohHoursForLateDeduction(Number(record.loh) || 0),
+                'Revised LOH': lohHoursForLateDeduction(Number(record.loh) || 0),
                 'Days In Month': daysInMonthImport,
                 'Days Present': Number(record.daysPresent) || 0,
                 'No. of Days(In month)': daysInMonthImport,
@@ -12058,6 +12202,10 @@ module.exports = async (req, res) => {
                   DaysPresent: getImportOverwriteNumStr(record.daysPresent, existingRecord.DaysPresent),
                   OTHours: getImportOverwriteNumStr(record.otHours, existingRecord.OTHours),
                   LOH: getImportOverwriteNumStr(record.loh, existingRecord.LOH),
+                  RevisedLOH: getImportOverwriteNumStr(
+                    record.revisedLOH ?? record.RevisedLOH ?? lohHoursForLateDeduction(record.loh ?? record.LOH),
+                    existingRecord.RevisedLOH ?? existingRecord.revisedLOH
+                  ),
                   ActualBasic: getImportOverwriteNumStr(record.actualBasic, existingRecord.ActualBasic),
                   ActualHRA: getImportOverwriteNumStr(record.actualHRA, existingRecord.ActualHRA),
                   ActualDA: getImportOverwriteNumStr(record.actualDA, existingRecord.ActualDA),
@@ -12178,6 +12326,9 @@ module.exports = async (req, res) => {
                 newRecord.DaysPresent = safeNumStr(record.daysPresent);
                 newRecord.OTHours = safeNumStr(record.otHours);
                 newRecord.LOH = safeNumStr(record.loh);
+                newRecord.RevisedLOH = safeNumStr(
+                  record.revisedLOH ?? record.RevisedLOH ?? lohHoursForLateDeduction(record.loh ?? record.LOH)
+                );
                 newRecord.ActualBasic = safeNumStr(record.actualBasic);
                 newRecord.ActualHRA = safeNumStr(record.actualHRA);
                 newRecord.ActualDA = safeNumStr(record.actualDA);
@@ -12683,6 +12834,9 @@ module.exports = async (req, res) => {
               DaysPresent: sanitizeNum(updatedData.daysPresent),
               OTHours: sanitizeNum(updatedData.otHours),
               LOH: sanitizeNum(updatedData.loh),
+              RevisedLOH: sanitizeNum(
+                updatedData.revisedLOH ?? updatedData.RevisedLOH ?? lohHoursForLateDeduction(updatedData.loh)
+              ),
               ActualBasic: sanitizeNum(updatedData.actualBasic),
               ActualHRA: sanitizeNum(updatedData.actualHRA),
               ActualDA: sanitizeNum(updatedData.actualDA),
@@ -12871,6 +13025,14 @@ module.exports = async (req, res) => {
             DaysPresent: getNumericValue(updatedData.daysPresent, existingRecord.DaysPresent),
             OTHours: getNumericValue(updatedData.otHours, existingRecord.OTHours),
             LOH: getNumericValue(updatedData.loh, existingRecord.LOH),
+            RevisedLOH: (() => {
+              const fromClient = parseSavedRevisedLohField(
+                updatedData.revisedLOH ?? updatedData.RevisedLOH
+              );
+              if (fromClient !== undefined) return fromClient;
+              const lohVal = getNumericValue(updatedData.loh, existingRecord.LOH);
+              return lohHoursForLateDeduction(lohVal);
+            })(),
             ActualBasic: getNumericValue(updatedData.actualBasic, existingRecord.ActualBasic),
             ActualHRA: getNumericValue(updatedData.actualHRA, existingRecord.ActualHRA),
             ActualDA: getNumericValue(updatedData.actualDA, existingRecord.ActualDA),

@@ -301,15 +301,15 @@
   }
 
   .muster-table td.shift-second {
-    /* 2nd Shift tint (base color #8b6c5c) */
-    background-image: linear-gradient(0deg, rgba(139, 108, 92, 0.25), rgba(139, 108, 92, 0.25));
+    /* 2nd Shift tint (base color #06B1CF) */
+    background-image: linear-gradient(0deg, rgba(6, 177, 207, 0.25), rgba(6, 177, 207, 0.25));
   }
 
   .muster-table td.shift-third {
-    /* 3rd Shift: solid orange so it wins over .present green (background shorthand clears background-image) */
-    background: rgba(233, 113, 50, 0.55) !important;
+    /* 3rd Shift: solid red so it wins over .present green (background shorthand clears background-image) */
+    background: #B80F0A !important;
     background-image: none !important;
-    color: #1a1a1a !important;
+    color: #fff !important;
     font-weight: 600;
   }
 
@@ -339,7 +339,7 @@
 
   .muster-table td.present.shift-second,
   .muster-table td.halfday.shift-second {
-    background: #8b6c5c !important;
+    background: #06B1CF !important;
     background-image: none !important;
     color: #fff !important;
     font-weight: 700;
@@ -349,8 +349,8 @@
   .muster-table td.halfday.shift-third,
   .muster-table tbody td.muster-date-col.present.shift-third,
   .muster-table tbody td.muster-date-col.halfday.shift-third {
-    background: #e97132 !important;
-    background-color: #e97132 !important;
+    background: #B80F0A !important;
+    background-color: #B80F0A !important;
     background-image: none !important;
     color: #fff !important;
     font-weight: 700;
@@ -405,10 +405,10 @@
     background: #765341;
   }
   .muster-shift-legend .legend-swatch.shift-second {
-    background: #8b6c5c;
+    background: #06B1CF;
   }
   .muster-shift-legend .legend-swatch.shift-third {
-    background: #e97132;
+    background: #B80F0A;
   }
   .muster-shift-legend .legend-swatch.shift-housekeeping {
     background: #FF7F7F;

@@ -159,19 +159,25 @@
   vertical-align: middle;
 }
 
-/* Must win over .table-row td { display: table-cell } or flex gap is ignored */
+/* Keep td as table-cell; flex only on inner wrapper so columns stay aligned with headers */
 .table-row td.payroll-ot-hours-combined-cell,
 .payroll-ot-hours-combined-cell {
-  display: flex !important;
-  flex-direction: row;
-  align-items: center;
-  gap: 14px;
+  display: table-cell !important;
   vertical-align: middle;
-  min-width: 200px !important;
+  min-width: 120px !important;
+  max-width: 200px !important;
   overflow: visible !important;
   text-overflow: clip !important;
   position: relative;
   z-index: 2;
+}
+
+.payroll-ot-hours-combined-inner {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
 }
 
 .payroll-ot-hours-edit-cb-wrap {
@@ -234,6 +240,95 @@
 }
 
 .payroll-ot-hours-edit-wrap .payroll-inline-ot-input {
+  pointer-events: auto;
+  background: #fff;
+}
+
+.payroll-revised-loh-combined-header {
+  text-align: left;
+  vertical-align: middle;
+}
+
+.table-row td.payroll-revised-loh-combined-cell,
+.payroll-revised-loh-combined-cell {
+  display: table-cell !important;
+  vertical-align: middle;
+  min-width: 100px !important;
+  max-width: 180px !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  position: relative;
+  z-index: 2;
+}
+
+.payroll-revised-loh-combined-inner {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.payroll-revised-loh-edit-cb-wrap {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.payroll-revised-loh-readonly-val {
+  flex: 1;
+  min-width: 0;
+}
+
+.payroll-manual-revised-loh-checkbox {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+.payroll-inline-revised-loh-input {
+  width: 5.5rem;
+  max-width: 100%;
+  padding: 4px 8px;
+  border: 1px solid #ced4da;
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+.payroll-revised-loh-edit-wrap {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 8px;
+}
+
+.payroll-inline-revised-loh-save-btn {
+  padding: 4px 12px;
+  min-width: 58px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #fff;
+  background: linear-gradient(135deg, #0d6efd 0%, #0b5ed7 100%);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  pointer-events: auto;
+  position: relative;
+  z-index: 3;
+}
+
+.payroll-inline-revised-loh-save-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #0b5ed7 0%, #0a58ca 100%);
+}
+
+.payroll-inline-revised-loh-save-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.payroll-revised-loh-edit-wrap .payroll-inline-revised-loh-input {
   pointer-events: auto;
   background: #fff;
 }

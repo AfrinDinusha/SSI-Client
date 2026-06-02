@@ -1,6 +1,6 @@
 /**
  * Permission report: LOH from attendance muster (raw monthlyLOHPreferred).
- * Payroll screen still uses payrollMusterMonthlyLohForPayrollRow (grace subtract) separately.
+ * Payroll LOH column uses raw muster; Late deduction uses lohHoursForLateDeduction (1.5h grace).
  */
 
 import { applyReportsLohToMusterData, fetchLohRowsForMusterOverlay } from './musterLohReportsMerge';
@@ -13,11 +13,39 @@ export function parseLohHours(raw) {
   return parseFloat(n.toFixed(2));
 }
 
-/** Payroll grid only: ≤1.5h → 0; else raw − 1.5h grace. */
-export function payrollMusterMonthlyLohForPayrollRow(rawHours) {
+/** Late deduction only: ≤1.5h → 0; else raw − 1.5h grace (payroll LOH column uses raw muster). */
+export function lohHoursForLateDeduction(rawHours) {
   const rounded = parseLohHours(rawHours);
   if (rounded <= PERMISSION_LOH_GRACE_HOURS) return 0;
   return Math.round((rounded - PERMISSION_LOH_GRACE_HOURS) * 100) / 100;
+}
+
+/** Pick saved Revised LOH from row (camelCase, PascalCase, or spaced API key). */
+export function pickRevisedLohFromPayrollRow(row) {
+  if (!row || typeof row !== 'object') return undefined;
+  const raw = row.revisedLOH ?? row.RevisedLOH ?? row['Revised LOH'] ?? row.revisedloh;
+  if (raw === undefined || raw === null || String(raw).trim() === '') return undefined;
+  return parseLohHours(raw);
+}
+
+/**
+ * Revised LOH for display/Late: LOH minus 1.5h grace by default.
+ * Uses saved value only when it is a real manual override (differs from LOH-derived).
+ * Stale/zero DB values do not hide LOH-derived hours.
+ */
+export function getRevisedLohForPayrollRow(row) {
+  if (!row || typeof row !== 'object') return 0;
+  const derived = lohHoursForLateDeduction(row.loh ?? row.LOH ?? 0);
+  const explicit = pickRevisedLohFromPayrollRow(row);
+  if (explicit === undefined) return derived;
+  if (explicit === 0 && derived > 0) return derived;
+  if (Math.abs(explicit - derived) > 0.001) return explicit;
+  return explicit;
+}
+
+/** @deprecated use lohHoursForLateDeduction for Late; use parseLohHours for payroll LOH from muster */
+export function payrollMusterMonthlyLohForPayrollRow(rawHours) {
+  return lohHoursForLateDeduction(rawHours);
 }
 
 function normalizeEmployeeCode(code) {
@@ -197,7 +225,7 @@ export async function fetchLivePayrollWithMusterLoh({ month, userEmail, userRole
       musterData.monthlyLOHPreferred && musterData.monthlyLOHPreferred[idx] != null
         ? parseFloat(musterData.monthlyLOHPreferred[idx]) || 0
         : 0;
-    const loh = payrollMusterMonthlyLohForPayrollRow(lohRaw);
+    const loh = parseLohHours(lohRaw);
     if (rawEmpId) lohMap[rawEmpId] = loh;
     if (normalizedEmpId) lohMap[normalizedEmpId] = loh;
   });

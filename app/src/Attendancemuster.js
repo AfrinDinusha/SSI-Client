@@ -13,6 +13,11 @@ import {
   Activity, Plus, CheckCircle, Bell, Settings, LayoutDashboard, Home as HomeIcon, AlertOctagon, CreditCard, Shield, Download, FileSignature, Search, Clock3, CalendarDays, Database
 } from 'lucide-react';
 import DateInputDdMm from './DateInputDdMm';
+import {
+  applyReportsLohToMusterData,
+  fetchLohRowsForMusterOverlay,
+  formatMusterLohTotal,
+} from './musterLohReportsMerge';
 
 function parseOtHours(val) {
   const n = parseFloat(String(val ?? '').replace(/,/g, '').trim());
@@ -61,6 +66,120 @@ function adjustValueFromPayrollSync(payrollOt, reportTotal) {
   const delta = payrollOt - rt;
   if (Math.abs(delta) < 0.005) return '0';
   return formatPayrollOtAdjustDelta(payrollOt, rt);
+}
+
+/** Shift CSS class from NewShiftMap value (matches Attendancemuster.css). */
+function getShiftClassName(shiftTypeValue) {
+  const shiftRaw = String(shiftTypeValue || '').trim().toUpperCase();
+  const shiftCompact = shiftRaw.replace(/[\s_-]+/g, '');
+
+  if (
+    shiftRaw === 'FIRST' ||
+    shiftRaw === '1ST' ||
+    shiftRaw === '1ST SHIFT' ||
+    shiftRaw === 'FIRST SHIFT' ||
+    shiftCompact === '1STSHIFT' ||
+    shiftCompact === 'FIRSTSHIFT'
+  ) {
+    return 'shift-first';
+  }
+  if (
+    shiftRaw === 'SECOND' ||
+    shiftRaw === '2ND' ||
+    shiftRaw === '2ND SHIFT' ||
+    shiftRaw === 'SECOND SHIFT' ||
+    shiftCompact === '2NDSHIFT' ||
+    shiftCompact === 'SECONDSHIFT'
+  ) {
+    return 'shift-second';
+  }
+  if (
+    shiftRaw === 'THIRD' ||
+    shiftRaw === '3RD' ||
+    shiftRaw === '3RD SHIFT' ||
+    shiftRaw === 'THIRD SHIFT' ||
+    shiftRaw === '3' ||
+    shiftRaw === 'SHIFT 3' ||
+    shiftCompact.includes('3RD') ||
+    shiftCompact.includes('THIRD')
+  ) {
+    return 'shift-third';
+  }
+  if (shiftRaw === 'HOUSEKEEPING' || shiftRaw === 'HK' || shiftCompact === 'HOUSEKEEPING') {
+    return 'shift-housekeeping';
+  }
+  if (
+    shiftRaw === 'GENERAL II' ||
+    shiftRaw === 'GENERALII' ||
+    shiftRaw === 'GENERAL_II' ||
+    shiftCompact === 'GENERALII'
+  ) {
+    return 'shift-general-ii';
+  }
+  return 'shift-general';
+}
+
+/** Same 3rd-shift night inference as the on-screen muster table. */
+function resolveMusterShiftClassForCell(shiftTypeValue, status, firstIn) {
+  let shiftClass = getShiftClassName(shiftTypeValue);
+  const s = String(status || '').trim();
+  const firstInRaw = String(firstIn || '').trim();
+  if (shiftClass === 'shift-general' && (s === 'Present' || s === 'Half Day Present') && firstInRaw) {
+    const timeMatch = firstInRaw.match(/(?:^|\s|T)(\d{1,2}):(\d{2})/);
+    if (timeMatch) {
+      const h = parseInt(timeMatch[1], 10);
+      if (!Number.isNaN(h) && h >= 19 && h <= 23) {
+        return 'shift-third';
+      }
+    }
+  }
+  return shiftClass;
+}
+
+/** Background/text hex for a muster date cell — mirrors Attendancemuster.css + inline WO/H styles. */
+function getMusterDateCellColors(status, shiftType, firstIn, lastOut) {
+  const s = String(status || '').trim();
+  const firstInStr = String(firstIn || '').trim();
+  const lastOutStr = String(lastOut || '').trim();
+
+  if (s === 'WO' && firstInStr && lastOutStr) {
+    return { fgHex: 'FFB3DE', fontHex: '000000' };
+  }
+  if (s === 'H' && firstInStr && lastOutStr) {
+    return { fgHex: 'FF1493', fontHex: 'FFFFFF' };
+  }
+
+  const shiftClass = resolveMusterShiftClassForCell(shiftType, status, firstIn);
+
+  if (s === 'Present' || s === 'Half Day Present') {
+    if (shiftClass === 'shift-first') return { fgHex: '765341', fontHex: 'FFFFFF' };
+    if (shiftClass === 'shift-second') return { fgHex: '06B1CF', fontHex: 'FFFFFF' };
+    if (shiftClass === 'shift-third') return { fgHex: 'B80F0A', fontHex: 'FFFFFF' };
+    if (shiftClass === 'shift-housekeeping') return { fgHex: 'FF7F7F', fontHex: '000000' };
+    if (shiftClass === 'shift-general-ii') return { fgHex: 'B8B8B8', fontHex: '333333' };
+    return {
+      fgHex: s === 'Half Day Present' ? '1976D2' : '4CAF50',
+      fontHex: 'FFFFFF',
+    };
+  }
+
+  if (s === 'Absent' || s === 'A') return { fgHex: 'FFFFFF', fontHex: '222222' };
+  if (s === 'WO') return { fgHex: 'FEF250', fontHex: '000000' };
+  if (s === 'H') return { fgHex: 'FF9800', fontHex: 'FFFFFF' };
+  if (s === 'CO') return { fgHex: '9C27B0', fontHex: 'FFFFFF' };
+  if (s === 'OD') return { fgHex: '00BCD4', fontHex: 'FFFFFF' };
+  if (s === 'OD-0.5') return { fgHex: '00ACC1', fontHex: 'FFFFFF' };
+  return { fgHex: 'FFFFFF', fontHex: '222222' };
+}
+
+function musterDateCellExcelStyle(status, shiftType, firstIn, lastOut) {
+  const { fgHex, fontHex } = getMusterDateCellColors(status, shiftType, firstIn, lastOut);
+  const rgb = (hex) => ({ rgb: hex.length === 6 ? 'FF' + hex : hex });
+  return {
+    fill: { patternType: 'solid', fgColor: rgb(fgHex) },
+    font: { color: rgb(fontHex), bold: true },
+    alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+  };
 }
 
 function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) {
@@ -132,56 +251,6 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
       return count;
     }, 0);
   };
-  const getShiftClassName = (shiftTypeValue) => {
-    const shiftRaw = String(shiftTypeValue || '').trim().toUpperCase();
-    const shiftCompact = shiftRaw.replace(/[\s_-]+/g, '');
-
-    if (
-      shiftRaw === 'FIRST' ||
-      shiftRaw === '1ST' ||
-      shiftRaw === '1ST SHIFT' ||
-      shiftRaw === 'FIRST SHIFT' ||
-      shiftCompact === '1STSHIFT' ||
-      shiftCompact === 'FIRSTSHIFT'
-    ) {
-      return 'shift-first';
-    }
-    if (
-      shiftRaw === 'SECOND' ||
-      shiftRaw === '2ND' ||
-      shiftRaw === '2ND SHIFT' ||
-      shiftRaw === 'SECOND SHIFT' ||
-      shiftCompact === '2NDSHIFT' ||
-      shiftCompact === 'SECONDSHIFT'
-    ) {
-      return 'shift-second';
-    }
-    if (
-      shiftRaw === 'THIRD' ||
-      shiftRaw === '3RD' ||
-      shiftRaw === '3RD SHIFT' ||
-      shiftRaw === 'THIRD SHIFT' ||
-      shiftRaw === '3' ||
-      shiftRaw === 'SHIFT 3' ||
-      shiftCompact.includes('3RD') ||
-      shiftCompact.includes('THIRD')
-    ) {
-      return 'shift-third';
-    }
-    if (shiftRaw === 'HOUSEKEEPING' || shiftRaw === 'HK' || shiftCompact === 'HOUSEKEEPING') {
-      return 'shift-housekeeping';
-    }
-    if (
-      shiftRaw === 'GENERAL II' ||
-      shiftRaw === 'GENERALII' ||
-      shiftRaw === 'GENERAL_II' ||
-      shiftCompact === 'GENERALII'
-    ) {
-      return 'shift-general-ii';
-    }
-    return 'shift-general';
-  };
-
   const normalizeShiftDisplayName = (shiftTypeValue) => {
     const shiftRaw = String(shiftTypeValue || '').trim();
     if (!shiftRaw) return 'General';
@@ -347,15 +416,31 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
       }
       
       const response = await fetch(`/server/attendance_muster_function?${params.toString()}`);
-      const result = await response.json();
+      let result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Failed to fetch muster data');
       if (result.error) throw new Error(result.error);
-      // Debug: Log monthlyLOHPreferred to verify it's being returned
-      if (result.monthlyLOHPreferred) {
-        console.log('monthlyLOHPreferred received:', result.monthlyLOHPreferred.slice(0, 5), '... (first 5 values)');
-      } else {
-        console.warn('monthlyLOHPreferred not found in response');
+
+      if (result.employees && result.muster) {
+        try {
+          const lohRows = await fetchLohRowsForMusterOverlay({
+            startDate,
+            endDate,
+            contractor: contractor !== 'All' ? contractor : undefined,
+            department: department !== 'All' ? department : undefined,
+            userEmail,
+            userRole,
+          });
+          if (lohRows.length > 0) {
+            result = applyReportsLohToMusterData(result, lohRows);
+            console.log(
+              `Attendance Muster: LOH merged from reports_function (${lohRows.length} row(s)) — matches LOH Report`
+            );
+          }
+        } catch (lohMergeErr) {
+          console.warn('Attendance Muster: LOH merge from reports_function skipped:', lohMergeErr?.message || lohMergeErr);
+        }
       }
+
       setData(result);
     } catch (err) {
       setError(err.message);
@@ -577,13 +662,18 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
       }, 0);
       const formattedTotalHours = totalHoursSum > 0 ? totalHoursSum.toFixed(2) : '-';
       
-      const totalLOH = rowLOH.reduce((sum, lohValue) => {
-        if (lohValue && lohValue !== '' && !isNaN(lohValue)) {
-          return sum + parseFloat(lohValue);
-        }
-        return sum;
-      }, 0);
-      const formattedTotalLOH = totalLOH > 0 ? totalLOH.toFixed(2) : '-';
+      let totalLOH = 0;
+      if (data.monthlyLOHPreferred && data.monthlyLOHPreferred[rowIdx] !== undefined && data.monthlyLOHPreferred[rowIdx] !== null) {
+        totalLOH = parseFloat(data.monthlyLOHPreferred[rowIdx]) || 0;
+      } else {
+        totalLOH = rowLOH.reduce((sum, lohValue) => {
+          if (lohValue && lohValue !== '' && !isNaN(lohValue)) {
+            return sum + parseFloat(lohValue);
+          }
+          return sum;
+        }, 0);
+      }
+      const formattedTotalLOH = formatMusterLohTotal(totalLOH);
       
       // OT Hours must come from reports_function values only
       let totalOTHours = 0;
@@ -694,54 +784,6 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
       return { wch: 13 };
     });
 
-    // Helper: status + firstIn/lastOut + shiftType -> cell style (fill + font) so export matches table (1st/2nd/HK colours)
-    const getStatusStyle = (status, firstIn, lastOut, shiftType) => {
-      const rgb = (hex) => ({ rgb: hex.length === 6 ? 'FF' + hex : hex });
-      const s = String(status || '').trim();
-      const shift = String(shiftType || '').trim().toUpperCase();
-      let fgHex, fontHex;
-      // WO/H with times (same as table)
-      if (s === 'WO' && firstIn && lastOut) {
-        fgHex = 'FFB3DE'; fontHex = '000000';
-      } else if (s === 'H' && firstIn && lastOut) {
-        fgHex = 'FF1493'; fontHex = 'FFFFFF';
-      } else if (s === 'Present' || s === 'P' || s === 'Half Day Present' || s === '0.5') {
-        // 1st shift, 2nd shift, housekeeping, General II colours (match table exactly)
-        if (shift === 'FIRST' || shift === '1ST') {
-          fgHex = '765341'; fontHex = 'FFFFFF';
-        } else if (shift === 'SECOND' || shift === '2ND') {
-          fgHex = '8B6C5C'; fontHex = 'FFFFFF';
-        } else if (shift === 'HOUSEKEEPING' || shift === 'HK') {
-          fgHex = 'FF7F7F'; fontHex = '000000';
-        } else if (shift === 'GENERAL II' || shift === 'GENERALII' || shift === 'GENERAL_II' || shift.replace(/\s+/g, '').includes('GENERALII')) {
-          fgHex = 'B8B8B8'; fontHex = '333333'; // General II: light gray
-        } else {
-          // General: Present = green, Half day = blue
-          fgHex = (s === 'Half Day Present' || s === '0.5') ? '1976D2' : '4CAF50';
-          fontHex = 'FFFFFF';
-        }
-      } else if (s === 'Absent' || s === 'A') {
-        fgHex = 'FFFFFF'; fontHex = '222222';
-      } else if (s === 'WO') {
-        fgHex = 'FEF250'; fontHex = '000000';
-      } else if (s === 'H') {
-        fgHex = 'FF9800'; fontHex = 'FFFFFF';
-      } else if (s === 'CO') {
-        fgHex = '9C27B0'; fontHex = 'FFFFFF';
-      } else if (s === 'OD') {
-        fgHex = '00BCD4'; fontHex = 'FFFFFF';
-      } else if (s === 'OD-0.5') {
-        fgHex = '00ACC1'; fontHex = 'FFFFFF';
-      } else {
-        fgHex = 'FFFFFF'; fontHex = '222222';
-      }
-      return {
-        fill: { patternType: 'solid', fgColor: rgb(fgHex) },
-        font: { color: rgb(fontHex), bold: true },
-        alignment: { horizontal: 'center', vertical: 'center', wrapText: true }
-      };
-    };
-
     // Apply header row style (dark blue background, white text, centered) – matches image model
     const headerFill = {
       fill: { patternType: 'solid', fgColor: { rgb: 'FF1E40AF' } },
@@ -755,7 +797,8 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
     }
 
     // Apply status + shift colours to each date cell (1st shift, 2nd shift, housekeeping = same as table)
-    const dateStartCol = 5;
+    // Columns 0–5: ID, Name, Dept, Category, Date of Joining, Date of Exit; dates start at 6
+    const dateStartCol = 6;
     const dateColCount = data.dates.length;
     for (let rowIdx = 0; rowIdx < data.employees.length; rowIdx++) {
       const rowStatuses = data.muster[rowIdx];
@@ -769,7 +812,7 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
         const lastOut = rowLastOut[colIdx] || '';
         const shiftType = rowShiftTypes[colIdx] != null ? rowShiftTypes[colIdx] : '';
         const addr = XLSX.utils.encode_cell({ r: sheetRow, c: dateStartCol + colIdx });
-        if (worksheet[addr]) worksheet[addr].s = getStatusStyle(status, firstIn, lastOut, shiftType);
+        if (worksheet[addr]) worksheet[addr].s = musterDateCellExcelStyle(status, shiftType, firstIn, lastOut);
       }
     }
 
@@ -1084,7 +1127,7 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
                             return sum;
                           }, 0) : 0;
                         }
-                        const formattedTotalLOH = totalLOH > 0 ? totalLOH.toFixed(2) : '-';
+                        const formattedTotalLOH = formatMusterLohTotal(totalLOH);
                         // Calculate total OT hours for the period using reports_function totals only
                         let totalOTHours = 0;
                         if (data.monthlyOvertimePreferred && data.monthlyOvertimePreferred[rowIdx] !== undefined && data.monthlyOvertimePreferred[rowIdx] !== null) {
@@ -1117,19 +1160,11 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
 
                               // Apply shift-based tint (from NewShiftMap / Shiftmap) for UI clarity
                               const shiftType = rowShiftTypes && rowShiftTypes[colIdx] ? rowShiftTypes[colIdx] : 'GENERAL';
-                              let shiftClass = getShiftClassName(shiftType);
-                              let shiftDisplayName = normalizeShiftDisplayName(shiftType);
-                              // Night check-in (19:00–23:59) with Present: show 3rd-shift orange when map still says General (common when NewShiftMap key mismatches employee id).
                               const firstInRawForInfer = rowFirstIn && Array.isArray(rowFirstIn) && rowFirstIn[colIdx] ? String(rowFirstIn[colIdx]).trim() : '';
-                              if (shiftClass === 'shift-general' && (status === 'Present' || status === 'Half Day Present') && firstInRawForInfer) {
-                                const timeMatch = firstInRawForInfer.match(/(?:^|\s|T)(\d{1,2}):(\d{2})/);
-                                if (timeMatch) {
-                                  const h = parseInt(timeMatch[1], 10);
-                                  if (!Number.isNaN(h) && h >= 19 && h <= 23) {
-                                    shiftClass = 'shift-third';
-                                    shiftDisplayName = '3rd Shift';
-                                  }
-                                }
+                              let shiftClass = resolveMusterShiftClassForCell(shiftType, status, firstInRawForInfer);
+                              let shiftDisplayName = normalizeShiftDisplayName(shiftType);
+                              if (shiftClass === 'shift-third' && getShiftClassName(shiftType) === 'shift-general') {
+                                shiftDisplayName = '3rd Shift';
                               }
                               const shouldShowShiftText = shiftDisplayName && shiftDisplayName.toLowerCase() !== 'general';
                               className = `${className} ${shiftClass}`.trim();
@@ -1235,14 +1270,18 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
                                 }
                               }
                               
-                              // Check if WO or H has times - if so, use highlight background
-                              // Check after all time extractions are done
-                              let cellStyle = {};
-                              if (status === 'WO' && displayFirstInTime && displayLastOutTime) {
-                                cellStyle.backgroundColor = '#FFB3DE'; // WO present color
-                              } else if (status === 'H' && displayFirstInTime && displayLastOutTime) {
-                                cellStyle.backgroundColor = '#FF1493'; // Holiday-with-times color (unchanged)
-                              }
+                              // Inline colours for WO/H-with-times (export uses same via getMusterDateCellColors)
+                              const { fgHex, fontHex } = getMusterDateCellColors(
+                                status,
+                                shiftType,
+                                displayFirstInTime,
+                                displayLastOutTime
+                              );
+                              const cellStyle = {
+                                backgroundColor: `#${fgHex}`,
+                                color: `#${fontHex}`,
+                                fontWeight: 600,
+                              };
                               
                               // Debug logging for OnDuty records
                               if (isOnDuty && status === 'Present') {

@@ -24,16 +24,32 @@ import {
 import JSZip from 'jszip';
 import { getSidebarModulesForUser } from './modulesConfig';
 import { applyReportsLohToMusterData, fetchLohRowsForMusterOverlay } from './musterLohReportsMerge';
-import { payrollMusterMonthlyLohForPayrollRow } from './payrollLiveLoh';
+import { getRevisedLohForPayrollRow, lohHoursForLateDeduction, parseLohHours } from './payrollLiveLoh';
 import DateInputDdMm from './DateInputDdMm';
 
+/** Sync Revised LOH on row from LOH (−1.5h grace) or resolved display value. */
+function syncRevisedLohOnPayrollRow(row, options = {}) {
+  if (!row || typeof row !== 'object') return row;
+  const revised = options.forceFromLoh
+    ? lohHoursForLateDeduction(row.loh ?? row.LOH ?? 0)
+    : getRevisedLohForPayrollRow(row);
+  row.revisedLOH = revised;
+  row.RevisedLOH = revised;
+  return row;
+}
+
 const PAYROLL_AUTOMATIC_MODE_OPTIONS = ['Automatic', 'Manual'];
+/** Legacy synthetic column (no longer injected); strip if present in saved config. */
+const PAYROLL_REVISED_LOH_CHECKBOX_COLUMN = '__revised_loh_checkbox__';
+const isPayrollRevisedLohCheckboxColumn = (name) =>
+  String(name || '').trim() === PAYROLL_REVISED_LOH_CHECKBOX_COLUMN;
 
 /** Edit modal: when Automatic is on and Manual is off, these `editFormData` keys are read-only. */
 const AUTOMATIC_PAYROLL_EDIT_READONLY_KEYS = new Set([
   'daysInMonth',
   'daysPresent',
   'loh',
+  'revisedLOH',
   'otHours',
   'lop',
   'actualBasic',
@@ -194,6 +210,7 @@ const Payroll = () => {
     daysInMonth: 'No. of Days (In Month)',
     daysPresent: 'No. of Days Present',
     loh: 'LOH',
+    revisedLOH: 'Revised LOH',
     lop: 'LOP',
     otHours: 'OT Hours',
     foodAllowance: 'Food Allowance',
@@ -303,7 +320,24 @@ const Payroll = () => {
     if (!hasTravelChargers) add.push(payrollKeyToHeaderLabel.travelChargers || 'Travel Chargers');
     if (!hasLate) add.push(payrollKeyToHeaderLabel.late || 'Late');
     const merged = add.length > 0 ? [...list, ...add] : list;
-    return stripPayrollGridExcludedColumns(merged);
+    const deduped = [];
+    let seenRevisedLoh = false;
+    let seenOtHours = false;
+    merged.forEach((name) => {
+      const n = String(name || '').trim();
+      const lower = n.toLowerCase();
+      if (lower.includes('revised') && lower.includes('loh')) {
+        if (seenRevisedLoh) return;
+        seenRevisedLoh = true;
+      }
+      if (lower === 'ot hours' || lower.includes('ot hours')) {
+        if (seenOtHours) return;
+        seenOtHours = true;
+      }
+      deduped.push(n);
+    });
+    const withoutLegacyRevCheckbox = deduped.filter((name) => !isPayrollRevisedLohCheckboxColumn(name));
+    return stripPayrollGridExcludedColumns(withoutLegacyRevCheckbox);
   }, [payrollComponents, defaultPayrollComponentHeaders, payrollKeyToHeaderLabel]);
 
   // Map table column label to editFormData key (for edit form and export - only show what's in the table)
@@ -316,11 +350,13 @@ const Payroll = () => {
     }
     return (name) => {
       const n = String(name || '').trim();
+      if (isPayrollRevisedLohCheckboxColumn(n)) return null;
       const lower = n.toLowerCase();
       if (labelToKey[lower]) return labelToKey[lower];
       if (lower.includes('no. of days') && lower.includes('month')) return 'daysInMonth';
       if (lower.includes('days present')) return 'daysPresent';
       if (lower === 'loh') return 'loh';
+      if (lower.includes('revised') && lower.includes('loh')) return 'revisedLOH';
       if (lower === 'lop') return 'lop';
       if (lower.includes('ot hours')) return 'otHours';
       if (lower.includes('food') && (lower.includes('allowance') || lower.includes('allownace'))) return 'foodAllowance';
@@ -580,6 +616,13 @@ const Payroll = () => {
   /** Saved OT value when the checkbox was checked; used to show Save only when the draft differs. */
   const [manualOtSnapshotByCode, setManualOtSnapshotByCode] = useState({});
   const [savingManualOtCode, setSavingManualOtCode] = useState(null);
+  /** Employee codes whose Revised LOH cell shows an input (manual entry tied to employeeCode). */
+  const [manualRevisedLohEditCodes, setManualRevisedLohEditCodes] = useState(() => new Set());
+  /** Draft Revised LOH string per employee code while checkbox is enabled. */
+  const [manualRevisedLohDraftByCode, setManualRevisedLohDraftByCode] = useState({});
+  /** Saved Revised LOH value when checkbox was checked; used to show Save only when draft differs. */
+  const [manualRevisedLohSnapshotByCode, setManualRevisedLohSnapshotByCode] = useState({});
+  const [savingManualRevisedLohCode, setSavingManualRevisedLohCode] = useState(null);
 
   // Import state
   const [importing, setImporting] = useState(false);
@@ -1015,7 +1058,10 @@ const Payroll = () => {
       const n = Number(v);
       return Number.isFinite(n) ? n : (v !== '' && v !== null && v !== undefined ? v : '');
     }
-    if (lower === 'loh' || lower.includes('loss of hours')) return employee.loh;
+    if (lower === 'loh' || (lower.includes('loss of hours') && !lower.includes('revised'))) return employee.loh;
+    if (lower.includes('revised') && lower.includes('loh')) {
+      return getRevisedLohForPayrollRow(employee);
+    }
     if (lower === 'lop' || lower.includes('loss of pay')) {
       const dimLop = parseFloat(employee.daysInMonth ?? employee.DaysInMonth ?? 0) || 0;
       if (isManagingPartnerPayrollRow(employee) && dimLop > 0) return 0;
@@ -1290,6 +1336,16 @@ const Payroll = () => {
       const getVal = (name) => {
         if (skipVariableNorm.has(normalizeFormulaVariable(name))) return 0;
         const vNorm = normalizeFormulaVariable(name);
+        // Late formula: LOH column minus 1.5h grace (same as Revised LOH column)
+        if (options.useLohGraceForLate) {
+          if (
+            (vNorm.includes('revised') && vNorm.includes('loh')) ||
+            vNorm === 'loh' ||
+            vNorm.includes('loss of hours')
+          ) {
+            return getRevisedLohForPayrollRow(employee);
+          }
+        }
         // Washing Allowance: never route through getComponentDisplayValue (it would call back here via
         // getWashingAllowanceDisplayFromEmployee when a Setup formula exists, forcing 0 and breaking evaluation).
         if (
@@ -1528,7 +1584,10 @@ const Payroll = () => {
     );
     if (lateFormulaFinal && lateFormulaFinal.expression) {
       const lateSkip = [lateFormulaFinal.variable, 'Late', payrollKeyToHeaderLabel?.late].filter(Boolean);
-      const lv = evaluateFormulaExpression(updated, lateFormulaFinal.expression, { skipVariables: lateSkip });
+      const lv = evaluateFormulaExpression(updated, lateFormulaFinal.expression, {
+        skipVariables: lateSkip,
+        useLohGraceForLate: true,
+      });
       if (Number.isFinite(lv)) {
         const rounded = Math.round(lv);
         updated.late = rounded;
@@ -1543,6 +1602,7 @@ const Payroll = () => {
       updated.NetPay = Number(originalNetPay);
     }
 
+    syncRevisedLohOnPayrollRow(updated);
     return updated;
   };
 
@@ -1677,11 +1737,11 @@ const Payroll = () => {
                 if (rawEmpId) otHoursMap[rawEmpId] = otHours;
                 if (normalizedEmpId) otHoursMap[normalizedEmpId] = otHours;
 
-                // LOH from muster; payroll applies 1.5h grace (≤1.5 → 0, else raw − 1.5)
+                // LOH from muster only (raw monthly LOH; no 1.5h grace subtract on payroll fetch)
                 const lohRaw = (musterData.monthlyLOHPreferred && musterData.monthlyLOHPreferred[idx] != null)
                   ? parseFloat(musterData.monthlyLOHPreferred[idx]) || 0
                   : 0;
-                const loh = payrollMusterMonthlyLohForPayrollRow(lohRaw);
+                const loh = parseLohHours(lohRaw);
                 if (rawEmpId) lohMap[rawEmpId] = loh;
                 if (normalizedEmpId) lohMap[normalizedEmpId] = loh;
               });
@@ -1812,9 +1872,9 @@ const Payroll = () => {
         netPay: row.netPay ?? row.NetPay ?? row.net_pay ?? row.netpay,
         daysInMonth: row.daysInMonth ?? row.DaysInMonth,
         daysPresent: row.daysPresent ?? row.DaysPresent,
-        loh: row.loh ?? row.LOH
+        loh: row.loh ?? row.LOH,
       };
-      });
+      }).map(syncRevisedLohOnPayrollRow);
      
       // Debug: Check if employeeStatus is present in the data
       if (newPayrollData.length > 0) {
@@ -2310,11 +2370,11 @@ const Payroll = () => {
                   : 0;
                 if (rawEmpId) otHoursMap[rawEmpId] = otHours;
                 if (normalizedEmpId) otHoursMap[normalizedEmpId] = otHours;
-                // LOH from muster; payroll applies 1.5h grace (≤1.5 → 0, else raw − 1.5)
+                // LOH from muster only (raw monthly LOH; no 1.5h grace subtract on payroll fetch)
                 const lohRaw = (musterData.monthlyLOHPreferred && musterData.monthlyLOHPreferred[idx] != null)
                   ? parseFloat(musterData.monthlyLOHPreferred[idx]) || 0
                   : 0;
-                const loh = payrollMusterMonthlyLohForPayrollRow(lohRaw);
+                const loh = parseLohHours(lohRaw);
                 if (rawEmpId) lohMap[rawEmpId] = loh;
                 if (normalizedEmpId) lohMap[normalizedEmpId] = loh;
               });
@@ -3535,7 +3595,9 @@ const Payroll = () => {
           );
         }
         console.log(`Calculated derived fields for ${field}:`, derivedFields);
-        return { ...newFormData, ...derivedFields };
+        const mergedEdit = { ...newFormData, ...derivedFields };
+        if (field === 'loh') syncRevisedLohOnPayrollRow(mergedEdit, { forceFromLoh: true });
+        return mergedEdit;
       }
       return newFormData;
     });
@@ -3971,6 +4033,97 @@ const Payroll = () => {
       setError(err.message || 'Failed to save OT hours.');
     } finally {
       setSavingManualOtCode(null);
+    }
+  };
+
+  const manualRevisedLohEmployeeKey = (code) => String(code ?? '');
+
+  const toggleManualRevisedLohEdit = (employee, checked) => {
+    const key = manualRevisedLohEmployeeKey(employee.employeeCode);
+    setManualRevisedLohEditCodes((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+    if (checked) {
+      const snap = getRevisedLohForPayrollRow(employee);
+      setManualRevisedLohSnapshotByCode((prev) => ({ ...prev, [key]: snap }));
+      setManualRevisedLohDraftByCode((prev) => ({ ...prev, [key]: '' }));
+    } else {
+      setManualRevisedLohSnapshotByCode((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+      setManualRevisedLohDraftByCode((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    }
+  };
+
+  const handleManualRevisedLohDraftChange = (employeeCode, rawValue) => {
+    const key = manualRevisedLohEmployeeKey(employeeCode);
+    setManualRevisedLohDraftByCode((prev) => ({ ...prev, [key]: rawValue }));
+  };
+
+  const handleSaveManualRevisedLoh = async (employee) => {
+    const key = manualRevisedLohEmployeeKey(employee.employeeCode);
+    const draftStr = manualRevisedLohDraftByCode[key];
+    const raw = draftStr !== undefined && draftStr !== null ? String(draftStr).trim() : '';
+    const parsed = raw === '' ? 0 : parseFloat(raw);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      setError('Enter a valid Revised LOH value (0 or greater).');
+      return;
+    }
+    const revisedDisplay = parseFloat(parsed.toFixed(2));
+
+    setSavingManualRevisedLohCode(key);
+    setError(null);
+    try {
+      const current = payrollData.find((e) => manualRevisedLohEmployeeKey(e.employeeCode) === key) || employee;
+      const mergedWithRevised = recalculateEarnedFromRow({
+        ...current,
+        revisedLOH: revisedDisplay,
+        RevisedLOH: revisedDisplay,
+      });
+      const egs = Number(mergedWithRevised.earnedSalaryCross) || 0;
+      const totDed = Number(mergedWithRevised.totalDeduction) || 0;
+      const netPayToSave = Math.round(egs - totDed);
+      const response = await fetch('/server/payroll_function/update', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          month: selectedMonth,
+          employeeCode: current.employeeCode,
+          updatedData: { ...mergedWithRevised, netPay: netPayToSave },
+          userEmail
+        }),
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        let msg = errorText;
+        try {
+          const errJson = JSON.parse(errorText);
+          msg = errJson.error || msg;
+        } catch (_) { /* ignore */ }
+        throw new Error(msg || `Update failed: ${response.status}`);
+      }
+
+      const applyMerged = (emp) =>
+        manualRevisedLohEmployeeKey(emp.employeeCode) === key ? mergedWithRevised : emp;
+      setPayrollData((prev) => prev.map(applyMerged));
+      setAllPayrollData((prev) => (prev.length ? prev.map(applyMerged) : prev));
+      setManualRevisedLohSnapshotByCode((prev) => ({ ...prev, [key]: revisedDisplay }));
+      setManualRevisedLohDraftByCode((prev) => ({ ...prev, [key]: String(revisedDisplay) }));
+      setImportSuccess('Revised LOH saved successfully!');
+      setTimeout(() => setImportSuccess(''), 4000);
+    } catch (err) {
+      setError(err.message || 'Failed to save Revised LOH.');
+    } finally {
+      setSavingManualRevisedLohCode(null);
     }
   };
 
@@ -5348,6 +5501,17 @@ EMP001,MUKESH,SALES,Unit-A,No,31,22.5,0.00,0,10000,5000,0,0,0,0,0,0,15000,7258.0
                               </th>
                             );
                           }
+                          if (lower.includes('revised') && lower.includes('loh')) {
+                            return (
+                              <th
+                                key={`payroll-col-${colIdx}`}
+                                className="light-green-header payroll-revised-loh-combined-header"
+                                title="Use the checkbox in each row to enable editing Revised LOH"
+                              >
+                                {name}
+                              </th>
+                            );
+                          }
                           return (
                             <th key={`payroll-col-${colIdx}`} className="light-green-header">
                               {name}
@@ -5425,7 +5589,85 @@ EMP001,MUKESH,SALES,Unit-A,No,31,22.5,0.00,0,10000,5000,0,0,0,0,0,0,15000,7258.0
                             if (lowerName.includes('no. of days present')) {
                               return <td key={`payroll-col-${colIdx}`}>{employee.daysPresent != null ? employee.daysPresent : ''}</td>;
                             }
-                            if (lowerName === 'loh' || lowerName.includes('loss of hours')) {
+                            if (lowerName.includes('revised') && lowerName.includes('loh')) {
+                              const revKey = manualRevisedLohEmployeeKey(employee.employeeCode);
+                              const showRevisedInput = manualRevisedLohEditCodes.has(revKey);
+                              const savingThisRevised = savingManualRevisedLohCode === revKey;
+                              const rev = getRevisedLohForPayrollRow(employee);
+                              const revNum = parseFloat(rev);
+                              const revDisplay = Number.isFinite(revNum)
+                                ? parseFloat(revNum.toFixed(2))
+                                : rev != null && rev !== ''
+                                  ? rev
+                                  : '';
+                              const draftStr =
+                                manualRevisedLohDraftByCode[revKey] !== undefined &&
+                                manualRevisedLohDraftByCode[revKey] !== null
+                                  ? String(manualRevisedLohDraftByCode[revKey])
+                                  : null;
+                              return (
+                                <td
+                                  key={`payroll-col-${colIdx}`}
+                                  className="payroll-revised-loh-combined-cell"
+                                  onClick={showRevisedInput ? (e) => e.stopPropagation() : undefined}
+                                >
+                                  <div className="payroll-revised-loh-combined-inner">
+                                    <span
+                                      className="payroll-revised-loh-edit-cb-wrap"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        className="payroll-manual-revised-loh-checkbox"
+                                        checked={manualRevisedLohEditCodes.has(revKey)}
+                                        onChange={(e) => toggleManualRevisedLohEdit(employee, e.target.checked)}
+                                        disabled={savingThisRevised}
+                                        title="Enable Revised LOH entry for this employee"
+                                        aria-label={`Enable manual Revised LOH for employee ${employee.employeeCode ?? ''}`}
+                                      />
+                                    </span>
+                                    {showRevisedInput ? (
+                                      <div className="payroll-revised-loh-edit-wrap">
+                                        <input
+                                          type="text"
+                                          inputMode="decimal"
+                                          className="payroll-inline-revised-loh-input"
+                                          value={draftStr !== null ? draftStr : ''}
+                                          placeholder={String(revDisplay ?? 0)}
+                                          onMouseDown={(e) => e.stopPropagation()}
+                                          onClick={(e) => e.stopPropagation()}
+                                          onChange={(e) =>
+                                            handleManualRevisedLohDraftChange(employee.employeeCode, e.target.value)
+                                          }
+                                          disabled={savingThisRevised}
+                                          title="Revised LOH (Late deduction); LOH column is unchanged"
+                                          aria-label={`Revised LOH for ${employee.employeeCode ?? ''}`}
+                                        />
+                                        <button
+                                          type="button"
+                                          className="payroll-inline-revised-loh-save-btn"
+                                          onMouseDown={(e) => e.stopPropagation()}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleSaveManualRevisedLoh(employee);
+                                          }}
+                                          disabled={savingThisRevised}
+                                          title="Save Revised LOH"
+                                        >
+                                          {savingThisRevised ? 'Saving…' : 'Save'}
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <span className="payroll-revised-loh-readonly-val">{revDisplay}</span>
+                                    )}
+                                  </div>
+                                </td>
+                              );
+                            }
+                            if (
+                              (lowerName === 'loh' || lowerName.includes('loss of hours')) &&
+                              !lowerName.includes('revised')
+                            ) {
                               return <td key={`payroll-col-${colIdx}`}>{employee.loh != null ? employee.loh : ''}</td>;
                             }
                             if (lowerName === 'ot hours' || lowerName.includes('ot hours')) {
@@ -5452,52 +5694,54 @@ EMP001,MUKESH,SALES,Unit-A,No,31,22.5,0.00,0,10000,5000,0,0,0,0,0,0,15000,7258.0
                                   className="payroll-ot-hours-combined-cell"
                                   onClick={showInput ? (e) => e.stopPropagation() : undefined}
                                 >
-                                  <span
-                                    className="payroll-ot-hours-edit-cb-wrap"
-                                    onClick={(e) => e.stopPropagation()}
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      className="payroll-manual-ot-checkbox"
-                                      checked={manualOtEditCodes.has(otKey)}
-                                      onChange={(e) => toggleManualOtEdit(employee, e.target.checked)}
-                                      disabled={savingThisOt}
-                                      title="Enable OT hours entry for this employee"
-                                      aria-label={`Enable manual OT hours for employee ${employee.employeeCode ?? ''}`}
-                                    />
-                                  </span>
-                                  {showInput ? (
-                                    <div className="payroll-ot-hours-edit-wrap">
+                                  <div className="payroll-ot-hours-combined-inner">
+                                    <span
+                                      className="payroll-ot-hours-edit-cb-wrap"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
                                       <input
-                                        type="text"
-                                        inputMode="decimal"
-                                        className="payroll-inline-ot-input"
-                                        value={draftStr !== null ? draftStr : ''}
-                                        placeholder={String(otVal ?? 0)}
-                                        onMouseDown={(e) => e.stopPropagation()}
-                                        onClick={(e) => e.stopPropagation()}
-                                        onChange={(e) => handleManualOtDraftChange(employee.employeeCode, e.target.value)}
+                                        type="checkbox"
+                                        className="payroll-manual-ot-checkbox"
+                                        checked={manualOtEditCodes.has(otKey)}
+                                        onChange={(e) => toggleManualOtEdit(employee, e.target.checked)}
                                         disabled={savingThisOt}
-                                        title={`OT hours for employee ${employee.employeeCode ?? ''}`}
-                                        aria-label={`OT hours for ${employee.employeeCode ?? ''}`}
+                                        title="Enable OT hours entry for this employee"
+                                        aria-label={`Enable manual OT hours for employee ${employee.employeeCode ?? ''}`}
                                       />
-                                      <button
-                                        type="button"
-                                        className="payroll-inline-ot-save-btn"
-                                        onMouseDown={(e) => e.stopPropagation()}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          handleSaveManualOtHours(employee);
-                                        }}
-                                        disabled={savingThisOt}
-                                        title={hasOtChanged ? 'Save OT hours' : 'Save OT hours'}
-                                      >
-                                        {savingThisOt ? 'Saving…' : 'Save'}
-                                      </button>
-                                    </div>
-                                  ) : (
-                                    <span className="payroll-ot-hours-readonly-val">{otVal != null && otVal !== '' ? otVal : ''}</span>
-                                  )}
+                                    </span>
+                                    {showInput ? (
+                                      <div className="payroll-ot-hours-edit-wrap">
+                                        <input
+                                          type="text"
+                                          inputMode="decimal"
+                                          className="payroll-inline-ot-input"
+                                          value={draftStr !== null ? draftStr : ''}
+                                          placeholder={String(otVal ?? 0)}
+                                          onMouseDown={(e) => e.stopPropagation()}
+                                          onClick={(e) => e.stopPropagation()}
+                                          onChange={(e) => handleManualOtDraftChange(employee.employeeCode, e.target.value)}
+                                          disabled={savingThisOt}
+                                          title={`OT hours for employee ${employee.employeeCode ?? ''}`}
+                                          aria-label={`OT hours for ${employee.employeeCode ?? ''}`}
+                                        />
+                                        <button
+                                          type="button"
+                                          className="payroll-inline-ot-save-btn"
+                                          onMouseDown={(e) => e.stopPropagation()}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleSaveManualOtHours(employee);
+                                          }}
+                                          disabled={savingThisOt}
+                                          title={hasOtChanged ? 'Save OT hours' : 'Save OT hours'}
+                                        >
+                                          {savingThisOt ? 'Saving…' : 'Save'}
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <span className="payroll-ot-hours-readonly-val">{otVal != null && otVal !== '' ? otVal : ''}</span>
+                                    )}
+                                  </div>
                                 </td>
                               );
                             }
@@ -5506,7 +5750,20 @@ EMP001,MUKESH,SALES,Unit-A,No,31,22.5,0.00,0,10000,5000,0,0,0,0,0,0,15000,7258.0
                             }
                             const val = getComponentDisplayValue(employee, name);
                             const num = parseFloat(val);
-                            // Currency grid: blank / non-numeric should show ₹0 (same as Loan/PF-style columns), not an empty cell.
+                            // Currency grid: OT Hours / LOH / Revised LOH must never use ₹ formatting.
+                            const isHoursColumn =
+                              lowerName === 'ot hours' ||
+                              lowerName.includes('ot hours') ||
+                              lowerName === 'loh' ||
+                              (lowerName.includes('loss of hours') && !lowerName.includes('revised')) ||
+                              (lowerName.includes('revised') && lowerName.includes('loh'));
+                            if (isHoursColumn) {
+                              return (
+                                <td key={`payroll-col-${colIdx}`}>
+                                  {val !== '' && val !== null && val !== undefined ? val : ''}
+                                </td>
+                              );
+                            }
                             const amount = Number.isFinite(num) ? num : 0;
                             return (
                               <td key={`payroll-col-${colIdx}`}>
@@ -5788,8 +6045,11 @@ EMP001,MUKESH,SALES,Unit-A,No,31,22.5,0.00,0,10000,5000,0,0,0,0,0,0,15000,7258.0
                           <div className="form-rows-dynamic">
                             {(() => {
                               const rows = [];
-                              for (let i = 0; i < tablePayrollComponents.length; i += 2) {
-                                const pair = tablePayrollComponents.slice(i, i + 2);
+                              const editFormComponents = tablePayrollComponents.filter(
+                                (c) => !isPayrollRevisedLohCheckboxColumn(c)
+                              );
+                              for (let i = 0; i < editFormComponents.length; i += 2) {
+                                const pair = editFormComponents.slice(i, i + 2);
                                 rows.push(
                                   <div key={i} className="form-row">
                                     {pair.map((compName, j) => {
