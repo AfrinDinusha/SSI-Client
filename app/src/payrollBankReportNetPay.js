@@ -85,7 +85,10 @@ function attendanceBonusDeductionFlatFromDaysAndDoj(row, reportMonth) {
   return doj <= oneYearBefore ? 1200 : 800;
 }
 
-/** Earned Basic = (Actual Basic ÷ days in month) × days present — dim/dp from payroll row. */
+/**
+ * Earned Basic = (Actual Basic / No. of Days(In month)) × No. of Days Present
+ * (Setup & Configuration standard; no LOH term on bank/NEFT path.)
+ */
 function earnedBasicProRataFromPayrollRow(actualBasic, daysInMonth, daysPresent) {
   const dim = Number(daysInMonth);
   const dp = Number(daysPresent);
@@ -345,19 +348,11 @@ function rowVariantNumber(row, componentName) {
   return null;
 }
 
-/**
- * Bank report Uniform Deduction = No of days without uniforms × 25 (₹25 per day without uniform).
- */
+/** Uniform Deduction — stored payroll row / Setup formula only (same as Payroll grid; no days×25 auto-calc). */
 function uniformDeductionForBankReport(row) {
   if (!row || typeof row !== 'object') return 0;
-  const nu = pickNum(
-    row,
-    'noOfDaysWithoutUniforms',
-    'NoOfDaysWithoutUniforms',
-    'noofdayswithoutuniforms',
-    'Noofdayswithoutuniforms'
-  );
-  return Math.round(Math.max(0, nu) * 25);
+  const stored = pickNum(row, 'uniformDeduction', 'UniformDeduction');
+  return Number.isFinite(stored) ? Math.max(0, Math.round(stored)) : 0;
 }
 
 /**
@@ -525,6 +520,17 @@ function hasExplicitNetPayOnRow(p) {
 }
 
 /**
+ * Net Pay saved on the Payroll table row (NetPay / netPay field from API).
+ * Returns null when the row has no explicit stored Net Pay — use payrollGridAlignedNetPay for realtime.
+ */
+export function pickStoredPayrollNetPayFromRow(row) {
+  if (!row || typeof row !== 'object') return null;
+  const r = normalizePayrollRowLikePayrollFetch({ ...row });
+  if (!hasExplicitNetPayOnRow(r)) return null;
+  return pickNetPayFromPayrollRow(r);
+}
+
+/**
  * Stored take-home amount for bank transfer (matches payslip "Net Salary" / Payroll grid Net Pay).
  * Prefer Net Pay over Total Net Payable — Total Net Payable = Net Pay + Payable Amount and can be larger.
  */
@@ -565,6 +571,24 @@ function earnedGrossFromBackendComponentSum(row) {
     pickNum(row, 'earnedHRA', 'EarnedHRA') +
     pickNum(row, 'earnedSpecialAllowance', 'EarnedSpecialAllowance');
   return Math.round(sum);
+}
+
+/** Setup Earned Gross Salary: Earned Basic + HRA + Special + Other Allowance + OT + Incentive (payroll grid). */
+function earnedGrossFromSetupFormulaComponentSum(row) {
+  if (!row || typeof row !== 'object') return 0;
+  const ot = Math.max(0, pickNum(row, 'otAmount', 'OTAmount'));
+  const otherAllowance = Math.max(
+    pickNum(row, 'otherAllowances', 'OtherAllowances'),
+    pickNum(row, 'otherAllowance', 'OtherAllowance')
+  );
+  return Math.round(
+    pickNum(row, 'earnedBasic', 'EarnedBasic') +
+      pickNum(row, 'earnedHRA', 'EarnedHRA') +
+      pickNum(row, 'earnedSpecialAllowance', 'EarnedSpecialAllowance') +
+      otherAllowance +
+      ot +
+      pickNum(row, 'incentive')
+  );
 }
 
 /**
@@ -619,6 +643,9 @@ function computeBankReportPayrollAmounts(row, options) {
   } else {
     earnedBasicPayslip = Math.round(pickNum(row, 'earnedBasic', 'EarnedBasic'));
   }
+  const storedEarnedBasicFromPayroll = Math.round(pickNum(row, 'earnedBasic', 'EarnedBasic'));
+  let earnedBasicFromSetupFormula = false;
+  let resolvingForEarnedGrossFormula = false;
 
   function resolveValue(name, skipList) {
     const sk = skipNorm(skipList);
@@ -626,10 +653,13 @@ function computeBankReportPayrollAmounts(row, options) {
     if (sk.has(n)) return 0;
     if (n === 'net pay' || n === 'netpay') return 0;
 
+    if (n === 'actual basic') return abForEarned;
+
     if (n.includes('no. of days present') || (n.includes('days') && n.includes('present'))) {
-      return pickNum(row, 'daysPresent', 'DaysPresent');
+      return dpForEb;
     }
     if (n.includes('no. of days') && n.includes('month')) {
+      if (dimForEb > 0) return dimForEb;
       return pickNum(row, 'daysInMonth', 'DaysInMonth', 'daysInMonthForCalc');
     }
     if (n === 'loh' || n.includes('loss of hours')) return pickNum(row, 'loh', 'LOH');
@@ -637,6 +667,9 @@ function computeBankReportPayrollAmounts(row, options) {
     if (n.includes('ot hours') || n === 'ot') return pickNum(row, 'otHours', 'OTHours');
 
     if (n === 'ot amount' || (n.includes('ot') && n.includes('amount') && !n.includes('hours') && !n.includes('arrear'))) {
+      if (resolvingForEarnedGrossFormula) {
+        return Math.max(0, pickNum(row, 'otAmount', 'OTAmount'));
+      }
       const { otAmount } = computeBankReportOtAmountIncentive(
         abForEarned,
         dimForEb,
@@ -646,6 +679,9 @@ function computeBankReportPayrollAmounts(row, options) {
     }
 
     if (n === 'incentive') {
+      if (resolvingForEarnedGrossFormula) {
+        return Math.round(pickNum(row, 'incentive'));
+      }
       const { incentive } = computeBankReportOtAmountIncentive(
         abForEarned,
         dimForEb,
@@ -787,7 +823,12 @@ function computeBankReportPayrollAmounts(row, options) {
       return Math.round(pfV + esiV + loanV + uniformV + attDedV + lateV);
     }
 
-    if (n === 'earned basic') return earnedBasicPayslip;
+    if (n === 'earned basic') {
+      if (resolvingForEarnedGrossFormula && storedEarnedBasicFromPayroll > 0) {
+        return storedEarnedBasicFromPayroll;
+      }
+      return earnedBasicPayslip;
+    }
     if (n === 'earned hra') return Math.round(pickNum(row, 'earnedHRA', 'EarnedHRA'));
     if (n === 'earned da') return Math.round(pickNum(row, 'earnedDA', 'EarnedDA'));
     if (n === 'earned special allowance') {
@@ -842,10 +883,9 @@ function computeBankReportPayrollAmounts(row, options) {
     );
     if (Number.isFinite(evEb)) {
       earnedBasicPayslip = Math.round(evEb);
+      earnedBasicFromSetupFormula = true;
     }
   }
-
-  row = { ...row, earnedBasic: earnedBasicPayslip, EarnedBasic: earnedBasicPayslip };
 
   const storedEgs = pickNum(
     row,
@@ -854,7 +894,7 @@ function computeBankReportPayrollAmounts(row, options) {
     'earnedGrossSalary',
     'EarnedGrossSalary'
   );
-  const compEgs = earnedGrossFromBackendComponentSum(row);
+  const compEgs = earnedGrossFromSetupFormulaComponentSum(row);
   // Payroll.js re-runs Setup "Earned Gross Salary" after GET /payroll (applyPayrollFormulaeToEmployee); Bank Format
   // must do the same or it uses stale EarnedSalaryCross from the API (e.g. 3804 vs payslip 2637 → wrong bank net).
   const egsFormula = findForm((v) => v === 'earned gross salary' || v === 'earned gross cross');
@@ -867,6 +907,7 @@ function computeBankReportPayrollAmounts(row, options) {
       'earnedGrossSalary',
       'EarnedGrossSalary',
     ].filter(Boolean);
+    resolvingForEarnedGrossFormula = true;
     const ev = evaluatePayrollMoneyExpression(
       egsFormula.expression,
       (nm) => resolveValue(nm, egsSkip),
@@ -877,6 +918,7 @@ function computeBankReportPayrollAmounts(row, options) {
         row,
       }
     );
+    resolvingForEarnedGrossFormula = false;
     if (Number.isFinite(ev) && ev > 0) {
       let eg = Math.round(ev);
       // When formula result still tracks inflated stored EGS but line-item sum matches payslip, prefer the sum
@@ -891,7 +933,12 @@ function computeBankReportPayrollAmounts(row, options) {
     }
   } else if (compEgs > 0) {
     earnedGrossPayslip = compEgs;
+  } else {
+    const legacyComp = earnedGrossFromBackendComponentSum(row);
+    if (legacyComp > 0) earnedGrossPayslip = legacyComp;
   }
+
+  row = { ...row, earnedBasic: earnedBasicPayslip, EarnedBasic: earnedBasicPayslip };
   const totalDedPayslip = resolveValue('Total Deduction', []);
   const tdStored = pickNum(row, 'totalDeduction', 'TotalDeduction');
 
@@ -911,12 +958,17 @@ function computeBankReportPayrollAmounts(row, options) {
   const latePayslip = Math.round(resolveValue('Late', BANK_REPORT_TD_SKIP_SELF));
   const otAmountPayslip = Math.round(bankOtComputed);
   const incentivePayslip = Math.round(bankIncentiveComputed);
+  const earnedHRAPayslip = Math.round(resolveValue('Earned HRA', []));
+  const earnedDAPayslip = Math.round(resolveValue('Earned DA', []));
 
   return {
     row,
     storedEgs,
     tdStored,
     earnedBasicPayslip,
+    earnedBasicFromSetupFormula,
+    earnedHRAPayslip,
+    earnedDAPayslip,
     earnedGrossPayslip,
     totalDedPayslip,
     gridNet,
@@ -931,11 +983,151 @@ function computeBankReportPayrollAmounts(row, options) {
   };
 }
 
+function pickNumOptionalFromRow(row, ...keys) {
+  if (!row || typeof row !== 'object') return null;
+  for (const k of keys) {
+    const v = row[k];
+    if (v === undefined || v === null || v === '') continue;
+    const n = parseFloat(String(v).replace(/,/g, '').trim());
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
 /**
- * Bank Format columns: Net Pay = round(Earned Gross Salary − Total Deduction); other amounts from bank pipeline.
+ * Read payroll amounts from API row fields (same fields Payroll grid uses in getComponentDisplayValue).
+ * Does not re-run Setup formulae — avoids inflated Earned Gross on bank/NEFT reports.
+ */
+export function payrollStoredRowDisplayValues(row) {
+  if (!row || typeof row !== 'object') return null;
+  const r = normalizePayrollRowLikePayrollFetch({ ...row });
+  const earnedBasic = pickNumOptionalFromRow(r, 'earnedBasic', 'EarnedBasic');
+  const earnedHRA = pickNumOptionalFromRow(r, 'earnedHRA', 'EarnedHRA');
+  const earnedDA = pickNumOptionalFromRow(r, 'earnedDA', 'EarnedDA');
+  const earnedGross = pickNumOptionalFromRow(
+    r,
+    'earnedSalaryCross',
+    'EarnedSalaryCross',
+    'earnedGrossSalary',
+    'EarnedGrossSalary'
+  );
+  const totalDeduction = pickNumOptionalFromRow(r, 'totalDeduction', 'TotalDeduction');
+  let netPay = null;
+  if (earnedGross != null && totalDeduction != null) {
+    netPay = Math.round(earnedGross - totalDeduction);
+  } else {
+    netPay = pickNetPayFromPayrollRow(r);
+  }
+  const actualBasic = pickNumOptionalFromRow(r, 'actualBasic', 'ActualBasic');
+  return {
+    actualBasic,
+    earnedBasic,
+    earnedHRA,
+    earnedDA,
+    earnedGross,
+    totalDeduction,
+    netPay,
+  };
+}
+
+/** Stored earnedSalaryCross on API row (may be stale until Payroll formulae run). */
+export function payrollGridEarnedGrossFromRow(row) {
+  if (!row || typeof row !== 'object') return null;
+  const n = pickNum(
+    row,
+    'earnedSalaryCross',
+    'EarnedSalaryCross',
+    'earnedGrossSalary',
+    'EarnedGrossSalary'
+  );
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
+ * Earned Gross for bank/NEFT display — Setup formula result first (same as Payroll.js after applyPayrollFormulaeToEmployee),
+ * then stored earnedSalaryCross.
+ */
+export function payrollGridEarnedGrossForDisplay(row, options) {
+  const stored = payrollGridEarnedGrossFromRow(row);
+  if (stored != null) return stored;
+  const c = computeBankReportPayrollAmounts(row, options);
+  if (!c) return null;
+  if (Number.isFinite(c.earnedGrossPayslip) && c.earnedGrossPayslip > 0) {
+    return c.earnedGrossPayslip;
+  }
+  return payrollGridEarnedGrossFromRow(c.row);
+}
+
+/**
+ * Net Pay = round(earnedSalaryCross − display Total Deduction) — same rule as Payroll.js getComponentDisplayValue('Net Pay').
+ * Uses stored Earned Gross on the payroll row and Setup-formula Total Deduction (not stale stored netPay / totalDeduction).
+ */
+export function payrollGridAlignedNetPay(row, options) {
+  const r = normalizePayrollRowLikePayrollFetch({ ...row });
+  const c = computeBankReportPayrollAmounts(row, options);
+  if (!c) {
+    const stored = payrollStoredRowDisplayValues(row);
+    return stored?.netPay ?? pickNetPayFromPayrollRow(r);
+  }
+  const earnedFromRow = pickNumOptionalFromRow(
+    r,
+    'earnedSalaryCross',
+    'EarnedSalaryCross',
+    'earnedGrossSalary',
+    'EarnedGrossSalary'
+  );
+  // Prefer Setup-formula EGS (same as Payroll.js after applyPayrollFormulaeToEmployee), not stale API earnedSalaryCross.
+  const earned =
+    Number.isFinite(c.earnedGrossPayslip) && c.earnedGrossPayslip > 0
+      ? c.earnedGrossPayslip
+      : earnedFromRow != null && Number.isFinite(earnedFromRow)
+        ? earnedFromRow
+        : payrollGridEarnedGrossFromRow(c.row);
+  const totalDed = c.totalDedPayslip;
+  if (earned != null && Number.isFinite(earned) && Number.isFinite(totalDed)) {
+    return Math.round(earned - totalDed);
+  }
+  const storedNet = pickNetPayFromPayrollRow(r);
+  if (storedNet != null && Number.isFinite(storedNet)) return Math.round(storedNet);
+  return Number.isFinite(c.gridNet) ? c.gridNet : null;
+}
+
+/**
+ * Bank Format columns: prefer stored payroll API fields; formula pipeline only when stored values missing.
  */
 export function payrollDisplayAlignedWithPayrollGrid(row, options) {
+  const stored = payrollStoredRowDisplayValues(row);
   const c = computeBankReportPayrollAmounts(row, options);
+  if (stored?.earnedGross != null && c) {
+    const displayTd = c.totalDedPayslip;
+    const alignedEg =
+      Number.isFinite(c.earnedGrossPayslip) && c.earnedGrossPayslip > 0
+        ? c.earnedGrossPayslip
+        : stored.earnedGross;
+    const netPay =
+      Number.isFinite(alignedEg) && Number.isFinite(displayTd)
+        ? Math.round(alignedEg - displayTd)
+        : payrollGridAlignedNetPay(row, options);
+    return {
+      actualBasic: stored.actualBasic,
+      earnedBasic: stored.earnedBasic,
+      earnedHRA: stored.earnedHRA,
+      earnedDA: stored.earnedDA,
+      earnedGross: stored.earnedGross,
+      totalDeduction: Number.isFinite(displayTd) ? displayTd : stored.totalDeduction,
+      netPay: Number.isFinite(netPay) ? netPay : null,
+      pf: Number.isFinite(c.pfPayslip) ? c.pfPayslip : null,
+      esi: Number.isFinite(c.esiPayslip) ? c.esiPayslip : null,
+      loanAllowance: Number.isFinite(c.loanPayslip) ? c.loanPayslip : null,
+      uniformDeduction: Number.isFinite(c.uniformDeductionPayslip) ? c.uniformDeductionPayslip : null,
+      attendanceDeduction: Number.isFinite(c.attendanceDeductionPayslip)
+        ? c.attendanceDeductionPayslip
+        : null,
+      late: Number.isFinite(c.latePayslip) ? c.latePayslip : null,
+      otAmount: Number.isFinite(c.otAmountPayslip) ? c.otAmountPayslip : null,
+      incentive: Number.isFinite(c.incentivePayslip) ? c.incentivePayslip : null,
+    };
+  }
   if (!c) return null;
   const reportMonth = options?.reportMonth || '';
   let dim = pickNum(
@@ -952,16 +1144,23 @@ export function payrollDisplayAlignedWithPayrollGrid(row, options) {
   const dp = pickNum(c.row, 'daysPresent', 'DaysPresent', 'days_present', 'DAYS_PRESENT');
   const ab = pickNum(c.row, 'actualBasic', 'ActualBasic');
   let earnedBasic = c.earnedBasicPayslip;
-  if (dim > 0) {
+  // Standard: (Actual Basic / days in month) × days present — use when Setup formula did not run or failed.
+  if (!c.earnedBasicFromSetupFormula && dim > 0) {
     const eb = earnedBasicProRataFromPayrollRow(ab, dim, dp);
     if (eb != null) earnedBasic = eb;
   }
+  const earnedGross =
+    payrollGridEarnedGrossFromRow(c.row) ??
+    (Number.isFinite(c.earnedGrossPayslip) && c.earnedGrossPayslip > 0 ? c.earnedGrossPayslip : null);
+  const netPay = payrollGridAlignedNetPay(row, options) ?? c.gridNet;
   return {
     actualBasic: Number.isFinite(ab) ? ab : null,
     earnedBasic,
-    earnedGross: c.earnedGrossPayslip,
+    earnedHRA: Number.isFinite(c.earnedHRAPayslip) ? c.earnedHRAPayslip : null,
+    earnedDA: Number.isFinite(c.earnedDAPayslip) ? c.earnedDAPayslip : null,
+    earnedGross: Number.isFinite(earnedGross) ? earnedGross : null,
     totalDeduction: c.totalDedPayslip,
-    netPay: c.gridNet,
+    netPay: Number.isFinite(netPay) ? netPay : null,
     pf: c.pfPayslip,
     esi: c.esiPayslip,
     loanAllowance: c.loanPayslip,

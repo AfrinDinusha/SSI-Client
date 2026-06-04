@@ -24,7 +24,13 @@ import {
 import JSZip from 'jszip';
 import { getSidebarModulesForUser } from './modulesConfig';
 import { applyReportsLohToMusterData, fetchLohRowsForMusterOverlay } from './musterLohReportsMerge';
-import { getRevisedLohForPayrollRow, lohHoursForLateDeduction, parseLohHours } from './payrollLiveLoh';
+import {
+  getRevisedLohForPayrollRow,
+  lohHoursForLateDeduction,
+  parseLohHours,
+  pickRevisedLohFromPayrollRow,
+  resolveRevisedLohDisplayOnRow,
+} from './payrollLiveLoh';
 import DateInputDdMm from './DateInputDdMm';
 
 /** Sync Revised LOH on row from LOH (−1.5h grace) or resolved display value. */
@@ -32,10 +38,28 @@ function syncRevisedLohOnPayrollRow(row, options = {}) {
   if (!row || typeof row !== 'object') return row;
   const revised = options.forceFromLoh
     ? lohHoursForLateDeduction(row.loh ?? row.LOH ?? 0)
-    : getRevisedLohForPayrollRow(row);
+    : resolveRevisedLohDisplayOnRow(row);
   row.revisedLOH = revised;
   row.RevisedLOH = revised;
   return row;
+}
+
+/** When muster refreshes LOH, drop auto-derived Revised LOH tied to the previous LOH (keep real manual overrides). */
+function applyMusterLohUpdateToPayrollRow(emp, lohUpdate) {
+  if (!emp || !lohUpdate || lohUpdate.loh === undefined) return { ...emp, ...lohUpdate };
+  const prevLoh = parseLohHours(emp.loh ?? emp.LOH ?? 0);
+  const newLoh = parseLohHours(lohUpdate.loh);
+  if (Math.abs(prevLoh - newLoh) <= 0.001) return { ...emp, ...lohUpdate };
+  const explicit = pickRevisedLohFromPayrollRow(emp);
+  const wasAutoDerived =
+    explicit !== undefined && Math.abs(explicit - lohHoursForLateDeduction(prevLoh)) <= 0.001;
+  const merged = { ...emp, ...lohUpdate };
+  if (wasAutoDerived) {
+    const derived = lohHoursForLateDeduction(newLoh);
+    merged.revisedLOH = derived;
+    merged.RevisedLOH = derived;
+  }
+  return merged;
 }
 
 const PAYROLL_AUTOMATIC_MODE_OPTIONS = ['Automatic', 'Manual'];
@@ -1040,6 +1064,63 @@ const Payroll = () => {
     return Math.round(earned - totalDed - advance);
   };
 
+  /** Subset of payroll fields for RunPayroll sync (keeps POST body small for Catalyst). */
+  const slimPayrollRowForRunPayrollSync = (emp) => ({
+    employeeCode: emp?.employeeCode,
+    employeeName: emp?.employeeName,
+    department: emp?.department,
+    category: emp?.category,
+    contractor: emp?.contractor,
+    daysInMonth: emp?.daysInMonth,
+    daysPresent: emp?.daysPresent,
+    otHours: emp?.otHours,
+    loh: emp?.loh,
+    revisedLOH: emp?.revisedLOH,
+    lop: emp?.lop,
+    actualBasic: emp?.actualBasic,
+    actualHRA: emp?.actualHRA,
+    actualDA: emp?.actualDA,
+    otherAllowance: emp?.otherAllowance,
+    otherAllowances: emp?.otherAllowances,
+    travelChargers: emp?.travelChargers,
+    specialAllowance: emp?.specialAllowance,
+    earnedBasic: emp?.earnedBasic,
+    earnedHRA: emp?.earnedHRA,
+    earnedDA: emp?.earnedDA,
+    earnedSpecialAllowance: emp?.earnedSpecialAllowance,
+    earnedSalaryCross: emp?.earnedSalaryCross,
+    earnedAttendanceAllowance: emp?.earnedAttendanceAllowance,
+    earnedOtherAllowances: emp?.earnedOtherAllowances,
+    totalDeduction: toWholeNumber(getDisplayTotalDeduction(emp)),
+    netPay: getGridAlignedNetPayNumber(emp),
+    pf: emp?.pf,
+    esi: emp?.esi,
+    late: emp?.late ?? emp?.Late,
+    otAmount: emp?.otAmount,
+    rent: emp?.rent,
+    advance: emp?.advance,
+    pt: emp?.pt,
+    lwf: emp?.lwf,
+    otherDeduction: emp?.otherDeduction,
+    incentive: emp?.incentive,
+    arrear: emp?.arrear,
+    bonus: emp?.bonus,
+    attendanceBonus: getAttendanceBonusNumericForRow(emp),
+    attendanceDeduction: (() => {
+      const saved = emp?.attendanceDeduction ?? emp?.AttendanceDeduction;
+      if (saved != null && saved !== undefined && String(saved).trim() !== '') {
+        const n = Number(saved);
+        if (Number.isFinite(n)) return Math.round(n);
+      }
+      const ab = getAttendanceBonusNumericForRow(emp);
+      return ab > 0 ? ab : 0;
+    })(),
+    loanAllowance: emp?.loanAllowance,
+    foodAllowance: emp?.foodAllowance,
+    uniformAllowance: emp?.uniformAllowance,
+    washingAllowance: emp?.washingAllowance
+  });
+
   const getComponentDisplayValue = (employee, componentName) => {
     if (!employee || !componentName) return '';
     const base = String(componentName).trim();
@@ -1780,14 +1861,16 @@ const Payroll = () => {
                   updatedCount++;
                   const updatedDaysPresent = managingPartnerDaysPresentValue(emp, matchedDaysPresent);
                   const calculatedLOP = Math.max(0, daysInMonth - updatedDaysPresent);
-                  const merged = { ...emp, ...otHoursUpdate, ...lohUpdate, daysPresent: updatedDaysPresent, lop: calculatedLOP };
+                  const withLoh = applyMusterLohUpdateToPayrollRow(emp, lohUpdate);
+                  const merged = { ...withLoh, ...otHoursUpdate, daysPresent: updatedDaysPresent, lop: calculatedLOP };
                   return recalculateEarnedFromRow(merged);
                 } else if (empCodeRaw || empCodeNormalized) {
                   // Employee NOT found in attendance muster - set to 0 and recalc Earned Basic
                   zeroCount++;
                   const updatedDaysPresent = managingPartnerDaysPresentValue(emp, 0);
                   const calculatedLOP = Math.max(0, daysInMonth - updatedDaysPresent);
-                  const merged = { ...emp, ...otHoursUpdate, ...lohUpdate, daysPresent: updatedDaysPresent, lop: calculatedLOP };
+                  const withLoh = applyMusterLohUpdateToPayrollRow(emp, lohUpdate);
+                  const merged = { ...withLoh, ...otHoursUpdate, daysPresent: updatedDaysPresent, lop: calculatedLOP };
                   return recalculateEarnedFromRow(merged);
                 }
 
@@ -1796,7 +1879,8 @@ const Payroll = () => {
                   isManagingPartnerPayrollRow(emp) && dimOnly > 0
                     ? { daysPresent: dimOnly, lop: 0 }
                     : {};
-                return recalculateEarnedFromRow({ ...emp, ...otHoursUpdate, ...lohUpdate, ...mpOnly });
+                const withLohMp = applyMusterLohUpdateToPayrollRow(emp, lohUpdate);
+                return recalculateEarnedFromRow({ ...withLohMp, ...otHoursUpdate, ...mpOnly });
               });
              
               console.log(`Updated daysPresent, LOP, OT Hours and LOH for ${updatedCount} employees based on Attendance Muster data`);
@@ -1854,6 +1938,7 @@ const Payroll = () => {
                 )
               : 0;
         }
+        const revisedFromApi = pickRevisedLohFromPayrollRow(row);
         return {
         ...row,
         unit: payrollRowUnitDisplay(row),
@@ -1873,6 +1958,9 @@ const Payroll = () => {
         daysInMonth: row.daysInMonth ?? row.DaysInMonth,
         daysPresent: row.daysPresent ?? row.DaysPresent,
         loh: row.loh ?? row.LOH,
+        ...(revisedFromApi !== undefined
+          ? { revisedLOH: revisedFromApi, RevisedLOH: revisedFromApi }
+          : {}),
       };
       }).map(syncRevisedLohOnPayrollRow);
      
@@ -2411,13 +2499,15 @@ const Payroll = () => {
                   updatedCount++;
                   const updatedDaysPresent = managingPartnerDaysPresentValue(emp, matchedDaysPresent);
                   const calculatedLOP = Math.max(0, daysInMonth - updatedDaysPresent);
-                  const merged = { ...emp, ...otHoursUpdate, ...lohUpdate, daysPresent: updatedDaysPresent, lop: calculatedLOP };
+                  const withLoh = applyMusterLohUpdateToPayrollRow(emp, lohUpdate);
+                  const merged = { ...withLoh, ...otHoursUpdate, daysPresent: updatedDaysPresent, lop: calculatedLOP };
                   return recalculateEarnedFromRow(merged);
                 } else if (empCodeRaw || empCodeNormalized) {
                   zeroCount++;
                   const updatedDaysPresent = managingPartnerDaysPresentValue(emp, 0);
                   const calculatedLOP = Math.max(0, daysInMonth - updatedDaysPresent);
-                  const merged = { ...emp, ...otHoursUpdate, ...lohUpdate, daysPresent: updatedDaysPresent, lop: calculatedLOP };
+                  const withLoh = applyMusterLohUpdateToPayrollRow(emp, lohUpdate);
+                  const merged = { ...withLoh, ...otHoursUpdate, daysPresent: updatedDaysPresent, lop: calculatedLOP };
                   return recalculateEarnedFromRow(merged);
                 }
                 const dimOnlyRun = parseFloat(emp.daysInMonth) || 0;
@@ -2425,7 +2515,8 @@ const Payroll = () => {
                   isManagingPartnerPayrollRow(emp) && dimOnlyRun > 0
                     ? { daysPresent: dimOnlyRun, lop: 0 }
                     : {};
-                return recalculateEarnedFromRow({ ...emp, ...otHoursUpdate, ...lohUpdate, ...mpOnlyRun });
+                const withLohRun = applyMusterLohUpdateToPayrollRow(emp, lohUpdate);
+                return recalculateEarnedFromRow({ ...withLohRun, ...otHoursUpdate, ...mpOnlyRun });
               });
              
               console.log(`Updated daysPresent, LOP, OT Hours and LOH for ${updatedCount} employees based on Attendance Muster data`);
@@ -2480,7 +2571,11 @@ const Payroll = () => {
           const dataWithFormulae = result.data.map(applyPayrollFormulaeToEmployee);
           const sortedPayroll = sortPayrollManagingPartnerFirst(dataWithFormulae);
           // Persist the same rows the user sees (including formulae) to Payroll + RunPayroll
-          const payrollPayloadForSave = sortedPayroll;
+          const payrollPayloadForSave = sortedPayroll.map((emp) => {
+            const net = getGridAlignedNetPayNumber(emp);
+            if (!Number.isFinite(net)) return emp;
+            return { ...emp, netPay: net, NetPay: net };
+          });
           // Store all data for local filtering
           setAllPayrollData(sortedPayroll);
          
@@ -2531,10 +2626,86 @@ const Payroll = () => {
           // Enable local filtering for this data
           shouldUseLocalFilter.current = true;
          
+          const syncRunPayrollSnapshot = async () => {
+            try {
+              const slimPayload = payrollPayloadForSave.map(slimPayrollRowForRunPayrollSync);
+              const syncRes = await fetch('/server/payroll_function/sync-run-payroll', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  month: selectedMonth,
+                  payrollData: slimPayload
+                })
+              });
+              const syncText = await syncRes.text();
+              let syncJson = {};
+              try {
+                syncJson = JSON.parse(syncText);
+              } catch (_) {
+                syncJson = { error: syncText?.slice(0, 200) || 'Invalid JSON from server' };
+              }
+              const rp = syncJson.runPayroll || {};
+              const inserted = Number(rp.inserted ?? 0);
+              const verifyCount = Number(rp.verifyCount ?? 0);
+              const failed = Number(rp.failed ?? 0);
+              const stored = Math.max(inserted, verifyCount);
+              if (syncRes.status === 404) {
+                return {
+                  ok: false,
+                  inserted: 0,
+                  error:
+                    'sync-run-payroll API not found — deploy payroll_function to Catalyst (catalyst deploy --only functions:payroll_function).'
+                };
+              }
+              if (syncRes.ok && stored > 0 && failed < slimPayload.length) {
+                console.log(`✅ RunPayroll table updated for ${selectedMonth}:`, stored, 'row(s)');
+                return { ok: true, inserted: stored };
+              }
+              const errDetail =
+                syncJson.error ||
+                rp.firstError ||
+                (rp.skipped ? 'RunPayroll table not found in Data Store' : null) ||
+                `HTTP ${syncRes.status}`;
+              console.warn('RunPayroll sync issue:', errDetail, rp);
+              return {
+                ok: false,
+                inserted: stored,
+                failed,
+                error: errDetail || 'RunPayroll sync failed'
+              };
+            } catch (syncErr) {
+              console.error('RunPayroll sync request failed:', syncErr);
+              return { ok: false, error: syncErr.message || String(syncErr) };
+            }
+          };
+
+          const cleanupRunPayrollDuplicates = async () => {
+            try {
+              const res = await fetch('/server/payroll_function/cleanup-run-payroll', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ month: selectedMonth })
+              });
+              if (!res.ok) return null;
+              const json = await res.json();
+              if (Number(json.removed) > 0) {
+                console.log(
+                  `RunPayroll cleanup for ${selectedMonth}: removed ${json.removed} duplicate row(s) (${json.countBefore} → ${json.countAfter})`
+                );
+              }
+              return json;
+            } catch (cleanupErr) {
+              console.warn('RunPayroll cleanup skipped:', cleanupErr);
+              return null;
+            }
+          };
+
           // Save calculated payroll data to backend so it persists
           console.log('=== SAVING CALCULATED PAYROLL DATA TO BACKEND ===');
           console.log('Data to save:', payrollPayloadForSave.length, 'records');
           console.log('Sample record:', payrollPayloadForSave[0]);
+          let runPayrollSyncResult = { ok: false };
+          // RunPayroll sync runs once inside payroll import (avoids duplicate snapshot rows)
           try {
             const saveResponse = await fetch('/server/payroll_function/import', {
               method: 'POST',
@@ -2561,9 +2732,14 @@ const Payroll = () => {
               throw new Error(`Failed to parse server response: ${parseErr.message}`);
             }
             console.log('Save result:', saveResult);
-           
+
             if (saveResponse.ok && saveResult.status === 'success') {
               console.log('✅ Payroll data saved to backend:', saveResult.successCount || payrollPayloadForSave.length, 'records');
+              const rp = saveResult.runPayroll;
+              if (rp?.inserted > 0 && rp.ok !== false && !(rp.failed > 0)) {
+                console.log('✅ RunPayroll snapshot from import:', rp.inserted, 'row(s)');
+                runPayrollSyncResult = { ok: true, inserted: rp.inserted };
+              }
               // Verify the data was saved by fetching it back
               setTimeout(async () => {
                 try {
@@ -2584,15 +2760,37 @@ const Payroll = () => {
               const errorMsg = saveResult.error || saveResult.message || 'Unknown error';
               console.error('⚠️ Failed to save payroll data to backend:', errorMsg);
               console.error('Full save result:', saveResult);
-              // Don't show error to user - data is displaying correctly, user can save manually if needed
-              // setError(`Failed to save payroll data: ${errorMsg}. Please try saving manually using the "Save Payroll" button.`);
             }
           } catch (saveErr) {
             console.error('Error saving payroll data to backend:', saveErr);
-            const errorMessage = saveErr.message || 'Unknown error occurred';
-            // Don't show error to user - data is displaying correctly, user can save manually if needed
-            // setError(`Failed to save payroll data: ${errorMessage}. Please try saving manually using the "Save Payroll" button.`);
-            // Continue even if save fails - data is still displayed
+          } finally {
+            if (!runPayrollSyncResult.ok) {
+              runPayrollSyncResult = await syncRunPayrollSnapshot();
+            }
+            try {
+              const countRes = await fetch(
+                `/server/payroll_function/run-payroll-count?month=${encodeURIComponent(selectedMonth)}&_t=${Date.now()}`
+              );
+              if (countRes.ok) {
+                const countJson = await countRes.json();
+                console.log('RunPayroll rows in DB for month:', countJson);
+                if (Number(countJson.count) > 0) {
+                  runPayrollSyncResult = { ok: true, inserted: countJson.count };
+                }
+              }
+            } catch (countErr) {
+              console.warn('RunPayroll count check skipped:', countErr);
+            }
+            await cleanupRunPayrollDuplicates();
+            if (!runPayrollSyncResult.ok) {
+              const n = payrollPayloadForSave.length;
+              const ins = runPayrollSyncResult.inserted ?? 0;
+              const detail = runPayrollSyncResult.error ? ` ${runPayrollSyncResult.error}` : '';
+              setError(
+                `Payroll calculated for ${selectedMonth}, but RunPayroll was not updated (${ins}/${n} rows).${detail} Deploy payroll_function, then Run Payroll again.`
+              );
+              setImportSuccess('');
+            }
           }
          
           // Reset filters for unrestricted users only
@@ -2603,9 +2801,12 @@ const Payroll = () => {
           }
          
           console.log('✅ Payroll completed -', result.data.length, 'records loaded and saved');
-          // Clear any previous errors since payroll completed successfully
-          setError(null);
-          setImportSuccess('Payroll completed successfully! Days Present and LOH hours are automatically fetched from BHR attendance table and LOH report. Data has been saved.');
+          if (runPayrollSyncResult.ok) {
+            setError(null);
+            setImportSuccess(
+              `Payroll completed for ${selectedMonth}. ${runPayrollSyncResult.inserted ?? payrollPayloadForSave.length} row(s) saved to RunPayroll table.`
+            );
+          }
           setTimeout(() => setImportSuccess(''), 5000);
         } else {
           console.log('No payroll data returned');
@@ -2656,6 +2857,9 @@ const Payroll = () => {
       const result = await response.json();
 
       if (response.ok && result.status === 'success') {
+        if (result.runPayroll?.failed > 0) {
+          console.warn('RunPayroll sync had failures:', result.runPayroll);
+        }
         setImportSuccess(`Payroll saved successfully for ${selectedMonth}. Redirecting to report...`);
         // Navigate to the Payroll Report page for the saved month so the user can view it immediately
         navigate(`/payroll-report?month=${encodeURIComponent(selectedMonth)}`);
@@ -3019,6 +3223,7 @@ const Payroll = () => {
       employeeName: employee.employeeName || '',
       designation: employee.designation ?? employee.Designation ?? '',
       department: employee.department || '',
+      category: employee.category ?? employee.Category ?? '',
       unit: payrollRowUnitDisplay(employee),
       dateOfJoining: employee.dateOfJoining ?? employee.date_of_joining ?? '',
       contractor: employee.contractor || '',
@@ -3534,7 +3739,7 @@ const Payroll = () => {
       }
      
       // Fields that are display-only / identifiers and do not affect payroll formulas - skip formula recalc
-      const noRecalcFields = new Set(['employeeCode', 'employeeName', 'designation', 'department', 'unit', 'contractor', 'bankHolderName', 'bankName', 'ifscCode', 'bankBranch', 'pfStatus', 'esiStatus', 'payslip']);
+      const noRecalcFields = new Set(['employeeCode', 'employeeName', 'designation', 'department', 'category', 'unit', 'contractor', 'bankHolderName', 'bankName', 'ifscCode', 'bankBranch', 'pfStatus', 'esiStatus', 'payslip']);
       if (!noRecalcFields.has(field)) {
         let derivedFields = calculateDerivedFields(newFormData);
         // Keep Earned Gross fixed for edits that should not re-open gross (OT/travel/loan/uniform paths, etc.).
@@ -4183,6 +4388,7 @@ const Payroll = () => {
           'Employee Name': employee.employeeName || '',
           'Designation': employee.designation ?? employee.Designation ?? '',
           'Department': employee.department || '',
+          'Category': employee.category ?? employee.Category ?? '',
           Unit: payrollRowUnitDisplay(employee),
           'Date of Joining': employee.dateOfJoining ? new Date(employee.dateOfJoining).toLocaleDateString('en-GB') : ''
         };
@@ -4203,6 +4409,7 @@ const Payroll = () => {
           'Employee Name': '',
           'Designation': '',
           'Department': '',
+          'Category': '',
           Unit: '',
           'Date of Joining': ''
         };
@@ -4222,6 +4429,7 @@ const Payroll = () => {
         'Employee Name': '',
         'Designation': '',
         'Department': '',
+        'Category': '',
         Unit: '',
         'Date of Joining': '',
       };
@@ -4248,6 +4456,7 @@ const Payroll = () => {
         { wch: 20 },  // Employee Name
         { wch: 18 },  // Designation
         { wch: 15 },  // Department
+        { wch: 15 },  // Category
         { wch: 14 },  // Unit
         { wch: 18 }   // Date of Joining
       ].concat(exportColumns.map(() => ({ wch: 15 })));
@@ -5486,6 +5695,7 @@ EMP001,MUKESH,SALES,Unit-A,No,31,22.5,0.00,0,10000,5000,0,0,0,0,0,0,15000,7258.0
                         <th>Employee Name</th>
                         <th>Designation</th>
                         <th>Department</th>
+                        <th>Category</th>
                         <th>Unit</th>
                         <th>Date of Joining</th>
                         {tablePayrollComponents.map((name, colIdx) => {
@@ -5554,7 +5764,7 @@ EMP001,MUKESH,SALES,Unit-A,No,31,22.5,0.00,0,10000,5000,0,0,0,0,0,0,15000,7258.0
                             else otherRows.push(emp);
                           });
                           const showMpSectionGap = mpRows.length > 0 && otherRows.length > 0;
-                          const tbodyColSpan = 8 + tablePayrollComponents.length;
+                          const tbodyColSpan = 9 + tablePayrollComponents.length;
                           const renderPayrollDataRow = (employee, displaySerialNo, rowSuffix) => (
                         <tr
                           key={`${rowSuffix}-${employee.employeeCode}-${employee.actualBasic}-${employee.actualHRA}-${employee.actualDA}-${employee.otherAllowance}`}
@@ -5567,6 +5777,7 @@ EMP001,MUKESH,SALES,Unit-A,No,31,22.5,0.00,0,10000,5000,0,0,0,0,0,0,15000,7258.0
                           <td>{employee.employeeName || ''}</td>
                           <td>{employee.designation ?? employee.Designation ?? ''}</td>
                           <td>{employee.department || ''}</td>
+                          <td>{employee.category ?? employee.Category ?? ''}</td>
                           <td>{payrollRowUnitDisplay(employee)}</td>
                           <td>{employee.dateOfJoining ? new Date(employee.dateOfJoining).toLocaleDateString('en-GB') : '-'}</td>
                           {tablePayrollComponents.map((name, colIdx) => {
@@ -5997,6 +6208,17 @@ EMP001,MUKESH,SALES,Unit-A,No,31,22.5,0.00,0,10000,5000,0,0,0,0,0,0,15000,7258.0
                             disabled
                             style={{ backgroundColor: '#f8f9fa', color: '#6c757d', cursor: 'not-allowed' }}
                             title="Read-only"
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label>Category:</label>
+                          <input
+                            type="text"
+                            value={editFormData.category ?? ''}
+                            readOnly
+                            disabled
+                            style={{ backgroundColor: '#f8f9fa', color: '#6c757d', cursor: 'not-allowed' }}
+                            title="Read-only (from Employee master)"
                           />
                         </div>
                         <div className="form-group">

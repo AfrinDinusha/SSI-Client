@@ -14,14 +14,13 @@ import {
   parsePayrollFormulaeFromApi,
 } from './payrollBankReportNetPay';
 import {
-  bankReportNetPayEarnedGrossMinusTd,
+  resolveBankReportNetPayAmount,
   buildPayrollByEmployeeCode,
   buildRunPayrollTableMapFromApi,
   mergeBankFormatRowsWithPayroll,
   parsePayrollAmountLoose,
   payrollMonthToFromToDates,
-  pickBackendSalaryOrNetColumn,
-  preferPayrollAlignedThenBankApi,
+  resolveEarnedGrossForBankMergedRow,
 } from './bankReportPayrollShared';
 
 function formatSalaryForBankReport(val) {
@@ -346,7 +345,8 @@ function BankFormatReport({ userRole = 'App Administrator', userEmail = null }) 
       } catch {
         payrollJson = {};
       }
-      const payrollLoadedOk = payrollRes.ok && Array.isArray(payrollJson?.data);
+      const payrollRows = Array.isArray(payrollJson?.data) ? payrollJson.data : [];
+      const payrollLoadedOk = payrollRes.ok && payrollRows.length > 0;
 
       let componentsJson = {};
       let formulaeJson = {};
@@ -395,16 +395,19 @@ function BankFormatReport({ userRole = 'App Administrator', userEmail = null }) 
         reportMonth: m,
       };
 
-      if (payrollLoadedOk) {
-        payrollMap = buildPayrollByEmployeeCode(payrollJson.data);
-      } else {
+      if (payrollRows.length > 0) {
+        payrollMap = buildPayrollByEmployeeCode(payrollRows);
+      }
+      if (!payrollRes.ok || payrollRows.length === 0) {
         const msg =
           payrollJson?.error ||
           (!payrollRes.ok
             ? `Payroll for ${reportMonth} (${fromD}–${toD}) could not be loaded (HTTP ${payrollRes.status}).`
-            : '');
+            : payrollRows.length === 0
+              ? `No payroll rows for ${reportMonth} (${fromD}–${toD}). Run Payroll on the Payroll screen for this month, then refresh.`
+              : '');
         if (msg) {
-          setPayrollNotice(`${msg} Salary amount falls back to employee master where available.`);
+          setPayrollNotice(`${msg} Salary amount falls back to Run Payroll snapshot or employee master where available.`);
         }
       }
 
@@ -462,13 +465,7 @@ function BankFormatReport({ userRole = 'App Administrator', userEmail = null }) 
       ),
       attendanceDeduction: formatMergedMoneyMaybe(row.attendanceDeductionPayroll),
       late: formatMergedMoneyMaybe(row.latePayroll, row.late, row.Late),
-      earnedGrossSalary: formatMergedMoneyMaybe(
-        row.earnedGrossPayroll,
-        row.earnedGross,
-        row.EarnedGrossSalary,
-        row.earnedSalaryCross,
-        row.EarnedSalaryCross
-      ),
+      earnedGrossSalary: formatSalaryForBankReport(resolveEarnedGrossForBankMergedRow(row)),
       totalDeduction: formatSalaryForBankReport(
         (() => {
           const td =
@@ -479,30 +476,7 @@ function BankFormatReport({ userRole = 'App Administrator', userEmail = null }) 
           return '';
         })()
       ),
-      salaryAmount: formatSalaryForBankReport(
-        (() => {
-          const netEgTd = bankReportNetPayEarnedGrossMinusTd(row);
-          const preferredNet = preferPayrollAlignedThenBankApi(
-            row.netPayPayroll,
-            pickBackendSalaryOrNetColumn(row) ||
-              row.salaryAmount ||
-              row.SalaryAmount ||
-              row.totalSalary ||
-              row.TotalSalary
-          );
-          const preferredNetNum = parsePayrollAmountLoose(preferredNet);
-          if (preferredNetNum != null && Number.isFinite(preferredNetNum) && preferredNetNum > 0) {
-            return preferredNetNum;
-          }
-          if (netEgTd != null && Number.isFinite(netEgTd)) {
-            return Math.max(0, netEgTd);
-          }
-          if (preferredNetNum != null && Number.isFinite(preferredNetNum)) {
-            return Math.max(0, preferredNetNum);
-          }
-          return '';
-        })()
-      ),
+      salaryAmount: formatSalaryForBankReport(resolveBankReportNetPayAmount(row)),
     }));
   }, [records]);
 

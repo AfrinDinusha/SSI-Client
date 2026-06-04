@@ -29,18 +29,19 @@ export function pickRevisedLohFromPayrollRow(row) {
 }
 
 /**
- * Revised LOH for display/Late: LOH minus 1.5h grace by default.
- * Uses saved value only when it is a real manual override (differs from LOH-derived).
- * Stale/zero DB values do not hide LOH-derived hours.
+ * Resolve Revised LOH from row fields + current LOH (same rules as payroll_function applyRevisedLohToPayrollRow).
  */
-export function getRevisedLohForPayrollRow(row) {
+export function resolveRevisedLohDisplayOnRow(row) {
   if (!row || typeof row !== 'object') return 0;
   const derived = lohHoursForLateDeduction(row.loh ?? row.LOH ?? 0);
   const explicit = pickRevisedLohFromPayrollRow(row);
   if (explicit === undefined) return derived;
-  if (explicit === 0 && derived > 0) return derived;
-  if (Math.abs(explicit - derived) > 0.001) return explicit;
   return explicit;
+}
+
+/** @alias resolveRevisedLohDisplayOnRow */
+export function getRevisedLohForPayrollRow(row) {
+  return resolveRevisedLohDisplayOnRow(row);
 }
 
 /** @deprecated use lohHoursForLateDeduction for Late; use parseLohHours for payroll LOH from muster */

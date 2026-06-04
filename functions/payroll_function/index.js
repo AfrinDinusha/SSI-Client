@@ -1644,7 +1644,7 @@ function parseSavedRevisedLohField(raw) {
   return parseFloat(n.toFixed(2));
 }
 
-/** Revised LOH = LOH minus 1.5h grace; saved value only when a real manual override. */
+/** Revised LOH = saved value when set (including explicit 0), else LOH minus 1.5h grace. */
 function resolveRevisedLohForEmployee(empId, lohHours, savedRevisedLOHMap) {
   const derived = lohHoursForLateDeduction(lohHours ?? 0);
   if (savedRevisedLOHMap && typeof savedRevisedLOHMap === 'object') {
@@ -1655,10 +1655,7 @@ function resolveRevisedLohForEmployee(empId, lohHours, savedRevisedLOHMap) {
       savedRevisedLOHMap[empIdNorm] ??
       savedRevisedLOHMap[String(parseInt(empId, 10))];
     if (saved !== undefined && saved !== null && Number.isFinite(saved)) {
-      const s = parseFloat(Number(saved).toFixed(2));
-      if (s === 0 && derived > 0) return derived;
-      if (Math.abs(s - derived) > 0.001) return s;
-      return s;
+      return parseFloat(Number(saved).toFixed(2));
     }
   }
   return derived;
@@ -1677,12 +1674,7 @@ function applyRevisedLohToPayrollRow(row) {
   const explicit = parseSavedRevisedLohField(
     row.revisedLOH ?? row.RevisedLOH ?? row['Revised LOH']
   );
-  let revised = derived;
-  if (explicit !== undefined) {
-    if (explicit === 0 && derived > 0) revised = derived;
-    else if (Math.abs(explicit - derived) > 0.001) revised = explicit;
-    else revised = explicit;
-  }
+  const revised = explicit !== undefined ? explicit : derived;
   row.revisedLOH = revised;
   row.RevisedLOH = revised;
 }
@@ -3972,36 +3964,728 @@ async function getSamplePayrollTable(catalystApp) {
   return null;
 }
 
-/**
- * Remove existing RunPayroll rows for a payroll month so re-run replaces the snapshot.
- * Requires a text column Month_filter (YYYY-MM). If the column is missing, skips (inserts may duplicate).
- */
-async function deleteRunPayrollRowsForMonth(catalystApp, runTable, month) {
-  const monthEscaped = String(month || '').replace(/'/g, "''").trim();
-  if (!monthEscaped) return 0;
+/** Normalize payroll month to YYYY-MM (RunPayroll Month_filter). */
+function normalizePayrollMonthFilter(monthStr) {
+  if (!monthStr) return '';
+  const trimmed = String(monthStr).trim();
+  if (/^\d{4}-\d{2}$/.test(trimmed)) return trimmed;
+  const ymdMatch = trimmed.match(/^(\d{4})-(\d{2})-\d{2}/);
+  if (ymdMatch) return `${ymdMatch[1]}-${ymdMatch[2]}`;
+  const date = new Date(trimmed);
+  if (!isNaN(date.getTime())) {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+  }
+  return trimmed;
+}
+
+function runPayrollRowMonthKey(row) {
+  const r = row?.RunPayroll ?? row?.runPayroll ?? row;
+  if (!r || typeof r !== 'object') return '';
+  return normalizePayrollMonthFilter(r.Month_filter ?? r.month_filter ?? r.MonthFilter ?? '');
+}
+
+function collectRunPayrollRowIds(rows) {
+  const ids = new Set();
+  for (const r of rows || []) {
+    const rp = r.RunPayroll ?? r.runPayroll ?? r;
+    const rid = rp?.ROWID ?? r?.ROWID;
+    if (rid != null) ids.add(rid);
+  }
+  return ids;
+}
+
+function runPayrollWrapRecord(rec) {
+  return rec?.RunPayroll ?? rec?.runPayroll ?? rec;
+}
+
+function runPayrollRowIdNumeric(rec) {
+  const rp = runPayrollWrapRecord(rec);
+  const rid = rp?.ROWID ?? rec?.ROWID;
+  const n = Number(rid);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function employeeCodeNormFromRunPayrollRec(rec) {
+  const rp = runPayrollWrapRecord(rec);
+  const code = String(rp?.EmployeeCode ?? rp?.employeeCode ?? '').trim();
+  if (!code) return '';
+  return normalizeEmployeeCode(code) || code;
+}
+
+/** Net Pay from Payroll table row (stored NetPay, else Earned Gross − Total Deduction). */
+function payrollRowNetPayFromFields(p) {
+  if (!p || typeof p !== 'object') return null;
+  const raw = p.NetPay ?? p.netPay ?? p.netpay ?? p.NETPAY;
+  if (raw != null && String(raw).trim() !== '') {
+    const n = parseFloat(String(raw).replace(/,/g, '').trim());
+    if (Number.isFinite(n)) return Math.round(n);
+  }
+  const egs = parseFloat(
+    String(
+      p.EarnedSalaryCross ??
+        p.earnedSalaryCross ??
+        p.EarnedGrossSalary ??
+        p.earnedGrossSalary ??
+        ''
+    ).replace(/,/g, '')
+  );
+  const td = parseFloat(String(p.TotalDeduction ?? p.totalDeduction ?? '').replace(/,/g, ''));
+  if (Number.isFinite(egs) && Number.isFinite(td)) return Math.round(egs - td);
+  return null;
+}
+
+function runPayrollRowNetPayFromFields(r) {
+  if (!r || typeof r !== 'object') return null;
+  const egs = parseFloat(
+    String(
+      r.EarnedSalaryCross ??
+        r.earnedSalaryCross ??
+        r.EarnedGrossSalary ??
+        r.earnedGrossSalary ??
+        ''
+    ).replace(/,/g, '')
+  );
+  const td = parseFloat(String(r.TotalDeduction ?? r.totalDeduction ?? '').replace(/,/g, ''));
+  if (Number.isFinite(egs) && Number.isFinite(td)) return Math.round(egs - td);
+  const raw = r.NetPay ?? r.netPay ?? r.netpay ?? r.NETPAY;
+  if (raw != null && String(raw).trim() !== '') {
+    const n = parseFloat(String(raw).replace(/,/g, '').trim());
+    if (Number.isFinite(n)) return Math.round(n);
+  }
+  return null;
+}
+
+function scoreRunPayrollKeeperRow(rec, payrollNetForEmp) {
+  const rp = runPayrollWrapRecord(rec);
+  const rid = runPayrollRowIdNumeric(rec) ?? -1;
+  const runNet = runPayrollRowNetPayFromFields(rp);
+  const matches =
+    payrollNetForEmp != null &&
+    Number.isFinite(runNet) &&
+    Math.round(runNet) === Math.round(payrollNetForEmp);
+  return (matches ? 1e15 : 0) + Math.max(0, rid);
+}
+
+/** Latest Payroll row per employee for a month (Payroll table = source of truth for Net Pay). */
+async function loadPayrollRecordsMapForMonth(catalystApp, month) {
+  const monthNorm = normalizePayrollMonthFilter(month);
+  const map = new Map();
+  if (!monthNorm) return map;
+  const byRid = new Map();
+
   try {
-    const q = `SELECT ROWID FROM RunPayroll WHERE Month_filter = '${monthEscaped}'`;
-    const rows = await catalystApp.zcql().executeZCQLQuery(q);
-    let deleted = 0;
-    for (const r of rows || []) {
-      const rp = r.RunPayroll || r;
-      const rid = rp?.ROWID ?? r?.ROWID;
-      if (rid == null) continue;
-      try {
-        await runTable.deleteRow({ ROWID: rid });
-        deleted++;
-      } catch (delErr) {
-        console.warn(`deleteRunPayrollRowsForMonth: delete ROWID ${rid} failed:`, delErr?.message || delErr);
+    const payrollTable = catalystApp.datastore().table('Payroll');
+    const all = await payrollTable.getAllRows();
+    for (const rec of all || []) {
+      const p = rec.Payroll ?? rec.payroll ?? rec;
+      if (!p || typeof p !== 'object') continue;
+      const mf = normalizePayrollMonthFilter(p.Month_filter ?? p.month_filter ?? p.MonthFilter ?? '');
+      if (mf !== monthNorm) continue;
+      const code = String(p.EmployeeCode ?? p.employeeCode ?? '').trim();
+      const norm = normalizeEmployeeCode(code) || code;
+      if (!norm) continue;
+      const rid = Number(p.ROWID ?? rec.ROWID ?? 0);
+      const key = Number.isFinite(rid) && rid > 0 ? `rid:${rid}` : `ds:${norm}:${byRid.size}`;
+      byRid.set(key, p);
+    }
+  } catch (e) {
+    console.log('loadPayrollRecordsMapForMonth: datastore failed:', e.message);
+  }
+
+  try {
+    const monthEscaped = monthNorm.replace(/'/g, "''");
+    const zcqlRows = await catalystApp
+      .zcql()
+      .executeZCQLQuery(
+        `SELECT * FROM Payroll WHERE Month_filter = '${monthEscaped}' ORDER BY ROWID DESC`
+      );
+    for (const rec of zcqlRows || []) {
+      const p = rec.Payroll ?? rec.payroll ?? rec;
+      if (!p || typeof p !== 'object') continue;
+      const rid = Number(p.ROWID ?? rec.ROWID ?? 0);
+      const key = Number.isFinite(rid) && rid > 0 ? `rid:${rid}` : null;
+      if (key && !byRid.has(key)) byRid.set(key, p);
+      else if (!key) {
+        const code = String(p.EmployeeCode ?? p.employeeCode ?? '').trim();
+        byRid.set(`zcql:${normalizeEmployeeCode(code) || code}:${byRid.size}`, p);
       }
     }
-    if (deleted > 0) {
-      console.log(`RunPayroll: removed ${deleted} existing row(s) for Month_filter=${monthEscaped}`);
-    }
-    return deleted;
   } catch (e) {
-    console.log('RunPayroll: delete by Month_filter skipped (add Month_filter text column for idempotent runs):', e.message);
-    return 0;
+    console.log('loadPayrollRecordsMapForMonth: ZCQL failed:', e.message);
   }
+
+  for (const p of byRid.values()) {
+    const code = String(p.EmployeeCode ?? p.employeeCode ?? '').trim();
+    const norm = normalizeEmployeeCode(code) || code;
+    if (!norm) continue;
+    const rid = Number(p.ROWID ?? 0);
+    const prev = map.get(norm);
+    const prevRid = prev ? Number(prev.ROWID ?? -1) : -1;
+    if (!prev || (Number.isFinite(rid) && rid > prevRid)) {
+      map.set(norm, p);
+    }
+  }
+  return map;
+}
+
+/** Employee Date of Joining for calcAttendanceBonus when Payroll row has no AttendanceBonus saved. */
+async function loadEmployeeDateOfJoiningMap(catalystApp) {
+  const map = new Map();
+  try {
+    const empTable = catalystApp.datastore().table('Employee');
+    const all = await empTable.getAllRows();
+    for (const e of all || []) {
+      const code = String(e.EmployeeCode ?? e.employeeCode ?? '').trim();
+      if (!code) continue;
+      const doj = e.DateofJoining ?? e.DateOfJoining ?? e.dateOfJoining ?? e.date_of_joining ?? '';
+      for (const k of [code, normalizeEmployeeCode(code), String(parseInt(code, 10))]) {
+        if (k && k !== 'NaN') map.set(String(k), doj);
+      }
+    }
+  } catch (e) {
+    console.log('loadEmployeeDateOfJoiningMap failed:', e.message);
+  }
+  return map;
+}
+
+function lookupEmployeeDateOfJoining(dojMap, record) {
+  if (!dojMap) {
+    return (
+      pickPayrollField(record, 'dateOfJoining', 'DateofJoining', 'DateOfJoining', 'date_of_joining') ||
+      ''
+    );
+  }
+  const code = String(pickPayrollField(record, 'employeeCode', 'EmployeeCode') ?? '').trim();
+  const norm = normalizeEmployeeCode(code) || code;
+  return (
+    pickPayrollField(record, 'dateOfJoining', 'DateofJoining', 'DateOfJoining', 'date_of_joining') ||
+    dojMap.get(code) ||
+    dojMap.get(norm) ||
+    dojMap.get(String(parseInt(code, 10))) ||
+    ''
+  );
+}
+
+/**
+ * Attendance Bonus for RunPayroll — same rule as Payroll grid (getAttendanceBonusNumericForRow):
+ * calc from DOJ + days when possible; else use saved Payroll.AttendanceBonus.
+ */
+function resolveRunPayrollAttendanceBonus(record, month, dojMap) {
+  const monthNorm = normalizePayrollMonthFilter(
+    month || pickPayrollField(record, 'Month_filter', 'month_filter', 'MonthFilter') || ''
+  );
+  const doj = lookupEmployeeDateOfJoining(dojMap, record);
+  const dp = Number(pickPayrollField(record, 'daysPresent', 'DaysPresent')) || 0;
+  const dim = Number(pickPayrollField(record, 'daysInMonth', 'DaysInMonth')) || 0;
+
+  if (doj && dim > 0 && monthNorm) {
+    if (Number(dp) === Number(dim)) return 0;
+    const dojDate = new Date(doj);
+    if (!isNaN(dojDate.getTime())) {
+      return calcAttendanceBonus(doj, dp, dim, monthNorm);
+    }
+  }
+
+  const savedRaw = pickPayrollField(record, 'attendanceBonus', 'AttendanceBonus');
+  if (savedRaw != null && savedRaw !== undefined && String(savedRaw).trim() !== '') {
+    const saved = Math.round(Number(savedRaw));
+    if (Number.isFinite(saved)) return Math.max(0, saved);
+  }
+  return calcAttendanceBonus(doj, dp, dim, monthNorm);
+}
+
+/** Attendance amount counted once in RunPayroll Total Deduction — Attendance Deduction or Bonus only (not Late). */
+function resolveRunPayrollSingleAttendanceForTotalDeduction(record, month, dojMap) {
+  const savedAttDedRaw = pickPayrollField(record, 'attendanceDeduction', 'AttendanceDeduction');
+  if (savedAttDedRaw != null && savedAttDedRaw !== undefined && String(savedAttDedRaw).trim() !== '') {
+    const attDed = Math.round(Number(savedAttDedRaw));
+    if (Number.isFinite(attDed) && attDed > 0) return attDed;
+  }
+  const ab = resolveRunPayrollAttendanceBonus(record, month, dojMap);
+  return ab > 0 ? ab : 0;
+}
+
+/** Sum standard Payroll deductions excluding Attendance Bonus / Attendance Deduction. */
+function runPayrollDeductionComponentSumExcludingAttendance(record) {
+  const n = (...keys) => {
+    const raw = pickPayrollField(record, ...keys);
+    if (raw == null || String(raw).trim() === '') return 0;
+    const v = Math.round(Number(raw));
+    return Number.isFinite(v) ? Math.max(0, v) : 0;
+  };
+  return (
+    n('pf', 'PF') +
+    n('esi', 'ESI') +
+    n('late', 'Late') +
+    n('lwf', 'LWF') +
+    n('pt', 'PT') +
+    n('rent', 'Rent') +
+    n('otherDeduction', 'OtherDeduction') +
+    n('loanAllowance', 'LoanAllowance', 'Loan')
+  );
+}
+
+/**
+ * RunPayroll Total Deduction — include Attendance Bonus OR Attendance Deduction once, never both.
+ * Ensures AttendanceBonus on the row is reflected in Total Deduction when not already included.
+ */
+function runPayrollTotalDeductionIncludingAttendanceBonus(record, month, dojMap) {
+  const rawTd = Math.round(Number(pickPayrollField(record, 'totalDeduction', 'TotalDeduction')) || 0);
+  const attOnce = resolveRunPayrollSingleAttendanceForTotalDeduction(record, month, dojMap);
+
+  if (attOnce <= 0) return rawTd;
+
+  const savedAttDedRaw = pickPayrollField(record, 'attendanceDeduction', 'AttendanceDeduction');
+  const savedAttDed =
+    savedAttDedRaw != null && String(savedAttDedRaw).trim() !== ''
+      ? Math.round(Number(savedAttDedRaw)) || 0
+      : 0;
+
+  const compBase = runPayrollDeductionComponentSumExcludingAttendance(record);
+  const expectedWithAtt =
+    compBase > 0 ? compBase + attOnce : rawTd > attOnce ? rawTd : rawTd + attOnce;
+
+  // Payroll Total Deduction already matches base deductions + attendance once.
+  if (compBase > 0 && Math.abs(rawTd - expectedWithAtt) <= 2) return rawTd;
+  if (compBase > 0 && Math.abs(rawTd - compBase) <= 2) return expectedWithAtt;
+  if (savedAttDed > 0 && rawTd >= savedAttDed) {
+    const impliedBase = rawTd - savedAttDed;
+    if (impliedBase > 0 && compBase > 0 && Math.abs(impliedBase - compBase) <= 5) return rawTd;
+  }
+  if (compBase <= 0 && rawTd > attOnce && rawTd - attOnce >= attOnce) return rawTd;
+  if (rawTd > expectedWithAtt) return rawTd;
+
+  return expectedWithAtt;
+}
+
+/** Attendance Deduction on RunPayroll — saved Attendance Deduction or computed Attendance Bonus only (never Late). */
+function runPayrollAttendanceDeductionFromPayrollRecord(record, month, dojMap) {
+  const savedAttDedRaw = pickPayrollField(record, 'attendanceDeduction', 'AttendanceDeduction');
+  if (savedAttDedRaw != null && savedAttDedRaw !== undefined && String(savedAttDedRaw).trim() !== '') {
+    const attDed = Math.round(Number(savedAttDedRaw));
+    if (Number.isFinite(attDed)) return Math.max(0, attDed);
+  }
+  const ab = resolveRunPayrollAttendanceBonus(record, month, dojMap);
+  return ab > 0 ? ab : 0;
+}
+
+/** RunPayroll Net Pay = Earned Gross Salary (EarnedSalaryCross) − Total Deduction. */
+function runPayrollNetPayFromEarnedGrossMinusTotalDeduction(record, month, dojMap, totalDeductionOverride) {
+  const egs = Math.round(
+    Number(
+      pickPayrollField(
+        record,
+        'earnedSalaryCross',
+        'EarnedSalaryCross',
+        'earnedGrossSalary',
+        'EarnedGrossSalary'
+      )
+    ) || 0
+  );
+  const td =
+    totalDeductionOverride != null && Number.isFinite(Number(totalDeductionOverride))
+      ? Math.round(Number(totalDeductionOverride))
+      : runPayrollTotalDeductionIncludingAttendanceBonus(record, month, dojMap);
+  if (Number.isFinite(egs)) return Math.round(egs - td);
+  const stored = pickPayrollField(record, 'netPay', 'NetPay', 'netpay');
+  if (stored != null && String(stored).trim() !== '') {
+    const n = Math.round(Number(stored));
+    if (Number.isFinite(n)) return n;
+  }
+  return 0;
+}
+
+function enrichPayrollRecordForRunPayroll(record, monthNorm, dojMap, payrollTableRow) {
+  const merged = payrollTableRow ? Object.assign({}, payrollTableRow, record) : Object.assign({}, record);
+  const ab = resolveRunPayrollAttendanceBonus(merged, monthNorm, dojMap);
+  const td = runPayrollTotalDeductionIncludingAttendanceBonus(merged, monthNorm, dojMap);
+  const attDed = runPayrollAttendanceDeductionFromPayrollRecord(merged, monthNorm, dojMap);
+  const netPay = runPayrollNetPayFromEarnedGrossMinusTotalDeduction(merged, monthNorm, dojMap, td);
+  merged.attendanceBonus = ab;
+  merged.AttendanceBonus = ab;
+  merged.totalDeduction = td;
+  merged.TotalDeduction = td;
+  merged.attendanceDeduction = attDed;
+  merged.AttendanceDeduction = attDed;
+  merged.netPay = netPay;
+  merged.NetPay = netPay;
+  return merged;
+}
+
+/** ZCQL + Data Store load for one payroll month (merged — ZCQL alone often misses rows). */
+async function loadRunPayrollRecordsForMonth(catalystApp, runTable, month) {
+  const monthNorm = normalizePayrollMonthFilter(month);
+  if (!monthNorm) return { monthNorm: '', rows: [] };
+  const byRid = new Map();
+
+  if (runTable) {
+    try {
+      const allRun = await runTable.getAllRows();
+      for (const rec of allRun || []) {
+        if (runPayrollRowMonthKey(rec) !== monthNorm) continue;
+        const rp = runPayrollWrapRecord(rec);
+        const rid = rp?.ROWID ?? rec?.ROWID;
+        const key = rid != null ? `rid:${rid}` : `ds:${employeeCodeNormFromRunPayrollRec(rec)}:${byRid.size}`;
+        byRid.set(key, rec);
+      }
+    } catch (e) {
+      console.log('loadRunPayrollRecordsForMonth: datastore failed:', e.message);
+    }
+  }
+
+  try {
+    const monthEscaped = monthNorm.replace(/'/g, "''");
+    const zcqlRows = await catalystApp
+      .zcql()
+      .executeZCQLQuery(
+        `SELECT * FROM RunPayroll WHERE Month_filter = '${monthEscaped}' ORDER BY ROWID DESC`
+      );
+    for (const rec of zcqlRows || []) {
+      const rp = runPayrollWrapRecord(rec);
+      const rid = rp?.ROWID ?? rec?.ROWID;
+      const key = rid != null ? `rid:${rid}` : `zcql:${employeeCodeNormFromRunPayrollRec(rec)}:${byRid.size}`;
+      if (!byRid.has(key)) byRid.set(key, rec);
+    }
+  } catch (e) {
+    console.log('loadRunPayrollRecordsForMonth: ZCQL failed:', e.message);
+  }
+
+  const rows = [...byRid.values()];
+  rows.sort((a, b) => (runPayrollRowIdNumeric(b) ?? -1) - (runPayrollRowIdNumeric(a) ?? -1));
+  return { monthNorm, rows };
+}
+
+function employeeCodeLookupVariants(code) {
+  const raw = String(code ?? '').trim();
+  if (!raw) return [];
+  const norm = normalizeEmployeeCode(raw) || raw;
+  const variants = new Set([raw, norm]);
+  if (norm !== `${norm}.0`) variants.add(`${norm}.0`);
+  if (raw !== norm) variants.add(raw.replace(/^0+(?=\d)/, ''));
+  return [...variants].filter(Boolean);
+}
+
+/**
+ * Remove existing RunPayroll rows for a payroll month so re-run replaces the snapshot.
+ * Uses ZCQL and Data Store fallback (ZCQL alone often misses rows).
+ */
+async function deleteRunPayrollRowsForMonth(catalystApp, runTable, month) {
+  const monthNorm = normalizePayrollMonthFilter(month);
+  if (!monthNorm) return 0;
+  const rowIds = new Set();
+
+  try {
+    const allRun = await runTable.getAllRows();
+    for (const rec of allRun || []) {
+      if (runPayrollRowMonthKey(rec) === monthNorm) {
+        const rp = runPayrollWrapRecord(rec);
+        if (rp?.ROWID != null) rowIds.add(rp.ROWID);
+      }
+    }
+  } catch (dsErr) {
+    console.log('deleteRunPayrollRowsForMonth: datastore scan failed:', dsErr.message);
+  }
+
+  try {
+    const monthEscaped = monthNorm.replace(/'/g, "''");
+    const q = `SELECT ROWID FROM RunPayroll WHERE Month_filter = '${monthEscaped}'`;
+    for (const rid of collectRunPayrollRowIds(await catalystApp.zcql().executeZCQLQuery(q))) {
+      rowIds.add(rid);
+    }
+  } catch (e) {
+    console.log('deleteRunPayrollRowsForMonth: ZCQL delete-select failed:', e.message);
+  }
+
+  let deleted = 0;
+  for (const rid of rowIds) {
+    try {
+      await runTable.deleteRow({ ROWID: rid });
+      deleted++;
+    } catch (delErr) {
+      console.warn(`deleteRunPayrollRowsForMonth: delete ROWID ${rid} failed:`, delErr?.message || delErr);
+    }
+  }
+  if (deleted > 0) {
+    console.log(`RunPayroll: removed ${deleted} existing row(s) for Month_filter=${monthNorm}`);
+  }
+  return deleted;
+}
+
+/** Remove rows for one employee + month before insert (prevents duplicate snapshots). */
+async function deleteRunPayrollRowsForEmployeeMonth(catalystApp, runTable, month, employeeCode) {
+  const monthNorm = normalizePayrollMonthFilter(month);
+  const empRaw = String(employeeCode ?? '').trim();
+  if (!monthNorm || !empRaw) return 0;
+  const empNorm = normalizeEmployeeCode(empRaw) || empRaw;
+  const rowIds = new Set();
+
+  try {
+    const allRun = await runTable.getAllRows();
+    for (const rec of allRun || []) {
+      const rp = runPayrollWrapRecord(rec);
+      if (!rp) continue;
+      const mf = runPayrollRowMonthKey(rec);
+      const code = String(rp.EmployeeCode ?? rp.employeeCode ?? '').trim();
+      const codeNorm = normalizeEmployeeCode(code) || code;
+      if (mf === monthNorm && (code === empRaw || codeNorm === empNorm)) {
+        if (rp.ROWID != null) rowIds.add(rp.ROWID);
+      }
+    }
+  } catch (e) {
+    console.log(`deleteRunPayrollRowsForEmployeeMonth: datastore scan failed for ${empRaw}:`, e.message);
+  }
+
+  for (const codeVariant of employeeCodeLookupVariants(employeeCode)) {
+    const empEsc = String(codeVariant).replace(/'/g, "''");
+    try {
+      const q = `SELECT ROWID FROM RunPayroll WHERE Month_filter = '${monthNorm.replace(/'/g, "''")}' AND EmployeeCode = '${empEsc}'`;
+      for (const rid of collectRunPayrollRowIds(await catalystApp.zcql().executeZCQLQuery(q))) {
+        rowIds.add(rid);
+      }
+    } catch (e) {
+      console.log(`deleteRunPayrollRowsForEmployeeMonth: ZCQL failed for ${empEsc}:`, e.message);
+    }
+  }
+  let deleted = 0;
+  for (const rid of rowIds) {
+    try {
+      await runTable.deleteRow({ ROWID: rid });
+      deleted++;
+    } catch (delErr) {
+      console.warn(`deleteRunPayrollRowsForEmployeeMonth: delete ROWID ${rid} failed:`, delErr?.message || delErr);
+    }
+  }
+  return deleted;
+}
+
+/**
+ * Keep one RunPayroll row per employee for a month.
+ * When duplicates exist, keep the row whose NetPay matches the Payroll table (not just highest ROWID).
+ */
+async function dedupeRunPayrollRowsForMonth(catalystApp, runTable, month) {
+  const { monthNorm, rows } = await loadRunPayrollRecordsForMonth(catalystApp, runTable, month);
+  if (!monthNorm || !rows.length) return 0;
+
+  const payrollMap = await loadPayrollRecordsMapForMonth(catalystApp, monthNorm);
+  const byEmp = new Map();
+  for (const rec of rows) {
+    const norm = employeeCodeNormFromRunPayrollRec(rec);
+    if (!norm) continue;
+    if (!byEmp.has(norm)) byEmp.set(norm, []);
+    byEmp.get(norm).push(rec);
+  }
+
+  let removed = 0;
+  for (const [norm, group] of byEmp) {
+    if (group.length <= 1) continue;
+    const payrollRow = payrollMap.get(norm);
+    const payrollNet = payrollRow ? payrollRowNetPayFromFields(payrollRow) : null;
+    group.sort(
+      (a, b) => scoreRunPayrollKeeperRow(b, payrollNet) - scoreRunPayrollKeeperRow(a, payrollNet)
+    );
+    const keeperRp = runPayrollWrapRecord(group[0]);
+    const keeperRid = keeperRp?.ROWID ?? group[0]?.ROWID;
+    for (let i = 1; i < group.length; i++) {
+      const rp = runPayrollWrapRecord(group[i]);
+      const rid = rp?.ROWID ?? group[i]?.ROWID;
+      if (rid == null || rid === keeperRid) continue;
+      try {
+        await runTable.deleteRow({ ROWID: rid });
+        removed++;
+      } catch (e) {
+        console.warn(`dedupeRunPayrollRowsForMonth: delete ROWID ${rid} failed:`, e?.message || e);
+      }
+    }
+  }
+  if (removed > 0) {
+    console.log(`RunPayroll: deduped ${removed} duplicate row(s) for Month_filter=${monthNorm}`);
+  }
+  return removed;
+}
+
+/**
+ * Set RunPayroll NetPay (and related fields) from the Payroll table for each employee in the month.
+ */
+async function alignRunPayrollRowsWithPayrollTable(catalystApp, runTable, month) {
+  const monthNorm = normalizePayrollMonthFilter(month);
+  if (!monthNorm || !runTable) return { updated: 0, aligned: 0, skipped: 0 };
+
+  await dedupeRunPayrollRowsForMonth(catalystApp, runTable, monthNorm);
+  const payrollMap = await loadPayrollRecordsMapForMonth(catalystApp, monthNorm);
+  const dojMap = await loadEmployeeDateOfJoiningMap(catalystApp);
+  const { rows } = await loadRunPayrollRecordsForMonth(catalystApp, runTable, monthNorm);
+
+  let updated = 0;
+  let aligned = 0;
+  let skipped = 0;
+
+  for (const rec of rows) {
+    const rp = runPayrollWrapRecord(rec);
+    const norm = employeeCodeNormFromRunPayrollRec(rec);
+    const rid = rp?.ROWID ?? rec?.ROWID;
+    if (!norm || rid == null) {
+      skipped++;
+      continue;
+    }
+    const payrollRowRaw = payrollMap.get(norm);
+    if (!payrollRowRaw) {
+      skipped++;
+      continue;
+    }
+    const payrollRow = enrichPayrollRecordForRunPayroll(
+      payrollRowRaw,
+      monthNorm,
+      dojMap,
+      payrollRowRaw
+    );
+
+    const patch = buildRunPayrollAlignPatchFromPayrollRow(
+      payrollRow,
+      rp,
+      monthNorm,
+      dojMap
+    );
+
+    if (Object.keys(patch).length === 0) {
+      aligned++;
+      continue;
+    }
+    try {
+      await runTable.updateRow({ ROWID: rid, ...patch });
+      updated++;
+      aligned++;
+      console.log(
+        `RunPayroll align: employee ${norm} ROWID ${rid} patched ${Object.keys(patch).join(', ')}`
+      );
+    } catch (e) {
+      console.warn(`alignRunPayrollRowsWithPayrollTable: update ROWID ${rid} failed:`, e?.message || e);
+      skipped++;
+    }
+  }
+
+  if (updated > 0) {
+    console.log(
+      `RunPayroll: aligned ${updated} row(s) with Payroll table NetPay for Month_filter=${monthNorm}`
+    );
+  }
+  return { updated, aligned, skipped, payrollEmployees: payrollMap.size };
+}
+
+/** Payroll → RunPayroll fields kept in sync (Net Pay, deductions, allowances). */
+const RUNPAYROLL_ALIGN_FROM_PAYROLL_FIELDS = [
+  'NetPay',
+  'EarnedSalaryCross',
+  'TotalDeduction',
+  'AttendanceBonus',
+  'AttendanceDeduction',
+  'EarnedBasic',
+  'EarnedHRA',
+  'EarnedDA',
+  'EarnedSpecialAllowance',
+  'PF',
+  'ESI',
+  'OTAmount',
+  'Rent',
+  'Advance',
+  'Bonus',
+  'FoodAllowance',
+  'WashingAllowance',
+  'UniformAllowance',
+  'LoanAllowance',
+  'Incentive',
+  'OtherDeduction',
+  'PT',
+  'LWF',
+  'LOP',
+  'LOH',
+  'DaysPresent',
+  'DaysInMonth',
+  'TravelChargers',
+  'SpecialAllowance'
+];
+
+function payrollAlignNumStr(val) {
+  if (val == null || String(val).trim() === '') return null;
+  const n = parseFloat(String(val).replace(/,/g, '').trim());
+  if (!Number.isFinite(n)) return null;
+  return String(Math.round(n));
+}
+
+function buildRunPayrollAlignPatchFromPayrollRow(payrollRow, runRow, month, dojMap) {
+  if (!payrollRow || typeof payrollRow !== 'object') return {};
+  const monthNorm = normalizePayrollMonthFilter(
+    month || pickPayrollField(payrollRow, 'Month_filter', 'month_filter', 'MonthFilter') || ''
+  );
+  const patch = {};
+
+  const abResolved = resolveRunPayrollAttendanceBonus(payrollRow, monthNorm, dojMap);
+  const abStr = String(Math.max(0, abResolved));
+  const runAb = payrollAlignNumStr(runRow?.AttendanceBonus ?? runRow?.attendanceBonus);
+  if (runAb !== abStr) patch.AttendanceBonus = abStr;
+
+  const tdRun = runPayrollTotalDeductionIncludingAttendanceBonus(payrollRow, monthNorm, dojMap);
+  const tdStr = String(tdRun);
+  const runTdStr = payrollAlignNumStr(runRow?.TotalDeduction ?? runRow?.totalDeduction);
+  if (runTdStr !== tdStr) patch.TotalDeduction = tdStr;
+
+  const attDedTarget = runPayrollAttendanceDeductionFromPayrollRecord(payrollRow, monthNorm, dojMap);
+  const attDedStr = String(Math.max(0, attDedTarget));
+  const runAttDed = payrollAlignNumStr(runRow?.AttendanceDeduction ?? runRow?.attendanceDeduction);
+  if (runAttDed !== attDedStr) patch.AttendanceDeduction = attDedStr;
+
+  const netPayRun = runPayrollNetPayFromEarnedGrossMinusTotalDeduction(
+    payrollRow,
+    monthNorm,
+    dojMap,
+    tdRun
+  );
+  const netPayStr = String(netPayRun);
+  const runNetStr = payrollAlignNumStr(runRow?.NetPay ?? runRow?.netPay);
+  if (runNetStr !== netPayStr) patch.NetPay = netPayStr;
+
+  for (const col of RUNPAYROLL_ALIGN_FROM_PAYROLL_FIELDS) {
+    if (
+      col === 'TotalDeduction' ||
+      col === 'AttendanceDeduction' ||
+      col === 'AttendanceBonus' ||
+      col === 'NetPay'
+    )
+      continue;
+    const camel = col.charAt(0).toLowerCase() + col.slice(1);
+    const payStr = payrollAlignNumStr(payrollRow[col] ?? payrollRow[camel]);
+    if (payStr == null) continue;
+    const runStr = payrollAlignNumStr(runRow?.[col] ?? runRow?.[camel]);
+    if (runStr !== payStr) patch[col] = payStr;
+  }
+  return patch;
+}
+
+/** Dedupe every month present in RunPayroll (one-time cleanup). */
+async function dedupeAllRunPayrollMonths(catalystApp, runTable) {
+  const months = new Set();
+  try {
+    const allRun = await runTable.getAllRows();
+    for (const rec of allRun || []) {
+      const mf = runPayrollRowMonthKey(rec);
+      if (mf) months.add(mf);
+    }
+  } catch (e) {
+    console.log('dedupeAllRunPayrollMonths: list months failed:', e.message);
+    return { totalRemoved: 0, byMonth: {}, monthsProcessed: 0 };
+  }
+  let totalRemoved = 0;
+  const byMonth = {};
+  for (const m of months) {
+    const removed = await dedupeRunPayrollRowsForMonth(catalystApp, runTable, m);
+    if (removed > 0) byMonth[m] = removed;
+    totalRemoved += removed;
+  }
+  return { totalRemoved, byMonth, monthsProcessed: months.size };
+}
+
+async function countRunPayrollRowsForMonth(catalystApp, runTable, month) {
+  const { rows } = await loadRunPayrollRecordsForMonth(catalystApp, runTable, month);
+  return rows.length;
 }
 
 /** Parse numeric for RunPayroll API row (ZCQL / Data Store). */
@@ -4017,44 +4701,38 @@ function toNumRunPayrollSnapshot(val) {
  * Latest RunPayroll row per employee for a month (same logic as bank-format-report).
  * Returns plain objects for GET /run-payroll-table.
  */
-async function fetchRunPayrollTableSnapshotForMonth(catalystApp, monthParam) {
+async function fetchRunPayrollTableSnapshotForMonth(catalystApp, monthParam, runTableOptional) {
   const monthEscaped = String(monthParam || '').replace(/'/g, "''").trim();
   if (!monthEscaped || !/^\d{4}-\d{2}$/.test(monthEscaped)) return [];
-  let runPayrollRows = [];
-  try {
-    const runPayrollQuery = `SELECT * FROM RunPayroll WHERE Month_filter = '${monthEscaped}' ORDER BY ROWID DESC`;
-    runPayrollRows = await catalystApp.zcql().executeZCQLQuery(runPayrollQuery);
-  } catch (e) {
-    console.log('fetchRunPayrollTableSnapshotForMonth: ZCQL failed:', e.message);
-  }
-  if (!Array.isArray(runPayrollRows) || runPayrollRows.length === 0) {
+  let runTable = runTableOptional;
+  if (!runTable) {
     try {
-      const runTable = catalystApp.datastore().table('RunPayroll');
-      const allRun = await runTable.getAllRows();
-      runPayrollRows = (allRun || []).filter((rec) => {
-        const rr = rec.RunPayroll ?? rec.runPayroll ?? rec;
-        const mf = String(rr.Month_filter ?? rr.month_filter ?? '').trim();
-        return mf === monthParam;
-      });
-      if (runPayrollRows.length) {
-        console.log(
-          `fetchRunPayrollTableSnapshotForMonth: ZCQL empty for ${monthParam}; datastore filter returned ${runPayrollRows.length} row(s)`
-        );
-      }
-    } catch (runDsErr) {
-      console.log('fetchRunPayrollTableSnapshotForMonth: datastore fallback failed:', runDsErr.message);
+      runTable = catalystApp.datastore().table('RunPayroll');
+    } catch (_) {
+      runTable = null;
     }
   }
+  const { rows: runPayrollRows } = await loadRunPayrollRecordsForMonth(
+    catalystApp,
+    runTable,
+    monthParam
+  );
+  const payrollMap = await loadPayrollRecordsMapForMonth(catalystApp, monthParam);
   const bestRunByEmp = new Map();
   for (const rec of runPayrollRows || []) {
-    const r = rec.RunPayroll ?? rec.runPayroll ?? rec;
+    const r = runPayrollWrapRecord(rec);
     const empCodeRun = String(r.EmployeeCode ?? r.employeeCode ?? '').trim();
     if (!empCodeRun) continue;
-    const existingRun = bestRunByEmp.get(empCodeRun);
-    const candRid = toNumRunPayrollSnapshot(r.ROWID);
-    const existRid = existingRun ? toNumRunPayrollSnapshot(existingRun.ROWID) : -1;
-    if (!existingRun || candRid >= existRid) {
-      bestRunByEmp.set(empCodeRun, r);
+    const empKey = normalizeEmployeeCode(empCodeRun) || empCodeRun;
+    const payrollRow = payrollMap.get(empKey);
+    const payrollNet = payrollRow ? payrollRowNetPayFromFields(payrollRow) : null;
+    const existingRun = bestRunByEmp.get(empKey);
+    const candScore = scoreRunPayrollKeeperRow(rec, payrollNet);
+    const existScore = existingRun
+      ? scoreRunPayrollKeeperRow({ RunPayroll: existingRun }, payrollNet)
+      : -1;
+    if (!existingRun || candScore > existScore) {
+      bestRunByEmp.set(empKey, r);
     }
   }
   const pickEg = (r) => {
@@ -4073,15 +4751,32 @@ async function fetchRunPayrollTableSnapshotForMonth(catalystApp, monthParam) {
     return Number.isFinite(n) ? n : null;
   };
   const data = [];
-  for (const r of bestRunByEmp.values()) {
-    const empCode = String(r.EmployeeCode ?? r.employeeCode ?? '').trim();
+  for (const [empKey, r] of bestRunByEmp) {
+    const empCode = String(r.EmployeeCode ?? r.employeeCode ?? empKey).trim();
     if (!empCode) continue;
+    const payrollRow = payrollMap.get(empKey);
+    const payrollNet = payrollRow ? payrollRowNetPayFromFields(payrollRow) : null;
     const earnedSalaryGross = pickEg(r);
-    const netPay = pickNp(r);
+    const netPayStored = pickNp(r);
+    const td = toNumRunPayrollSnapshot(r.TotalDeduction ?? r.totalDeduction);
+    const netPay =
+      earnedSalaryGross != null &&
+      Number.isFinite(td) &&
+      Number.isFinite(earnedSalaryGross)
+        ? Math.round(earnedSalaryGross - td)
+        : payrollNet != null && Number.isFinite(payrollNet)
+          ? payrollNet
+          : netPayStored != null && Number.isFinite(netPayStored)
+            ? netPayStored
+            : null;
     data.push({
       employeeCode: empCode,
       earnedSalaryGross,
       netPay,
+      totalDeduction: Number.isFinite(td) ? td : null,
+      hasStoredNetPay:
+        payrollNet != null ||
+        ((r.NetPay != null || r.netPay != null) && String(r.NetPay ?? r.netPay ?? '').trim() !== ''),
       month_filter: monthParam,
     });
   }
@@ -4138,6 +4833,7 @@ function normalizePayrollSourceForRunPayroll(record) {
     employeeCode: pickPayrollField(r, 'employeeCode', 'EmployeeCode'),
     employeeName: pickPayrollField(r, 'employeeName', 'EmployeeName'),
     department: pickPayrollField(r, 'department', 'Department'),
+    category: pickPayrollField(r, 'category', 'Category'),
     contractor: pickPayrollField(r, 'contractor', 'Contractor', 'ContractorName'),
     daysInMonth: pickPayrollField(r, 'daysInMonth', 'DaysInMonth', 'NoOfDaysInMonth'),
     daysPresent: pickPayrollField(r, 'daysPresent', 'DaysPresent', 'noOfDaysPresent', 'NoOfDaysPresent'),
@@ -4152,17 +4848,58 @@ function normalizePayrollSourceForRunPayroll(record) {
     earnedBasic: pickPayrollField(r, 'earnedBasic', 'EarnedBasic'),
     earnedHRA: pickPayrollField(r, 'earnedHRA', 'EarnedHRA'),
     earnedDA: pickPayrollField(r, 'earnedDA', 'EarnedDA'),
+    earnedSpecialAllowance: pickPayrollField(r, 'earnedSpecialAllowance', 'EarnedSpecialAllowance'),
+    earnedAttendanceAllowance: pickPayrollField(
+      r,
+      'earnedAttendanceAllowance',
+      'EarnedAttendanceAllowance',
+      'attendanceAllowance',
+      'AttendanceAllowance'
+    ),
+    earnedOtherAllowances: pickPayrollField(r, 'earnedOtherAllowances', 'EarnedOtherAllowances'),
     earnedSalaryCross: pickPayrollField(r, 'earnedSalaryCross', 'EarnedSalaryCross'),
     totalDeduction: pickPayrollField(r, 'totalDeduction', 'TotalDeduction'),
     netPay: pickPayrollField(r, 'netPay', 'NetPay', 'netpay'),
     pf: pickPayrollField(r, 'pf', 'PF', 'PF 12%', 'pf12', 'ProvidentFund', 'Provident Fund'),
     esi: pickPayrollField(r, 'esi', 'ESI'),
+    employerEsi: pickPayrollField(r, 'employerEsi', 'EmployerESI'),
+    esiContribution: pickPayrollField(r, 'esiContribution', 'ESIContribution'),
     otAmount: pickPayrollField(r, 'otAmount', 'OTAmount'),
+    otArrearAmount: pickPayrollField(r, 'otArrearAmount', 'OTArrearAmount'),
+    rent: pickPayrollField(r, 'rent', 'Rent'),
+    advance: pickPayrollField(r, 'advance', 'Advance'),
+    lwf: pickPayrollField(r, 'lwf', 'LWF'),
+    pt: pickPayrollField(r, 'pt', 'PT'),
+    otherDeduction: pickPayrollField(r, 'otherDeduction', 'OtherDeduction'),
+    incentive: pickPayrollField(r, 'incentive', 'Incentive'),
+    arrear: pickPayrollField(r, 'arrear', 'Arrear'),
+    bonus: pickPayrollField(r, 'bonus', 'Bonus'),
+    attendanceBonus: pickPayrollField(r, 'attendanceBonus', 'AttendanceBonus'),
+    attendanceDeduction: pickPayrollField(r, 'attendanceDeduction', 'AttendanceDeduction'),
+    loanAllowance: pickPayrollField(r, 'loanAllowance', 'LoanAllowance'),
+    foodAllowance: pickPayrollField(r, 'foodAllowance', 'FoodAllowance'),
+    uniformAllowance: pickPayrollField(r, 'uniformAllowance', 'UniformAllowance'),
+    washingAllowance: pickPayrollField(r, 'washingAllowance', 'WashingAllowance'),
     otherAllowance: oa,
     otherAllowances: oas,
     travelChargers: tc,
     specialAllowance: sa
   };
+}
+
+/** RunPayroll Data Store columns are text — stringify values for insert. */
+function toRunPayrollTextValue(val) {
+  if (val === undefined || val === null) return undefined;
+  if (typeof val === 'boolean') return val ? 'true' : 'false';
+  if (typeof val === 'number') return String(Number.isFinite(val) ? val : 0);
+  const s = String(val).trim();
+  if (s === '') return '';
+  const cleaned = s.replace(/,/g, '');
+  if (/^-?\d+(\.\d+)?$/.test(cleaned)) {
+    const n = Number(cleaned);
+    return String(Number.isFinite(n) ? n : 0);
+  }
+  return String(val);
 }
 
 function extractDatastoreColumnNames(meta) {
@@ -4192,6 +4929,7 @@ const DEFAULT_RUNPAYROLL_DATASTORE_COLUMNS = [
   'EmployeeCode',
   'EmployeeName',
   'Department',
+  'Category',
   'Contractor',
   'DaysInMonth',
   'DaysPresent',
@@ -4207,12 +4945,36 @@ const DEFAULT_RUNPAYROLL_DATASTORE_COLUMNS = [
   'EarnedHRA',
   'EarnedDA',
   'EarnedSpecialAllowance',
+  'EarnedAttendanceAllowance',
+  'AttendanceAllowance',
+  'AttendanceBonus',
+  'AttendanceDeduction',
+  'EarnedOtherAllowances',
+  'OtherAllowance',
+  'OtherAllowances',
+  'TravelChargers',
+  'SpecialAllowance',
+  'LoanAllowance',
+  'FoodAllowance',
+  'UniformAllowance',
+  'WashingAllowance',
+  'Bonus',
   'EarnedSalaryCross',
   'TotalDeduction',
   'NetPay',
   'PF',
   'ESI',
+  'EmployerESI',
+  'ESIContribution',
   'OTAmount',
+  'OTArrearAmount',
+  'Rent',
+  'Advance',
+  'LWF',
+  'PT',
+  'OtherDeduction',
+  'Incentive',
+  'Arrear',
   'Payload'
 ];
 
@@ -4319,6 +5081,19 @@ async function getRunPayrollTableWithColumns(catalystApp) {
       return null;
     }
   };
+  const pack = (table, actualColumnNames, tableId) => {
+    const actual = (actualColumnNames || []).filter(Boolean);
+    const insertColumns =
+      actual.length > 0 ? actual : [...DEFAULT_RUNPAYROLL_DATASTORE_COLUMNS];
+    return {
+      table,
+      columnNames: insertColumns,
+      /** Always non-empty — used for insert/filter (empty [] from API meta broke May saves). */
+      actualColumnNames: insertColumns,
+      mappingColumnNames: mergeRunPayrollColumnNames(actual, DEFAULT_RUNPAYROLL_DATASTORE_COLUMNS),
+      tableId
+    };
+  };
   const byName = await resolveDatastoreTableByName(catalystApp, 'RunPayroll');
   if (byName) {
     let columnNames = extractDatastoreColumnNames(byName.meta) || [];
@@ -4329,28 +5104,343 @@ async function getRunPayrollTableWithColumns(catalystApp) {
         columnNames = enriched.columnNames;
       }
     }
-    const merged = mergeRunPayrollColumnNames(columnNames, DEFAULT_RUNPAYROLL_DATASTORE_COLUMNS);
     if (columnNames.length === 0) {
-      console.log('RunPayroll: no columns from Catalyst meta; using DEFAULT_RUNPAYROLL_DATASTORE_COLUMNS + merge');
-    } else if (merged.length > columnNames.length) {
-      console.log(
-        `RunPayroll: merged API columns (${columnNames.length}) with defaults -> ${merged.length} names for mapping`
-      );
+      console.log('RunPayroll: no columns from Catalyst meta; using DEFAULT_RUNPAYROLL_DATASTORE_COLUMNS for insert');
     }
-    return { table: byName.table, columnNames: merged, tableId: tid };
+    return pack(byName.table, columnNames, tid);
   }
   const idCandidates = [process.env.RUN_PAYROLL_TABLE_ID, '399000000206964'].filter(Boolean);
   for (const rawId of idCandidates) {
     const got = await tryId(rawId);
     if (got) {
-      const merged = mergeRunPayrollColumnNames(got.columnNames, DEFAULT_RUNPAYROLL_DATASTORE_COLUMNS);
       if (!got.columnNames || got.columnNames.length === 0) {
-        console.log('RunPayroll: getTableDetails by id returned no columns; using merged default column list');
+        console.log('RunPayroll: getTableDetails by id returned no columns; using default column list');
       }
-      return { ...got, columnNames: merged };
+      return pack(got.table, got.columnNames, got.tableId);
+    }
+  }
+  for (const ref of ['399000000206964', 'RunPayroll']) {
+    try {
+      const enriched = await tryId(ref);
+      if (enriched) {
+        console.log(`RunPayroll: fallback table ref "${ref}" with ${enriched.columnNames.length} columns`);
+        return pack(enriched.table, enriched.columnNames, enriched.tableId);
+      }
+      const table = catalystApp.datastore().table(ref);
+      await table.getAllRows({ maxRecords: 1 });
+      console.log(`RunPayroll: fallback table ref "${ref}" (no column meta)`);
+      return pack(table, [], ref);
+    } catch (fbErr) {
+      console.log(`RunPayroll: fallback ref "${ref}" failed:`, fbErr?.message || fbErr);
     }
   }
   return null;
+}
+
+/** Fallback column sets — **largest first** so we never stop at Month_filter + EmployeeCode only. */
+const RUNPAYROLL_INSERT_COLUMN_SETS = [
+  [
+    'Month_filter',
+    'EmployeeCode',
+    'EmployeeName',
+    'Department',
+    'Category',
+    'Contractor',
+    'DaysInMonth',
+    'DaysPresent',
+    'LOP',
+    'LOH',
+    'OTHours',
+    'ActualBasic',
+    'ActualHRA',
+    'ActualDA',
+    'OtherAllowance',
+    'OtherAllowances',
+    'TravelChargers',
+    'SpecialAllowance',
+    'Incentive',
+    'LoanAllowance',
+    'EarnedBasic',
+    'EarnedHRA',
+    'EarnedDA',
+    'EarnedSpecialAllowance',
+    'EarnedAttendanceAllowance',
+    'AttendanceAllowance',
+    'AttendanceDeduction',
+    'AttendanceBonus',
+    'EarnedSalaryCross',
+    'TotalDeduction',
+    'NetPay',
+    'PF',
+    'ESI',
+    'OTAmount',
+    'Rent',
+    'Advance',
+    'PT',
+    'LWF',
+    'OtherDeduction',
+    'Bonus',
+    'Arrear'
+  ],
+  [
+    'Month_filter',
+    'EmployeeCode',
+    'EmployeeName',
+    'Department',
+    'Contractor',
+    'DaysInMonth',
+    'DaysPresent',
+    'EarnedBasic',
+    'EarnedHRA',
+    'EarnedDA',
+    'EarnedSalaryCross',
+    'TotalDeduction',
+    'NetPay',
+    'PF',
+    'ESI',
+    'OTAmount',
+    'Rent',
+    'Advance',
+    'LOH',
+    'LOP',
+    'LoanAllowance',
+    'Bonus',
+    'AttendanceBonus',
+    'AttendanceDeduction'
+  ],
+  [
+    'Month_filter',
+    'EmployeeCode',
+    'EmployeeName',
+    'NetPay',
+    'EarnedSalaryCross',
+    'TotalDeduction',
+    'PF',
+    'ESI',
+    'EarnedHRA',
+    'EarnedBasic',
+    'LOP',
+    'LoanAllowance',
+    'Rent',
+    'Advance',
+    'AttendanceBonus',
+    'AttendanceDeduction'
+  ],
+  ['Month_filter', 'EmployeeCode', 'NetPay', 'EarnedSalaryCross', 'EarnedBasic', 'LOP']
+];
+
+async function insertRunPayrollRowKnownColumns(runTable, monthNorm, record, schemaInfo) {
+  const fullRow = buildPayrollImportTextRow(monthNorm, record, {
+    dojMap: schemaInfo?.dojMap
+  });
+  if (!fullRow.EmployeeCode) throw new Error('EmployeeCode is required for RunPayroll');
+  const insertColumnNames = resolveRunPayrollInsertColumnNames(schemaInfo || {});
+  let lastErr;
+
+  const fullFiltered = filterRowToDatastoreColumns(fullRow, insertColumnNames);
+  const fullKeys = Object.keys(fullFiltered).filter(
+    (k) => !isRunPayrollSystemColumn(k) && fullFiltered[k] !== '' && fullFiltered[k] != null
+  );
+  if (
+    fullKeys.length >= 3 &&
+    runPayrollRowHasRequiredFields(fullFiltered, insertColumnNames)
+  ) {
+    try {
+      await insertRunPayrollRowWithColumnRetries(runTable, fullFiltered);
+      return;
+    } catch (e) {
+      lastErr = e;
+      console.log(
+        `RunPayroll schema insert failed for ${fullRow.EmployeeCode} (${fullKeys.length} cols):`,
+        e?.message || e
+      );
+    }
+  }
+
+  for (const cols of RUNPAYROLL_INSERT_COLUMN_SETS) {
+    const row = filterRowToDatastoreColumns(fullRow, cols);
+    if (!runPayrollRowHasRequiredFields(row, cols)) continue;
+    const valueCols = Object.keys(row).filter(
+      (k) => runPayrollColumnSlug(k) !== 'monthfilter' && runPayrollColumnSlug(k) !== 'employeecode'
+    );
+    if (valueCols.length === 0) continue;
+    try {
+      await insertRunPayrollRowWithColumnRetries(runTable, row);
+      return;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+
+  throw lastErr || new Error('RunPayroll insert failed (all column sets exhausted)');
+}
+
+/**
+ * Same text-row shape as Payroll import — ensures RunPayroll gets NetPay, EarnedHRA, PF, etc.
+ */
+function buildPayrollImportTextRow(month, record, runPayrollOpts) {
+  const safeNumStr = (val) => {
+    const num = Number(val);
+    const result = isNaN(num) || num === null || num === undefined ? 0 : num;
+    return String(result);
+  };
+  const monthNorm = normalizePayrollMonthFilter(month);
+  const dojMap = runPayrollOpts?.dojMap;
+  const row = {};
+  row.Month_filter = monthNorm || String(month || '');
+  row.EmployeeCode = String(record.employeeCode ?? record.EmployeeCode ?? '').trim();
+  row.EmployeeName = String(record.employeeName ?? record.EmployeeName ?? '');
+  row.Department = String(record.department ?? record.Department ?? '');
+  row.Category = String(record.category ?? record.Category ?? '');
+  row.Contractor = String(record.contractor ?? record.Contractor ?? '');
+  row.DaysInMonth = safeNumStr(record.daysInMonth ?? record.DaysInMonth);
+  row.DaysPresent = safeNumStr(record.daysPresent ?? record.DaysPresent);
+  row.OTHours = safeNumStr(record.otHours ?? record.OTHours);
+  row.LOH = safeNumStr(record.loh ?? record.LOH);
+  row.RevisedLOH = safeNumStr(
+    record.revisedLOH ??
+      record.RevisedLOH ??
+      lohHoursForLateDeduction(record.loh ?? record.LOH)
+  );
+  row.ActualBasic = safeNumStr(record.actualBasic ?? record.ActualBasic);
+  row.ActualHRA = safeNumStr(record.actualHRA ?? record.ActualHRA);
+  row.ActualDA = safeNumStr(record.actualDA ?? record.ActualDA);
+  row.OtherAllowance = safeNumStr(record.otherAllowance ?? record.OtherAllowance);
+  row.SpecialAllowance = safeNumStr(record.specialAllowance ?? record.SpecialAllowance);
+  row.Incentive = safeNumStr(record.incentive ?? record.Incentive);
+  row.LoanAllowance = safeNumStr(record.loanAllowance ?? record.LoanAllowance);
+  row.NoOfDaysWithoutUniforms = safeNumStr(
+    record.noOfDaysWithoutUniforms ?? record.NoOfDaysWithoutUniforms
+  );
+  row.Noofdayswithoutuniforms = row.NoOfDaysWithoutUniforms;
+  row.OtherAllowances = safeNumStr(record.otherAllowances ?? record.OtherAllowances);
+  row.TravelChargers = safeNumStr(record.travelChargers ?? record.TravelChargers);
+  row.ActualTotalSalary = safeNumStr(
+    (Number(record.actualBasic) || 0) +
+      (Number(record.actualHRA) || 0) +
+      (Number(record.actualDA) || 0) +
+      (Number(record.otherAllowance) || 0) +
+      (Number(record.otherAllowances) || 0) +
+      (Number(record.travelChargers) || 0) +
+      (Number(record.specialAllowance) || 0)
+  );
+  row.EarnedBasic = safeNumStr(record.earnedBasic ?? record.EarnedBasic);
+  row.EarnedHRA = safeNumStr(record.earnedHRA ?? record.EarnedHRA);
+  row.EarnedDA = safeNumStr(record.earnedDA ?? record.EarnedDA);
+  row.EarnedSpecialAllowance = safeNumStr(
+    record.earnedSpecialAllowance ?? record.EarnedSpecialAllowance
+  );
+  row.Arrear = safeNumStr(record.arrear ?? record.Arrear);
+  row.ArrearForPF = safeNumStr(record.arrearForPF ?? record.ArrearForPF);
+  row.LOP = safeNumStr(record.lop ?? record.LOP);
+  row.EarnedSalaryCross = safeNumStr(record.earnedSalaryCross ?? record.EarnedSalaryCross);
+  row.AttendanceAllowance = safeNumStr(
+    record.earnedAttendanceAllowance ?? record.EarnedAttendanceAllowance ?? record.AttendanceAllowance
+  );
+  row.EarnedAttendanceAllowance = row.AttendanceAllowance;
+  row.EarnedOtherAllowances = safeNumStr(
+    record.earnedOtherAllowances ?? record.EarnedOtherAllowances
+  );
+  row.PF = safeNumStr(record.pf ?? record.PF);
+  row.ESI = safeNumStr(record.esi ?? record.ESI);
+  row.EmployerESI = safeNumStr(record.employerEsi ?? record.EmployerESI);
+  row.ESIContribution = safeNumStr(record.esiContribution ?? record.ESIContribution ?? 0);
+  row.TotalDeduction = safeNumStr(
+    runPayrollTotalDeductionIncludingAttendanceBonus(record, monthNorm, dojMap)
+  );
+  row.OTAmount = safeNumStr(record.otAmount ?? record.OTAmount);
+  row.OTArrearAmount = safeNumStr(record.otArrearAmount ?? record.OTArrearAmount);
+  row.OTESI = safeNumStr(record.otEsi ?? record.OTESI);
+  row.OTPayment = safeNumStr(record.otPayment ?? record.OTPayment);
+  row.PayableAmount = safeNumStr(record.payableAmount ?? record.PayableAmount);
+  row.OTWages = safeNumStr(record.otWages ?? record.OTWages);
+  row.Rent = safeNumStr(record.rent ?? record.Rent);
+  row.Advance = safeNumStr(record.advance ?? record.Advance);
+  row.LWF =
+    monthNorm && monthNorm.endsWith('-12') ? safeNumStr(20) : safeNumStr(record.lwf ?? record.LWF);
+  row.EmployerLwf =
+    monthNorm && monthNorm.endsWith('-12')
+      ? safeNumStr(40)
+      : safeNumStr(record.employerLwf ?? record.EmployerLwf ?? 0);
+  row.PT = safeNumStr(record.pt ?? record.PT);
+  row.OtherDeduction = safeNumStr(record.otherDeduction ?? record.OtherDeduction);
+  row.NetPay = safeNumStr(
+    runPayrollNetPayFromEarnedGrossMinusTotalDeduction(
+      record,
+      monthNorm,
+      dojMap,
+      Number(row.TotalDeduction) || 0
+    )
+  );
+  row.TotalNetPayable = safeNumStr(record.totalNetPayable ?? record.TotalNetPayable);
+  row.ERPF = safeNumStr(record.erpf ?? record.ERPF);
+  row.Admin = safeNumStr(record.admin ?? record.Admin);
+  row.EDLI = safeNumStr(record.edli ?? record.EDLI);
+  row.ERPF13 = safeNumStr(record.erpf13 ?? record.ERPF13);
+  row.ServiceCharge = safeNumStr(record.serviceCharge ?? record.ServiceCharge);
+  row.Total = safeNumStr(record.total ?? record.Total);
+  row.GST = safeNumStr(record.gst ?? record.GST);
+  row.NetTotal = safeNumStr(record.netTotal ?? record.NetTotal);
+  row.Bonus = safeNumStr(record.bonus ?? record.Bonus);
+  row.AttendanceBonus = safeNumStr(resolveRunPayrollAttendanceBonus(record, monthNorm, dojMap));
+  row.AttendanceDeduction = safeNumStr(
+    runPayrollAttendanceDeductionFromPayrollRecord(record, monthNorm, dojMap)
+  );
+  row.FoodAllowance = safeNumStr(record.foodAllowance ?? record.FoodAllowance);
+  row.UniformAllowance = safeNumStr(record.uniformAllowance ?? record.UniformAllowance);
+  row.WashingAllowance = safeNumStr(record.washingAllowance ?? record.WashingAllowance);
+  row.BankHolderName = String(record.bankHolderName ?? record.BankHolderName ?? '');
+  row.BankName = String(record.bankName ?? record.BankName ?? '');
+  row.IFSCCode = String(record.ifscCode ?? record.IFSCCode ?? '');
+  row.BankBranch = String(record.bankBranch ?? record.BankBranch ?? '');
+  Object.keys(row).forEach((key) => {
+    if (row[key] === undefined || row[key] === null) row[key] = '';
+  });
+  return row;
+}
+
+function resolveRunPayrollInsertColumnNames(schemaInfo) {
+  const actual = schemaInfo?.actualColumnNames;
+  const fallback = schemaInfo?.columnNames || DEFAULT_RUNPAYROLL_DATASTORE_COLUMNS;
+  return actual && actual.length > 0 ? actual : fallback;
+}
+
+function runPayrollRowHasRequiredFields(row, insertColumnNames) {
+  if (!row || typeof row !== 'object') return false;
+  let empVal = '';
+  let monthVal = '';
+  for (const col of insertColumnNames || []) {
+    const slug = runPayrollColumnSlug(col);
+    if (slug === 'employeecode') empVal = String(row[col] ?? '').trim();
+    if (slug === 'monthfilter') monthVal = String(row[col] ?? '').trim();
+  }
+  if (!empVal) empVal = String(row.EmployeeCode ?? row.employeeCode ?? '').trim();
+  if (!monthVal) monthVal = String(row.Month_filter ?? row.month_filter ?? '').trim();
+  return !!empVal && !!monthVal;
+}
+
+/** Map Payroll-shaped row onto exact Data Store column names (no phantom columns). */
+function filterRowToDatastoreColumns(fullRow, actualColumnNames) {
+  if (!fullRow || !actualColumnNames?.length) return {};
+  const slugToExact = new Map();
+  for (const col of actualColumnNames) {
+    if (!col || isRunPayrollSystemColumn(col)) continue;
+    slugToExact.set(runPayrollColumnSlug(col), String(col).trim());
+  }
+  const out = {};
+  for (const [key, val] of Object.entries(fullRow)) {
+    const exact = slugToExact.get(runPayrollColumnSlug(key));
+    if (exact && val !== undefined) out[exact] = val;
+  }
+  if (!out.Month_filter && fullRow.Month_filter) {
+    const mf = slugToExact.get(runPayrollColumnSlug('Month_filter'));
+    if (mf) out[mf] = fullRow.Month_filter;
+  }
+  if (!out.EmployeeCode && fullRow.EmployeeCode) {
+    const ec = slugToExact.get(runPayrollColumnSlug('EmployeeCode'));
+    if (ec) out[ec] = fullRow.EmployeeCode;
+  }
+  return out;
 }
 
 /**
@@ -4371,6 +5461,7 @@ function buildRunPayrollLogicalSlugMap(month, normalized, rawRecord) {
     employeecode: s(normalized.employeeCode),
     employeename: s(normalized.employeeName),
     department: s(normalized.department),
+    category: s(normalized.category),
     contractor: s(normalized.contractor),
     contractorname: s(normalized.contractor),
     daysinmonth: n(normalized.daysInMonth),
@@ -4399,13 +5490,33 @@ function buildRunPayrollLogicalSlugMap(month, normalized, rawRecord) {
     earnedbasic: n(normalized.earnedBasic),
     earnedhra: n(normalized.earnedHRA),
     earnedda: n(normalized.earnedDA),
+    earnedspecialallowance: n(normalized.earnedSpecialAllowance),
+    earnedattendanceallowance: n(normalized.earnedAttendanceAllowance),
+    earnedotherallowances: n(normalized.earnedOtherAllowances),
     earnedsalarycross: n(normalized.earnedSalaryCross),
     earnedgrosssalary: n(normalized.earnedSalaryCross),
     totaldeduction: n(normalized.totalDeduction),
     netpay: n(normalized.netPay),
     pf: n(normalized.pf),
     esi: n(normalized.esi),
+    employeresi: n(normalized.employerEsi),
+    esicontribution: n(normalized.esiContribution),
     otamount: n(normalized.otAmount),
+    otarrearamount: n(normalized.otArrearAmount),
+    rent: n(normalized.rent),
+    advance: n(normalized.advance),
+    lwf: n(normalized.lwf),
+    pt: n(normalized.pt),
+    otherdeduction: n(normalized.otherDeduction),
+    incentive: n(normalized.incentive),
+    arrear: n(normalized.arrear),
+    bonus: n(normalized.bonus),
+    attendancebonus: n(normalized.attendanceBonus),
+    attendancededuction: n(normalized.attendanceDeduction),
+    loanallowance: n(normalized.loanAllowance),
+    foodallowance: n(normalized.foodAllowance),
+    uniformallowance: n(normalized.uniformAllowance),
+    washingallowance: n(normalized.washingAllowance),
     payload: payloadJson,
     data: payloadJson,
     snapshot: payloadJson,
@@ -4432,7 +5543,41 @@ function inferRunPayrollValueForSlug(slug, logical) {
   if (slug.includes('actual') && slug.includes('total')) return logical.actualtotalsalary;
   if (slug.includes('earned') && slug.includes('basic')) return logical.earnedbasic;
   if (slug.includes('earned') && slug.includes('hra')) return logical.earnedhra;
+  if (slug.includes('earned') && slug.includes('da') && !slug.includes('total')) return logical.earnedda;
+  if (slug.includes('earned') && slug.includes('special')) return logical.earnedspecialallowance;
+  if (slug.includes('earned') && slug.includes('attendance') && slug.includes('allow')) {
+    return logical.earnedattendanceallowance;
+  }
+  if (slug.includes('attendance') && slug.includes('bonus') && !slug.includes('deduct')) {
+    return logical.attendancebonus;
+  }
+  if (slug.includes('attendance') && slug.includes('deduct')) {
+    return logical.attendancededuction;
+  }
+  if (slug === 'bonus' || (slug.includes('bonus') && !slug.includes('attendance'))) return logical.bonus;
+  if (slug.includes('food') && slug.includes('allow')) return logical.foodallowance;
+  if (slug.includes('uniform') && slug.includes('allow')) return logical.uniformallowance;
+  if (slug.includes('wash') && slug.includes('allow')) return logical.washingallowance;
+  if (slug.includes('loan') && slug.includes('allow')) return logical.loanallowance;
+  if (slug.includes('earned') && slug.includes('attendance')) return logical.earnedattendanceallowance;
+  if (slug.includes('earned') && slug.includes('other') && slug.includes('allow')) {
+    return logical.earnedotherallowances;
+  }
   if (slug.includes('earned') && (slug.includes('cross') || slug.includes('gross'))) return logical.earnedsalarycross;
+  if (slug.includes('total') && slug.includes('deduct')) return logical.totaldeduction;
+  if (slug === 'netpay' || (slug.includes('net') && slug.includes('pay'))) return logical.netpay;
+  if (slug === 'esi' || (slug.includes('esi') && !slug.includes('employer') && !slug.includes('contrib'))) {
+    return logical.esi;
+  }
+  if (slug.includes('employer') && slug.includes('esi')) return logical.employeresi;
+  if (slug.includes('esi') && slug.includes('contrib')) return logical.esicontribution;
+  if (slug === 'rent' || slug.includes('rentrecovery')) return logical.rent;
+  if (slug === 'advance') return logical.advance;
+  if (slug === 'lwf') return logical.lwf;
+  if (slug === 'pt' || slug.includes('professionaltax')) return logical.pt;
+  if (slug.includes('other') && slug.includes('deduct')) return logical.otherdeduction;
+  if (slug.includes('ot') && slug.includes('arrear')) return logical.otarrearamount;
+  if (slug.includes('ot') && slug.includes('amount')) return logical.otamount;
   if (
     slug === 'pf' ||
     (slug.includes('provident') && slug.includes('fund')) ||
@@ -4451,6 +5596,17 @@ function inferRunPayrollValueForSlug(slug, logical) {
  * Build insert row using **exact** column names from Data Store schema so Catalyst does not drop values.
  * Matches columns by normalizing names (spaces/underscores) so "Days Present" and "DaysPresent" both work.
  */
+function runPayrollValueFromRawRecord(colName, rawRecord) {
+  const exact = String(colName || '').trim();
+  if (!exact || !rawRecord || typeof rawRecord !== 'object') return undefined;
+  const camel =
+    exact.length > 1
+      ? exact.charAt(0).toLowerCase() + exact.slice(1)
+      : exact.toLowerCase();
+  const v = pickPayrollField(rawRecord, exact, camel);
+  return toRunPayrollTextValue(v);
+}
+
 function buildRunPayrollRowForSchema(columnNames, month, normalized, rawRecord) {
   const row = {};
   const logical = buildRunPayrollLogicalSlugMap(month, normalized, rawRecord);
@@ -4465,6 +5621,9 @@ function buildRunPayrollRowForSchema(columnNames, month, normalized, rawRecord) 
     } else {
       val = inferRunPayrollValueForSlug(slug, logical);
     }
+    if (val === undefined) {
+      val = runPayrollValueFromRawRecord(exact, rawRecord);
+    }
     if (val !== undefined) {
       row[exact] = val;
     }
@@ -4473,16 +5632,52 @@ function buildRunPayrollRowForSchema(columnNames, month, normalized, rawRecord) 
 }
 
 /**
- * Insert one RunPayroll row: prefer schema-mapped row; fallback to cascade if schema is empty.
+ * Insert one RunPayroll row: Payroll-import field mapping, only real table columns.
  */
 async function insertRunPayrollRowCascade(runTable, month, record, schemaInfo) {
+  const monthNorm = normalizePayrollMonthFilter(month);
   const normalized = normalizePayrollSourceForRunPayroll(record);
-  const columnNames = schemaInfo && Array.isArray(schemaInfo.columnNames) ? schemaInfo.columnNames : [];
+  const insertColumnNames = resolveRunPayrollInsertColumnNames(schemaInfo || {});
+  const fullRow = buildPayrollImportTextRow(monthNorm, record, { dojMap: schemaInfo?.dojMap });
+  if (!fullRow.EmployeeCode) {
+    throw new Error('EmployeeCode is required for RunPayroll');
+  }
 
+  try {
+    await insertRunPayrollRowKnownColumns(runTable, monthNorm, record, schemaInfo);
+    return;
+  } catch (knownErr) {
+    console.log(
+      `RunPayroll known-columns insert for ${fullRow.EmployeeCode}, retrying full map:`,
+      knownErr?.message || knownErr
+    );
+  }
+
+  const row = filterRowToDatastoreColumns(fullRow, insertColumnNames);
+  if (runPayrollRowHasRequiredFields(row, insertColumnNames) && Object.keys(row).length >= 2) {
+    try {
+      await runTable.insertRow(row);
+      return;
+    } catch (insertErr) {
+      console.log(
+        `RunPayroll insertRow retry for ${fullRow.EmployeeCode}:`,
+        insertErr?.message || insertErr
+      );
+      await insertRunPayrollRowWithColumnRetries(runTable, row);
+      return;
+    }
+  }
+
+  const columnNames =
+    schemaInfo && Array.isArray(schemaInfo.mappingColumnNames) ? schemaInfo.mappingColumnNames : [];
   if (columnNames.length > 0) {
     const row = buildRunPayrollRowForSchema(columnNames, month, normalized, record);
-    if (Object.keys(row).length > 0) {
-      await insertRunPayrollRowWithColumnRetries(runTable, row);
+    const filtered = filterRowToDatastoreColumns(
+      Object.assign({}, fullRow, row),
+      insertColumnNames
+    );
+    if (runPayrollRowHasRequiredFields(filtered, insertColumnNames) && Object.keys(filtered).length > 0) {
+      await insertRunPayrollRowWithColumnRetries(runTable, filtered);
       return;
     }
   }
@@ -4501,6 +5696,7 @@ async function insertRunPayrollRowCascade(runTable, month, record, schemaInfo) {
       EmployeeCode: s(normalized.employeeCode),
       EmployeeName: s(normalized.employeeName),
       Department: s(normalized.department),
+      Category: s(normalized.category),
       Contractor: s(normalized.contractor),
       DaysInMonth: n(normalized.daysInMonth),
       DaysPresent: n(normalized.daysPresent),
@@ -4518,9 +5714,13 @@ async function insertRunPayrollRowCascade(runTable, month, record, schemaInfo) {
       ActualTotalSalary: n(normalized.actualTotalSalary),
       EarnedBasic: n(normalized.earnedBasic),
       EarnedHRA: n(normalized.earnedHRA),
+      EarnedDA: n(normalized.earnedDA),
+      EarnedSpecialAllowance: n(normalized.earnedSpecialAllowance),
       EarnedSalaryCross: n(normalized.earnedSalaryCross),
       PF: n(normalized.pf),
       ESI: n(normalized.esi),
+      Rent: n(normalized.rent),
+      Advance: n(normalized.advance),
       TotalDeduction: n(normalized.totalDeduction),
       OTAmount: n(normalized.otAmount),
       NetPay: n(normalized.netPay),
@@ -4583,6 +5783,59 @@ async function insertRunPayrollRowCascade(runTable, month, record, schemaInfo) {
 }
 
 /**
+ * Delete all RunPayroll rows for a month and rebuild from Payroll table (1 row per employee).
+ */
+async function rebuildRunPayrollMonthFromPayrollTable(catalystApp, runTable, month) {
+  const monthNorm = normalizePayrollMonthFilter(month);
+  if (!monthNorm || !runTable) return { ok: false, error: 'invalid month or table' };
+  const schema = await getRunPayrollTableWithColumns(catalystApp);
+  if (!schema?.table) return { ok: false, skipped: true, error: 'RunPayroll table not found' };
+  const payrollMap = await loadPayrollRecordsMapForMonth(catalystApp, monthNorm);
+  if (payrollMap.size === 0) {
+    return { ok: false, error: `No Payroll rows for Month_filter=${monthNorm}` };
+  }
+  const dojMap = await loadEmployeeDateOfJoiningMap(catalystApp);
+  const deleted = await deleteRunPayrollRowsForMonth(catalystApp, runTable, monthNorm);
+  const insertColumnNames = resolveRunPayrollInsertColumnNames(schema);
+  const schemaInfo = {
+    columnNames: insertColumnNames,
+    actualColumnNames: insertColumnNames,
+    mappingColumnNames: schema.mappingColumnNames || insertColumnNames,
+    dojMap
+  };
+  let inserted = 0;
+  let failed = 0;
+  let firstError = null;
+  for (const payrollRow of payrollMap.values()) {
+    try {
+      const enriched = enrichPayrollRecordForRunPayroll(
+        payrollRow,
+        monthNorm,
+        dojMap,
+        payrollRow
+      );
+      await insertRunPayrollRowCascade(runTable, monthNorm, enriched, schemaInfo);
+      inserted++;
+    } catch (e) {
+      failed++;
+      if (!firstError) firstError = e?.message || String(e);
+      console.error(
+        `rebuildRunPayrollMonthFromPayrollTable: employee ${payrollRow?.EmployeeCode}:`,
+        e?.message || e
+      );
+    }
+  }
+  return {
+    ok: inserted > 0 && failed === 0,
+    inserted,
+    failed,
+    deleted,
+    employees: payrollMap.size,
+    firstError
+  };
+}
+
+/**
  * After Payroll import/save (including Run Payroll auto-save), mirror rows into RunPayroll.
  */
 async function syncRunPayrollFromPayrollImport(catalystApp, month, payrollData) {
@@ -4591,32 +5844,81 @@ async function syncRunPayrollFromPayrollImport(catalystApp, month, payrollData) 
     console.log('syncRunPayrollFromPayrollImport: RunPayroll table not found, skip');
     return { ok: false, skipped: true };
   }
-  const { table: runTable, columnNames } = schema;
-  if (columnNames && columnNames.length) {
-    console.log(
-      `syncRunPayrollFromPayrollImport: RunPayroll columns from schema (${columnNames.length}):`,
-      columnNames.slice(0, 25).join(', '),
-      columnNames.length > 25 ? '...' : ''
-    );
-  }
-  if (!month || !Array.isArray(payrollData) || payrollData.length === 0) {
+  const { table: runTable, columnNames, mappingColumnNames } = schema;
+  const insertColumnNames = resolveRunPayrollInsertColumnNames(schema);
+  const monthNorm = normalizePayrollMonthFilter(month);
+  console.log(
+    `syncRunPayrollFromPayrollImport: month=${monthNorm}, employees=${payrollData?.length || 0}, columns=${insertColumnNames.length}`
+  );
+  if (!monthNorm || !Array.isArray(payrollData) || payrollData.length === 0) {
     return { ok: false, skipped: true };
   }
-  await deleteRunPayrollRowsForMonth(catalystApp, runTable, month);
+  const dedupedBefore = await dedupeRunPayrollRowsForMonth(catalystApp, runTable, monthNorm);
+  const deletedMonth = await deleteRunPayrollRowsForMonth(catalystApp, runTable, monthNorm);
+  const dojMap = await loadEmployeeDateOfJoiningMap(catalystApp);
+  const payrollTableMap = await loadPayrollRecordsMapForMonth(catalystApp, monthNorm);
   let ok = 0;
   let failed = 0;
-  const schemaInfo = { columnNames: columnNames || [] };
+  let firstError = null;
+  const schemaInfo = {
+    columnNames: insertColumnNames,
+    actualColumnNames: insertColumnNames,
+    mappingColumnNames: mappingColumnNames || insertColumnNames,
+    dojMap
+  };
   for (const record of payrollData) {
     try {
-      await insertRunPayrollRowCascade(runTable, month, record, schemaInfo);
+      await deleteRunPayrollRowsForEmployeeMonth(
+        catalystApp,
+        runTable,
+        monthNorm,
+        record?.employeeCode ?? record?.EmployeeCode
+      );
+      const empCode = String(record?.employeeCode ?? record?.EmployeeCode ?? '').trim();
+      const empNorm = normalizeEmployeeCode(empCode) || empCode;
+      const payrollRow = payrollTableMap.get(empNorm);
+      const enriched = enrichPayrollRecordForRunPayroll(
+        record,
+        monthNorm,
+        dojMap,
+        payrollRow
+      );
+      await insertRunPayrollRowCascade(runTable, monthNorm, enriched, schemaInfo);
       ok++;
     } catch (e) {
       failed++;
-      console.error(`syncRunPayrollFromPayrollImport: employee ${record?.employeeCode}:`, e?.message || e);
+      const msg = e?.message || String(e);
+      if (!firstError) firstError = msg;
+      console.error(`syncRunPayrollFromPayrollImport: employee ${record?.employeeCode}:`, msg);
     }
   }
-  console.log(`syncRunPayrollFromPayrollImport: RunPayroll ${ok} inserted, ${failed} failed (month=${month})`);
-  return { ok: failed === 0, inserted: ok, failed };
+  const deduped = await dedupeRunPayrollRowsForMonth(catalystApp, runTable, monthNorm);
+  const alignResult = await alignRunPayrollRowsWithPayrollTable(catalystApp, runTable, monthNorm);
+  console.log(
+    `syncRunPayrollFromPayrollImport: RunPayroll ${ok} inserted, ${failed} failed, ${dedupedBefore} deduped before, ${deletedMonth} deleted before insert, ${deduped} deduped after, ${alignResult.updated} aligned with Payroll (month=${monthNorm})`
+  );
+  let verifyCount = 0;
+  try {
+    const monthEscaped = monthNorm.replace(/'/g, "''");
+    const cq = `SELECT COUNT(ROWID) AS cnt FROM RunPayroll WHERE Month_filter = '${monthEscaped}'`;
+    const crows = await catalystApp.zcql().executeZCQLQuery(cq);
+    const cr = crows?.[0]?.RunPayroll ?? crows?.[0] ?? {};
+    verifyCount = Number(cr.cnt ?? cr.CNT ?? 0) || 0;
+  } catch (verifyErr) {
+    console.log('syncRunPayrollFromPayrollImport: post-sync count skipped:', verifyErr.message);
+  }
+  const storedCount = Math.max(ok, verifyCount);
+  return {
+    ok: storedCount > 0 && failed === 0,
+    inserted: ok,
+    failed,
+    deleted: deletedMonth,
+    deduped,
+    month: monthNorm,
+    verifyCount,
+    firstError: failed > 0 ? firstError : undefined,
+    skipped: false
+  };
 }
 
 /** Monthly LOH grace (hours) — same as payslip Late / payroll LOH threshold. */
@@ -4910,11 +6212,12 @@ function buildLatestSavedOTHoursMapFromPayrollRows(payrollRowResults) {
 }
 
 /**
- * Per employee, take RevisedLOH from the Payroll row with the highest ROWID (same model as OTHours).
- * Zero is kept when explicitly saved so manual overrides persist after refresh.
+ * Per employee, RevisedLOH comes only from the Payroll row with the highest ROWID.
+ * If that latest row has no RevisedLOH (cleared), do not fall back to an older row — use LOH-derived on GET.
+ * Zero on the latest row is kept when explicitly saved.
  */
 function buildLatestSavedRevisedLOHMapFromPayrollRows(payrollRowResults) {
-  const bestByNorm = new Map();
+  const latestByNorm = new Map();
   const rowIdNum = (p) => {
     const n = Number(p.ROWID ?? p.rowid ?? 0);
     return Number.isFinite(n) ? n : 0;
@@ -4928,10 +6231,9 @@ function buildLatestSavedRevisedLOHMapFromPayrollRows(payrollRowResults) {
     const rid = rowIdNum(p);
     const revRaw = p.RevisedLOH ?? p.revisedLOH ?? p.revisedloh;
     const revParsed = parseSavedRevisedLohField(revRaw);
-    if (revParsed === undefined) continue;
-    const prev = bestByNorm.get(norm);
+    const prev = latestByNorm.get(norm);
     if (!prev || rid >= prev.rowId) {
-      bestByNorm.set(norm, { rowId: rid, revised: revParsed });
+      latestByNorm.set(norm, { rowId: rid, revised: revParsed });
     }
   }
   const map = {};
@@ -4941,9 +6243,9 @@ function buildLatestSavedRevisedLOHMapFromPayrollRows(payrollRowResults) {
     const code = String(p.EmployeeCode || '').trim();
     if (!code) continue;
     const norm = normalizeEmployeeCode(code) || code;
-    const best = bestByNorm.get(norm);
-    if (!best) continue;
-    if (rowIdNum(p) !== best.rowId) continue;
+    const best = latestByNorm.get(norm);
+    if (!best || rowIdNum(p) !== best.rowId) continue;
+    if (best.revised === undefined) continue;
     map[code] = best.revised;
     map[norm] = best.revised;
     const n = parseInt(code, 10);
@@ -5586,6 +6888,7 @@ const PAYROLL_STANDARD_COLUMN_SKIP = new Set(
     'EmployeeCode',
     'EmployeeName',
     'Department',
+    'Category',
     'Contractor',
     'DaysInMonth',
     'DaysPresent',
@@ -5718,7 +7021,7 @@ async function computePayrollData(catalystApp, month, contractor, department, em
   if (department && department !== 'All') empWhereClause += ` AND Department = '${department}'`;
   if (employeeId && employeeId !== 'All') empWhereClause += ` AND EmployeeCode = '${employeeId}'`;
   const buildEmpQuery = (includeSpecialAllowance, includeFoodUniform) => (
-    `SELECT EmployeeCode, EmployeeName, Department, Designation, ContractorName, ActualBasic, ActualHRA, ActualDA, AttendanceAllowance, OtherAllowance, TravelChargers, TotalSalary` +
+    `SELECT EmployeeCode, EmployeeName, Department, Category, Designation, ContractorName, ActualBasic, ActualHRA, ActualDA, AttendanceAllowance, OtherAllowance, TravelChargers, TotalSalary` +
     (includeSpecialAllowance ? `, SpecialAllowance, ActualSpecialAllowance` : ``) +
     (includeFoodUniform ? `, FoodAllowance, UniformAllowance` : ``) +
     `, BankHolderName, BankName, IFSCCode, BankBranch, PFStatus, ESIStatus, employeeStatus, DateofJoining, UANNo, ESICNo, RelevantExperience FROM Employee WHERE EmployeeCode IS NOT NULL ${empWhereClause}`
@@ -7347,6 +8650,7 @@ async function computePayrollData(catalystApp, month, contractor, department, em
       designation: String(emp.Designation ?? emp.designation ?? '').trim(),
       unit: String(emp.RelevantExperience ?? emp.relevantExperience ?? '').trim(),
       department: emp.Department || '',
+      category: String(emp.Category ?? emp.category ?? '').trim(),
       contractor: emp.ContractorName || '',
       dateOfJoining: dateOfJoining,
       daysInMonth: daysInMonthForCalc,
@@ -7445,14 +8749,216 @@ async function computePayrollData(catalystApp, month, contractor, department, em
   return result;
 }
 
+/** Catalyst / API Gateway may pass `/server/payroll_function/...` or `/payroll_function/...`. */
+function normalizePayrollFunctionPathname(p) {
+  if (!p || typeof p !== 'string') return '/';
+  const prefixes = ['/server/payroll_function', '/payroll_function'];
+  for (const prefix of prefixes) {
+    if (p === prefix) return '/';
+    if (p.startsWith(`${prefix}/`)) {
+      const rest = p.slice(prefix.length);
+      return rest.startsWith('/') ? rest : `/${rest}`;
+    }
+  }
+  return p;
+}
+
 /**
-* @param {import('http').IncomingMessage} req
-* @param {import('http').ServerResponse} res
-*/
+ * @param {import('http').IncomingMessage} req
+ * @param {import('http').ServerResponse} res
+ */
 module.exports = async (req, res) => {
   const parsedUrl = url.parse(req.url, true);
-  const pathname = parsedUrl.pathname;
+  const pathname = normalizePayrollFunctionPathname(parsedUrl.pathname);
   const query = parsedUrl.query;
+
+  if (pathname === '/run-payroll-count') {
+    const month = normalizePayrollMonthFilter(String(query.month || '').trim());
+    if (!month || !/^\d{4}-\d{2}$/.test(month)) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'month query required (YYYY-MM)' }));
+      return;
+    }
+    try {
+      const catalystApp = catalyst.initialize(req);
+      const runTable = catalystApp.datastore().table('RunPayroll');
+      const count = await countRunPayrollRowsForMonth(catalystApp, runTable, month);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ month, count }));
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message || 'count failed' }));
+    }
+    return;
+  }
+
+  if (pathname === '/cleanup-run-payroll') {
+    if (req.method !== 'POST' && req.method !== 'GET') {
+      res.writeHead(405, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Method not allowed' }));
+      return;
+    }
+    const handleCleanup = async (monthRaw) => {
+      const catalystApp = catalyst.initialize(req);
+      const schema = await getRunPayrollTableWithColumns(catalystApp);
+      if (!schema || !schema.table) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'RunPayroll table not found in Data Store' }));
+        return;
+      }
+      const runTable = schema.table;
+      const month = normalizePayrollMonthFilter(String(monthRaw || '').trim());
+      if (month && !/^\d{4}-\d{2}$/.test(month)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: `Invalid month format: ${month}. Expected YYYY-MM` }));
+        return;
+      }
+      const countBefore = month
+        ? await countRunPayrollRowsForMonth(catalystApp, runTable, month)
+        : null;
+      let removed = 0;
+      let byMonth = {};
+      let monthsProcessed = 0;
+      let alignSummary = { updated: 0, aligned: 0, skipped: 0 };
+      let rebuildResult = null;
+      if (month) {
+        rebuildResult = await rebuildRunPayrollMonthFromPayrollTable(catalystApp, runTable, month);
+        monthsProcessed = 1;
+      } else {
+        const allResult = await dedupeAllRunPayrollMonths(catalystApp, runTable);
+        removed = allResult.totalRemoved;
+        byMonth = allResult.byMonth;
+        monthsProcessed = allResult.monthsProcessed;
+        const monthsToAlign = new Set();
+        try {
+          const allRun = await runTable.getAllRows();
+          for (const rec of allRun || []) {
+            const mf = runPayrollRowMonthKey(rec);
+            if (mf) monthsToAlign.add(mf);
+          }
+        } catch (_) {
+          /* ignore */
+        }
+        for (const m of monthsToAlign) {
+          const ar = await alignRunPayrollRowsWithPayrollTable(catalystApp, runTable, m);
+          alignSummary.updated += ar.updated;
+          alignSummary.aligned += ar.aligned;
+          alignSummary.skipped += ar.skipped;
+        }
+      }
+      const countAfter = month
+        ? await countRunPayrollRowsForMonth(catalystApp, runTable, month)
+        : null;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          status: 'success',
+          month: month || null,
+          removed,
+          byMonth,
+          monthsProcessed,
+          countBefore,
+          countAfter,
+          aligned: alignSummary,
+          rebuild: rebuildResult
+        })
+      );
+    };
+    if (req.method === 'GET') {
+      handleCleanup(query.month).catch((err) => {
+        console.error('cleanup-run-payroll error:', err);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message || 'Cleanup failed' }));
+      });
+      return;
+    }
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk;
+    });
+    req.on('end', () => {
+      let monthRaw = '';
+      try {
+        const parsed = JSON.parse(body || '{}');
+        monthRaw = parsed.month ?? '';
+      } catch (_) {
+        monthRaw = '';
+      }
+      handleCleanup(monthRaw).catch((err) => {
+        console.error('cleanup-run-payroll error:', err);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message || 'Cleanup failed' }));
+      });
+    });
+    return;
+  }
+
+  if (pathname === '/sync-run-payroll') {
+    if (req.method !== 'POST') {
+      res.writeHead(405, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Method not allowed' }));
+      return;
+    }
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk;
+    });
+    req.on('end', async () => {
+      try {
+        const parsed = JSON.parse(body || '{}');
+        let month = String(parsed.month || '').trim();
+        const payrollData = parsed.payrollData;
+        const normalizeMonth = (monthStr) => {
+          if (!monthStr) return monthStr;
+          const trimmed = String(monthStr).trim();
+          if (/^\d{4}-\d{2}$/.test(trimmed)) return trimmed;
+          const ymdMatch = trimmed.match(/^(\d{4})-(\d{2})-\d{2}/);
+          if (ymdMatch) return `${ymdMatch[1]}-${ymdMatch[2]}`;
+          const date = new Date(trimmed);
+          if (!isNaN(date.getTime())) {
+            return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+          }
+          return trimmed;
+        };
+        month = normalizeMonth(month);
+        if (!/^\d{4}-\d{2}$/.test(month)) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: `Invalid month format: ${month}. Expected YYYY-MM` }));
+          return;
+        }
+        if (!Array.isArray(payrollData) || payrollData.length === 0) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'payrollData array is required' }));
+          return;
+        }
+        const catalystApp = catalyst.initialize(req);
+        const runPayrollResult = await syncRunPayrollFromPayrollImport(catalystApp, month, payrollData);
+        const httpStatus =
+          runPayrollResult.skipped || (runPayrollResult.inserted === 0 && !runPayrollResult.verifyCount)
+            ? 500
+            : 200;
+        res.writeHead(httpStatus, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            status: runPayrollResult.ok ? 'success' : 'partial',
+            runPayroll: runPayrollResult,
+            error:
+              runPayrollResult.inserted === 0
+                ? runPayrollResult.firstError ||
+                  (runPayrollResult.skipped
+                    ? 'RunPayroll table not found in Data Store'
+                    : 'No rows inserted into RunPayroll')
+                : undefined
+          })
+        );
+      } catch (err) {
+        console.error('sync-run-payroll error:', err);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message || 'Failed to sync RunPayroll' }));
+      }
+    });
+    return;
+  }
 
   if (pathname === '/run-payroll-table') {
     if (req.method !== 'GET') {
@@ -7468,7 +8974,9 @@ module.exports = async (req, res) => {
     }
     try {
       const catalystApp = catalyst.initialize(req);
-      const data = await fetchRunPayrollTableSnapshotForMonth(catalystApp, month);
+      const runTable = catalystApp.datastore().table('RunPayroll');
+      await alignRunPayrollRowsWithPayrollTable(catalystApp, runTable, month);
+      const data = await fetchRunPayrollTableSnapshotForMonth(catalystApp, month, runTable);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ data }));
     } catch (err) {
@@ -7592,7 +9100,7 @@ module.exports = async (req, res) => {
       // since the database field name might vary (EmployeeStatus vs employeeStatus)
  
       const buildEmpQuery = (includeSpecialAllowance, includeFoodUniform) => (
-`SELECT EmployeeCode, EmployeeName, Department, Designation, ContractorName, ActualBasic, ActualHRA, ActualDA, AttendanceAllowance, OtherAllowance, TravelChargers, TotalSalary` +
+`SELECT EmployeeCode, EmployeeName, Department, Category, Designation, ContractorName, ActualBasic, ActualHRA, ActualDA, AttendanceAllowance, OtherAllowance, TravelChargers, TotalSalary` +
     (includeSpecialAllowance ? `, SpecialAllowance, ActualSpecialAllowance` : ``) +
     (includeFoodUniform ? `, FoodAllowance, UniformAllowance` : ``) +
     `, BankHolderName, BankName, IFSCCode, BankBranch, PFStatus, ESIStatus, employeeStatus, DateofJoining, RelevantExperience FROM Employee WHERE EmployeeCode IS NOT NULL ${empWhereClause}`
@@ -8352,6 +9860,7 @@ module.exports = async (req, res) => {
           employeeName: emp.EmployeeName || '',
           designation: String(emp.Designation ?? emp.designation ?? '').trim(),
           department: emp.Department || '',
+          category: String(emp.Category ?? emp.category ?? '').trim(),
           contractorName: emp.ContractorName || '',
           basicSalary: emp.ActualBasic || 0,
           hra: emp.ActualHRA || 0
@@ -8664,6 +10173,7 @@ module.exports = async (req, res) => {
         const employeeStatusMap = {};
         const dateOfJoiningMap = {};
         const designationMap = {};
+        const categoryMap = {};
         const unitMap = {};
         const uanNoMap = {};
         const esicNoMap = {};
@@ -8674,7 +10184,7 @@ module.exports = async (req, res) => {
             const employeeCodes = payrollRecords.map(r => r.Payroll.EmployeeCode).filter(Boolean);
             if (employeeCodes.length > 0) {
               const empCodesList = employeeCodes.map(code => `'${String(code).replace(/'/g, "''")}'`).join(',');
-              const statusQuery = `SELECT EmployeeCode, PFStatus, ESIStatus, employeeStatus, DateofJoining, Designation, RelevantExperience, AttendanceAllowance, OtherAllowance, RevisedOtherAllowance, TravelChargers, UANNo, ESICNo FROM Employee WHERE EmployeeCode IN (${empCodesList})`;
+              const statusQuery = `SELECT EmployeeCode, PFStatus, ESIStatus, employeeStatus, DateofJoining, Designation, Category, RelevantExperience, AttendanceAllowance, OtherAllowance, RevisedOtherAllowance, TravelChargers, UANNo, ESICNo FROM Employee WHERE EmployeeCode IN (${empCodesList})`;
               const statusRecords = await catalystApp.zcql().executeZCQLQuery(statusQuery);
               for (const row of statusRecords) {
                 const emp = row.Employee;
@@ -8713,6 +10223,10 @@ module.exports = async (req, res) => {
                   designationMap[ec] = desigVal;
                   designationMap[normalizeEmployeeCode(ec)] = desigVal;
                   if (/^\d+$/.test(ec)) designationMap[String(parseInt(ec))] = desigVal;
+                  const catVal = String(emp.Category ?? emp.category ?? '').trim();
+                  categoryMap[ec] = catVal;
+                  categoryMap[normalizeEmployeeCode(ec)] = catVal;
+                  if (/^\d+$/.test(ec)) categoryMap[String(parseInt(ec))] = catVal;
                   const unitVal = String(emp.RelevantExperience ?? emp.relevantExperience ?? '').trim();
                   unitMap[ec] = unitVal;
                   unitMap[normalizeEmployeeCode(ec)] = unitVal;
@@ -8748,7 +10262,7 @@ module.exports = async (req, res) => {
               const employeeCodes = payrollRecords.map(r => r.Payroll.EmployeeCode).filter(Boolean);
               if (employeeCodes.length > 0) {
                 const empCodesList = employeeCodes.map(code => `'${String(code).replace(/'/g, "''")}'`).join(',');
-                const fallbackQuery = `SELECT EmployeeCode, DateofJoining, Designation, RelevantExperience, AttendanceAllowance, OtherAllowance, TravelChargers, UANNo, ESICNo FROM Employee WHERE EmployeeCode IN (${empCodesList})`;
+                const fallbackQuery = `SELECT EmployeeCode, DateofJoining, Designation, Category, RelevantExperience, AttendanceAllowance, OtherAllowance, TravelChargers, UANNo, ESICNo FROM Employee WHERE EmployeeCode IN (${empCodesList})`;
                 const fallbackRecords = await catalystApp.zcql().executeZCQLQuery(fallbackQuery);
                 for (const row of fallbackRecords) {
                   const emp = row.Employee;
@@ -8767,6 +10281,10 @@ module.exports = async (req, res) => {
                     designationMap[ec] = desigFb;
                     designationMap[normalizeEmployeeCode(ec)] = desigFb;
                     if (/^\d+$/.test(ec)) designationMap[String(parseInt(ec))] = desigFb;
+                    const catFb = String(emp.Category ?? emp.category ?? '').trim();
+                    categoryMap[ec] = catFb;
+                    categoryMap[normalizeEmployeeCode(ec)] = catFb;
+                    if (/^\d+$/.test(ec)) categoryMap[String(parseInt(ec))] = catFb;
                     const unitFb = String(emp.RelevantExperience ?? emp.relevantExperience ?? '').trim();
                     unitMap[ec] = unitFb;
                     unitMap[normalizeEmployeeCode(ec)] = unitFb;
@@ -9502,19 +11020,28 @@ module.exports = async (req, res) => {
               designation: designationImported,
               unit: unitImported,
               department: String(payroll.Department || ''),
+              category: (() => {
+                const fromPayroll = String(payroll.Category ?? payroll.category ?? '').trim();
+                if (fromPayroll) return fromPayroll;
+                const ec = String(payroll.EmployeeCode || '');
+                return (
+                  categoryMap[ec] ??
+                  categoryMap[normalizeEmployeeCode(ec)] ??
+                  (/^\d+$/.test(ec) ? categoryMap[String(parseInt(ec))] : undefined) ??
+                  ''
+                );
+              })(),
               contractor: String(payroll.Contractor || ''),
               dateOfJoining: dateOfJoining,
               daysInMonth: parseNum(payroll.DaysInMonth),
               daysPresent: actualDaysPresent, // Preserved imported value or attendance data
               otHours: totalOvertimeHours || 0, // OT hours: use saved value or fetch from attendance_muster_function
               loh: importLOH, // Preserved imported value or auto-fetched
-              revisedLOH: (() => {
-                const savedRev = parseSavedRevisedLohField(
-                  payroll.RevisedLOH ?? payroll.revisedLOH ?? payroll.revisedloh
-                );
-                if (savedRev !== undefined) return savedRev;
-                return resolveRevisedLohForEmployee(payroll.EmployeeCode, importLOH);
-              })(),
+              revisedLOH: resolveRevisedLohForEmployee(
+                payroll.EmployeeCode,
+                importLOH,
+                latestSavedRevisedLOHByEmp
+              ),
               actualBasic: parseNum(payroll.ActualBasic),
               actualHRA: parseNum(payroll.ActualHRA),
               actualDA: parseNum(payroll.ActualDA),
@@ -9619,6 +11146,7 @@ module.exports = async (req, res) => {
               latestRunPayrollRawByNormalizedCodeApi.get(String(payroll.EmployeeCode || '').trim()) ||
               (!Number.isNaN(impNum) ? latestRunPayrollRawByNormalizedCodeApi.get(String(impNum)) : undefined);
             mergeRunPayrollCustomFillGaps(importedRow, rawRunImp);
+            applyRevisedLohToPayrollRow(importedRow);
             importedPayrollData.push(importedRow);
           }
         } else {
@@ -10783,6 +12311,7 @@ module.exports = async (req, res) => {
           designation: String(emp.Designation ?? emp.designation ?? '').trim(),
           unit: String(emp.RelevantExperience ?? emp.relevantExperience ?? '').trim(),
           department: emp.Department || '',
+          category: String(emp.Category ?? emp.category ?? '').trim(),
           contractor: emp.ContractorName || '',
           dateOfJoining: dateOfJoining,
           daysInMonth: daysInMonthForCalc,
@@ -11248,6 +12777,7 @@ module.exports = async (req, res) => {
       // Fetch DateofJoining, OtherAllowance/OtherAllowances, and Actual salary components (ActualHRA, ActualDA, etc.) from Employee table so payroll shows latest employee form data
       const dateOfJoiningMap = {};
       const designationMap = {};
+      const categoryMap = {};
       const employeeOtherAllowancesMap = {};
       const employeeActualHRAMap = {};
       const employeeActualDAMap = {};
@@ -11259,7 +12789,7 @@ module.exports = async (req, res) => {
         const employeeCodes = records.map(r => r.EmployeeCode).filter(Boolean);
         if (employeeCodes.length > 0) {
           const empCodesList = employeeCodes.map(code => `'${String(code).replace(/'/g, "''")}'`).join(',');
-          const dateQuery = `SELECT EmployeeCode, DateofJoining, Designation, AttendanceAllowance, OtherAllowance, RevisedOtherAllowance, ActualBasic, ActualHRA, ActualDA, SpecialAllowance, ActualSpecialAllowance, TotalSalary FROM Employee WHERE EmployeeCode IN (${empCodesList})`;
+          const dateQuery = `SELECT EmployeeCode, DateofJoining, Designation, Category, AttendanceAllowance, OtherAllowance, RevisedOtherAllowance, ActualBasic, ActualHRA, ActualDA, SpecialAllowance, ActualSpecialAllowance, TotalSalary FROM Employee WHERE EmployeeCode IN (${empCodesList})`;
           const dateRecords = await catalystApp.zcql().executeZCQLQuery(dateQuery);
           for (const row of dateRecords) {
             const emp = row.Employee;
@@ -11291,6 +12821,10 @@ module.exports = async (req, res) => {
               designationMap[empCode] = desigRow;
               designationMap[normalizeEmployeeCode(empCode)] = desigRow;
               if (/^\d+$/.test(empCode)) designationMap[String(parseInt(empCode))] = desigRow;
+              const catRow = String(emp.Category ?? emp.category ?? '').trim();
+              categoryMap[empCode] = catRow;
+              categoryMap[normalizeEmployeeCode(empCode)] = catRow;
+              if (/^\d+$/.test(empCode)) categoryMap[String(parseInt(empCode))] = catRow;
               const empOA = emp.OtherAllowances ?? emp.otherAllowances ?? emp.OtherAllowance ?? emp.otherAllowance ?? emp.RevisedOtherAllowance ?? 0;
               const oaVal = Number(empOA) || 0;
               employeeOtherAllowancesMap[empCode] = oaVal;
@@ -11326,7 +12860,7 @@ module.exports = async (req, res) => {
           const employeeCodes = records.map(r => r.EmployeeCode).filter(Boolean);
           if (employeeCodes.length > 0) {
             const empCodesList = employeeCodes.map(code => `'${String(code).replace(/'/g, "''")}'`).join(',');
-            const fallbackQuery = `SELECT EmployeeCode, DateofJoining, Designation, AttendanceAllowance, OtherAllowance, RevisedOtherAllowance, ActualBasic, ActualHRA, ActualDA, SpecialAllowance, ActualSpecialAllowance, TotalSalary FROM Employee WHERE EmployeeCode IN (${empCodesList})`;
+            const fallbackQuery = `SELECT EmployeeCode, DateofJoining, Designation, Category, AttendanceAllowance, OtherAllowance, RevisedOtherAllowance, ActualBasic, ActualHRA, ActualDA, SpecialAllowance, ActualSpecialAllowance, TotalSalary FROM Employee WHERE EmployeeCode IN (${empCodesList})`;
             const fallbackRecords = await catalystApp.zcql().executeZCQLQuery(fallbackQuery);
             for (const row of fallbackRecords) {
               const emp = row.Employee;
@@ -11345,6 +12879,10 @@ module.exports = async (req, res) => {
                 designationMap[empCode] = desigFb;
                 designationMap[normalizeEmployeeCode(empCode)] = desigFb;
                 if (/^\d+$/.test(empCode)) designationMap[String(parseInt(empCode))] = desigFb;
+                const catFb = String(emp.Category ?? emp.category ?? '').trim();
+                categoryMap[empCode] = catFb;
+                categoryMap[normalizeEmployeeCode(empCode)] = catFb;
+                if (/^\d+$/.test(empCode)) categoryMap[String(parseInt(empCode))] = catFb;
                 const empOA = emp.OtherAllowances ?? emp.otherAllowances ?? emp.OtherAllowance ?? emp.otherAllowance ?? 0;
                 const oaVal = Number(empOA) || 0;
                 employeeOtherAllowancesMap[empCode] = oaVal;
@@ -11430,6 +12968,11 @@ module.exports = async (req, res) => {
         employeeName: p.EmployeeName || '',
         designation: desRow,
         department: p.Department || '',
+        category: (() => {
+          const fromPayroll = String(p.Category ?? p.category ?? '').trim();
+          if (fromPayroll) return fromPayroll;
+          return categoryMap[ec] ?? categoryMap[normalizeEmployeeCode(ec)] ?? categoryMap[String(parseInt(ec))] ?? '';
+        })(),
         contractor: p.Contractor || '',
         dateOfJoining: (() => {
           return dateOfJoiningMap[ec] ?? dateOfJoiningMap[normalizeEmployeeCode(ec)] ?? dateOfJoiningMap[String(parseInt(ec))] ?? '';
@@ -12197,6 +13740,7 @@ module.exports = async (req, res) => {
                 const updatedRecord = {
                   EmployeeName: String(record.employeeName || existingRecord.EmployeeName || ''),
                   Department: String(record.department || existingRecord.Department || ''),
+                  Category: String(record.category ?? record.Category ?? existingRecord.Category ?? existingRecord.category ?? ''),
                   Contractor: String(record.contractor || existingRecord.Contractor || ''),
                   DaysInMonth: getImportOverwriteNumStr(record.daysInMonth, existingRecord.DaysInMonth),
                   DaysPresent: getImportOverwriteNumStr(record.daysPresent, existingRecord.DaysPresent),
@@ -12321,6 +13865,7 @@ module.exports = async (req, res) => {
                 newRecord.EmployeeCode = String(record.employeeCode || '');
                 newRecord.EmployeeName = String(record.employeeName || '');
                 newRecord.Department = String(record.department || '');
+                newRecord.Category = String(record.category ?? record.Category ?? '');
                 newRecord.Contractor = String(record.contractor || '');
                 newRecord.DaysInMonth = safeNumStr(record.daysInMonth);
                 newRecord.DaysPresent = safeNumStr(record.daysPresent);
@@ -12477,12 +14022,14 @@ module.exports = async (req, res) => {
      
           console.log(`Import completed: ${successCount} successful, ${errorCount} errors`);
 
-          // Mirror payroll run/save into RunPayroll table (same payload as Payroll import)
-          if (successCount > 0) {
+          // Mirror payroll run/save into RunPayroll table (grid snapshot — even if some Payroll rows failed)
+          let runPayrollSync = { skipped: true };
+          if (Array.isArray(payrollData) && payrollData.length > 0) {
             try {
-              await syncRunPayrollFromPayrollImport(catalystApp, month, payrollData);
+              runPayrollSync = await syncRunPayrollFromPayrollImport(catalystApp, month, payrollData);
             } catch (runPayrollErr) {
               console.error('RunPayroll sync error (Payroll import still succeeded):', runPayrollErr?.message || runPayrollErr);
+              runPayrollSync = { ok: false, error: runPayrollErr?.message || String(runPayrollErr) };
             }
             try {
               await syncPermissionReportFromPayrollMonth(catalystApp, month, payrollData);
@@ -12526,6 +14073,7 @@ module.exports = async (req, res) => {
             message: `Successfully imported ${successCount} payroll records for ${month}`,
             successCount,
             errorCount,
+            runPayroll: runPayrollSync,
             errors: errors.length > 0 ? errors : undefined
           }));
      
@@ -12829,6 +14377,7 @@ module.exports = async (req, res) => {
               EmployeeCode: String(employeeCode),
               EmployeeName: String(updatedData.employeeName || ''),
               Department: String(updatedData.department || ''),
+              Category: String(updatedData.category ?? updatedData.Category ?? ''),
               Contractor: String(updatedData.contractor || ''),
               DaysInMonth: sanitizeNum(updatedData.daysInMonth),
               DaysPresent: sanitizeNum(updatedData.daysPresent),
@@ -13020,6 +14569,7 @@ module.exports = async (req, res) => {
             ...existingRecord,
             EmployeeName: String(updatedData.employeeName || existingRecord.EmployeeName || ''),
             Department: String(updatedData.department || existingRecord.Department || ''),
+            Category: String(updatedData.category ?? updatedData.Category ?? existingRecord.Category ?? existingRecord.category ?? ''),
             Contractor: String(updatedData.contractor || existingRecord.Contractor || ''),
             DaysInMonth: getNumericValue(updatedData.daysInMonth, existingRecord.DaysInMonth),
             DaysPresent: getNumericValue(updatedData.daysPresent, existingRecord.DaysPresent),

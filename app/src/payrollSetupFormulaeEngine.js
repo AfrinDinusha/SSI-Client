@@ -115,6 +115,24 @@ export function createPayrollSetupFormulaeEngine(opts) {
     return Math.round(25 * Math.max(0, dp - nu));
   };
 
+  const computeDefaultOtAmountFromEarnedAndActual = ({
+    earnedBasic,
+    actualBasic,
+    daysInMonth,
+    daysPresent,
+    otHours,
+  }) => {
+    const dim = Number(daysInMonth) || 0;
+    const dp = Number(daysPresent) || 0;
+    const eb = Number(earnedBasic) || 0;
+    const ab = Number(actualBasic) || 0;
+    const oth = Number(otHours) || 0;
+    if (dim <= 0 || oth <= 0) return 0;
+    const dailyBasic = dp > 0 && eb > 0 ? eb / dp : ab / dim;
+    if (dailyBasic <= 0) return 0;
+    return (dailyBasic / 8) * oth * 2;
+  };
+
   const getBuiltInOtAmountFromRow = (row) => {
     if (!row) return 0;
     let dim = Number(row.daysInMonth ?? row.DaysInMonth ?? row.daysInMonthForCalc ?? 0) || 0;
@@ -129,8 +147,18 @@ export function createPayrollSetupFormulaeEngine(opts) {
     dim = dim || 31;
     const oth = Number(row.otHours ?? row.OTHours ?? 0) || 0;
     const eb = Number(row.earnedBasic ?? row.EarnedBasic ?? 0) || 0;
+    const ab = Number(row.actualBasic ?? row.ActualBasic ?? 0) || 0;
+    const dp = Number(row.daysPresent ?? row.DaysPresent ?? 0) || 0;
     if (dim <= 0 || oth <= 0) return 0;
-    return Math.round(((eb / dim) / 8) * oth * 2);
+    return Math.round(
+      computeDefaultOtAmountFromEarnedAndActual({
+        earnedBasic: eb,
+        actualBasic: ab,
+        daysInMonth: dim,
+        daysPresent: dp,
+        otHours: oth,
+      })
+    );
   };
 
   const isYashaswiContractor = (emp) =>
@@ -203,13 +231,21 @@ export function createPayrollSetupFormulaeEngine(opts) {
     const storedRaw = employee.otAmount ?? employee.OTAmount;
     const stored = parseFloat(storedRaw);
     if (oth <= 0) return Number.isFinite(stored) ? Math.round(stored) : 0;
-    if (Number.isFinite(stored) && stored > 0) return Math.round(stored);
+    const builtIn = getBuiltInOtAmountFromRow(employee);
+    const isStaleInflated = (n) =>
+      builtIn > 0 && Number.isFinite(n) && n > 0 && n > builtIn * 1.35;
     const otFormula = findPayrollFormula((norm) => norm === 'ot amount' || norm === 'otamount');
     if (otFormula?.expression) {
       const ev = evaluateFormulaExpression(employee, otFormula.expression);
-      if (Number.isFinite(ev)) return Math.max(0, Math.round(ev));
+      if (Number.isFinite(ev)) {
+        const rounded = Math.max(0, Math.round(ev));
+        if (isStaleInflated(rounded)) return builtIn;
+        return rounded;
+      }
     }
-    return getBuiltInOtAmountFromRow(employee);
+    if (isStaleInflated(stored)) return builtIn;
+    if (Number.isFinite(stored) && stored > 0) return Math.round(stored);
+    return Math.max(0, builtIn);
   };
 
   const getWashingAllowanceDisplayFromEmployee = (employee) => {
@@ -237,7 +273,13 @@ export function createPayrollSetupFormulaeEngine(opts) {
     if (!updated) return;
     const oth = Number(updated.otHours ?? updated.OTHours ?? 0) || 0;
     if (oth <= 0) return;
+    const builtIn = getBuiltInOtAmountFromRow(updated);
     const stored = parseFloat(updated.otAmount ?? updated.OTAmount);
+    if (builtIn > 0 && Number.isFinite(stored) && stored > builtIn * 1.35) {
+      updated.otAmount = builtIn;
+      updated.OTAmount = builtIn;
+      return;
+    }
     if (Number.isFinite(stored) && stored > 0) return;
     const otFormula = findPayrollFormula((norm) => norm === 'ot amount' || norm === 'otamount');
     let next;
@@ -245,7 +287,8 @@ export function createPayrollSetupFormulaeEngine(opts) {
       const ev = evaluateFormulaExpression(updated, otFormula.expression);
       if (Number.isFinite(ev)) next = Math.max(0, Math.round(ev));
     }
-    if (next === undefined) next = getBuiltInOtAmountFromRow(updated);
+    if (next === undefined) next = builtIn;
+    if (builtIn > 0 && next !== undefined && Number.isFinite(next) && next > builtIn * 1.35) next = builtIn;
     updated.otAmount = next;
     updated.OTAmount = next;
   };
@@ -258,6 +301,35 @@ export function createPayrollSetupFormulaeEngine(opts) {
     if (calc <= 0) return;
     updated.washingAllowance = calc;
     updated.WashingAllowance = calc;
+  };
+
+  /** Same rule as Payroll.js getAttendanceBonusNumericForRow / backend calcAttendanceBonus. */
+  const getAttendanceBonusNumericForRow = (employee) => {
+    if (!employee) return 0;
+    const daysInMonth = Number(employee.daysInMonth ?? employee.DaysInMonth ?? 0);
+    const daysPresent = Number(employee.daysPresent ?? employee.DaysPresent ?? 0);
+    const dojRaw =
+      employee.dateOfJoining ??
+      employee.DateofJoining ??
+      employee.DateOfJoining ??
+      employee.date_of_joining ??
+      '';
+    if (dojRaw && daysInMonth > 0 && reportMonth) {
+      if (Number(daysPresent) === Number(daysInMonth)) return 0;
+      const doj = new Date(dojRaw);
+      if (!isNaN(doj.getTime())) {
+        const parts = String(reportMonth).split('-').map(Number);
+        if (parts.length >= 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+          const lastDayOfMonth = new Date(parts[0], parts[1], 0);
+          const oneYearBefore = new Date(lastDayOfMonth);
+          oneYearBefore.setFullYear(oneYearBefore.getFullYear() - 1);
+          return doj <= oneYearBefore ? 1200 : 800;
+        }
+      }
+    }
+    const v = employee.attendanceBonus ?? employee.AttendanceBonus ?? '';
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.round(n) : 0;
   };
 
   const getPfDisplayValue = (record) => {
@@ -412,34 +484,60 @@ export function createPayrollSetupFormulaeEngine(opts) {
     if (lower === 'lwf') return Math.round(parseFloat(employee.lwf ?? employee.LWF) || 0);
     if (lower === 'pt') return getDisplayPT(employee);
     if (lower.includes('rent')) return Math.round(parseFloat(employee.rent ?? employee.Rent) || 0);
-    if (lower === 'other allowance' || lower === 'other allowances') {
-      const val = employee.otherAllowances ?? employee.otherAllowance ?? '';
-      return val !== '' && val !== null && val !== undefined ? val : '';
+    if (lower === 'other allowance' || lower === 'other allowances' || lower === 'otherallowance') {
+      const val =
+        employee.otherAllowances ??
+        employee.otherAllowance ??
+        employee.OtherAllowance ??
+        employee.OtherAllowances ??
+        '';
+      const n = Number(val);
+      return Number.isFinite(n) ? Math.round(n) : val !== '' && val !== null && val !== undefined ? val : 0;
     }
     if (lower.includes('travel') && lower.includes('charge')) {
       const n = getTravelChargersFromRecord(employee);
       return Number.isFinite(n) ? Math.round(n) : 0;
     }
     if (lower.includes('attendance') && lower.includes('bonus')) {
-      const v = employee.attendanceBonus ?? employee.AttendanceBonus ?? '';
+      return getAttendanceBonusNumericForRow(employee);
+    }
+    if (lower.includes('attendance') && lower.includes('deduction')) {
+      return getAttendanceBonusNumericForRow(employee);
+    }
+    if (lower === 'earned basic') {
+      const v = employee.earnedBasic ?? employee.EarnedBasic ?? '';
       const n = Number(v);
-      if (Number.isFinite(n) && n > 0) return Math.round(n);
-      const daysInMonth = Number(employee.daysInMonth ?? employee.DaysInMonth ?? 0);
-      const daysPresent = Number(employee.daysPresent ?? employee.DaysPresent ?? 0);
-      const dojRaw = employee.dateOfJoining ?? employee.DateofJoining ?? employee.DateOfJoining ?? employee.date_of_joining ?? '';
-      if (dojRaw && daysInMonth > 0 && daysPresent === daysInMonth && reportMonth) {
-        const doj = new Date(dojRaw);
-        if (!isNaN(doj.getTime())) {
-          const parts = String(reportMonth).split('-').map(Number);
-          if (parts.length >= 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
-            const lastDayOfMonth = new Date(parts[0], parts[1], 0);
-            const oneYearBefore = new Date(lastDayOfMonth);
-            oneYearBefore.setFullYear(oneYearBefore.getFullYear() - 1);
-            return doj <= oneYearBefore ? 1200 : 800;
-          }
-        }
-      }
-      return 0;
+      return Number.isFinite(n) ? Math.round(n) : v !== '' && v !== null && v !== undefined ? v : 0;
+    }
+    if (lower === 'earned hra') {
+      const v = employee.earnedHRA ?? employee.EarnedHRA ?? '';
+      const n = Number(v);
+      return Number.isFinite(n) ? Math.round(n) : v !== '' && v !== null && v !== undefined ? v : 0;
+    }
+    if (lower === 'earned da') {
+      const v = employee.earnedDA ?? employee.EarnedDA ?? '';
+      const n = Number(v);
+      return Number.isFinite(n) ? Math.round(n) : v !== '' && v !== null && v !== undefined ? v : 0;
+    }
+    if (lower === 'earned special allowance') {
+      const v = employee.earnedSpecialAllowance ?? employee.EarnedSpecialAllowance ?? '';
+      const n = Number(v);
+      return Number.isFinite(n) ? Math.round(n) : v !== '' && v !== null && v !== undefined ? v : 0;
+    }
+    if (lower === 'incentive') {
+      const v = employee.incentive ?? employee.Incentive ?? '';
+      const n = parseFloat(v);
+      return Number.isFinite(n) ? Math.round(n) : 0;
+    }
+    if (lower.includes('actual') && lower.includes('basic')) {
+      const v = employee.actualBasic ?? employee.ActualBasic ?? '';
+      const n = Number(v);
+      return Number.isFinite(n) ? Math.round(n) : v !== '' && v !== null && v !== undefined ? v : 0;
+    }
+    if (lower.includes('actual') && lower.includes('hra')) {
+      const v = employee.actualHRA ?? employee.ActualHRA ?? '';
+      const n = Number(v);
+      return Number.isFinite(n) ? Math.round(n) : v !== '' && v !== null && v !== undefined ? v : 0;
     }
     if (lower.includes('earned') && lower.includes('gross') && (lower.includes('salary') || lower.includes('cross'))) {
       const v =
@@ -609,6 +707,7 @@ export function createPayrollSetupFormulaeEngine(opts) {
         'No. of Days Present',
         'No. of Days(In month)',
         'No. of Days (In Month)',
+        'No of days without uniforms',
       ];
       const fromComponentsAndVars = allVarAndComponentNames.filter(
         (name) => String(name).includes(' ') && !String(name).includes('%')
@@ -661,6 +760,19 @@ export function createPayrollSetupFormulaeEngine(opts) {
         }
         const raw = getComponentDisplayValue(employee, name);
         const num = parseFloat(raw);
+        if (Number.isFinite(num) && num !== 0) return num;
+        // Uniform Deduction: Payroll grid uses stored UniformDeduction (often 0), not re-evaluated formula.
+        if (vNorm.includes('uniform') && vNorm.includes('deduction')) {
+          return Number.isFinite(num) ? num : 0;
+        }
+        const form = getFormulae().find(
+          (f) => normalizeFormulaVariable(f.variable) === vNorm && String(f.expression || '').trim()
+        );
+        if (form?.expression) {
+          const skip = [form.variable, name].filter(Boolean);
+          const ev = evaluateFormulaExpression(employee, form.expression, { skipVariables: skip });
+          if (Number.isFinite(ev)) return ev;
+        }
         return Number.isFinite(num) ? num : 0;
       };
 
@@ -759,6 +871,12 @@ export function createPayrollSetupFormulaeEngine(opts) {
           return;
         }
         if (baseLower === 'late') return;
+        if (
+          baseLower.includes('uniform') &&
+          (baseLower.includes('allowance') || baseLower.includes('allownace'))
+        ) {
+          return;
+        }
 
         const value = evaluateFormulaExpression(updated, expression);
         if (baseLower === 'total deduction' && (value === 0 || !Number.isFinite(value))) {
@@ -781,12 +899,10 @@ export function createPayrollSetupFormulaeEngine(opts) {
           (value === 0 || !Number.isFinite(value))
         ) {
           const eb = parseFloat(updated.earnedBasic ?? updated.EarnedBasic) || 0;
-          const ehra = parseFloat(updated.earnedHRA ?? updated.EarnedHRA) || 0;
-          const esa = parseFloat(updated.earnedSpecialAllowance ?? updated.EarnedSpecialAllowance) || 0;
           const otAmt = parseFloat(updated.otAmount ?? updated.OTAmount) || 0;
-          const travel = getTravelChargersFromRecord(updated);
-          const esiBaseSum = eb + ehra + esa + otAmt + travel;
-          if (esiBaseSum > 0) updated[key] = Math.ceil(esiBaseSum * 0.0075);
+          const incAmt = parseFloat(updated.incentive ?? updated.Incentive) || 0;
+          const esiBaseSum = eb + otAmt + incAmt;
+          if (esiBaseSum > 0) updated[key] = Math.round(esiBaseSum * 0.0075);
           else updated[key] = 0;
         } else {
           updated[key] = Number.isFinite(value) ? Math.round(value) : value;
@@ -898,8 +1014,54 @@ export function createPayrollSetupFormulaeEngine(opts) {
     return updated;
   };
 
+  /** Apply Setup formulae then return display amounts (same Net Pay rule as Payroll.js grid: EGS − Total Deduction). */
+  const applySetupAndGetPayrollDisplay = (employee) => {
+    if (!employee) return null;
+    let updated = applyPayrollFormulaeToEmployee({ ...employee });
+    updated = applyPayrollFormulaeToEmployee(updated);
+    const pickNum = (label) => {
+      const v = getComponentDisplayValue(updated, label);
+      const n = typeof v === 'number' ? v : parseFloat(v);
+      return Number.isFinite(n) ? n : null;
+    };
+    const earnedGross =
+      parseFloat(
+        updated.earnedSalaryCross ??
+          updated.EarnedSalaryCross ??
+          updated.earnedGrossSalary ??
+          updated.EarnedGrossSalary ??
+          NaN
+      ) || null;
+    const totalDeduction = getDisplayTotalDeduction(updated);
+    let netPay = null;
+    if (earnedGross != null && Number.isFinite(earnedGross) && Number.isFinite(totalDeduction)) {
+      netPay = Math.round(earnedGross - totalDeduction);
+    } else {
+      const stored = parseFloat(updated.netPay ?? updated.NetPay ?? updated.net_pay);
+      if (Number.isFinite(stored)) netPay = Math.round(stored);
+    }
+    return {
+      actualBasic: pickNum('Actual Basic'),
+      earnedBasic: pickNum('Earned Basic'),
+      earnedHRA: pickNum('Earned HRA'),
+      earnedDA: pickNum('Earned DA'),
+      earnedGross: earnedGross != null && Number.isFinite(earnedGross) ? earnedGross : null,
+      totalDeduction,
+      netPay,
+      pf: pickNum('PF 12%'),
+      esi: pickNum('ESI 0.75%'),
+      loanAllowance: pickNum('Loan Allowance'),
+      uniformDeduction: pickNum('Uniform Deduction') ?? 0,
+      attendanceDeduction: getAttendanceBonusNumericForRow(updated),
+      late: pickNum('Late'),
+      otAmount: pickNum('OT Amount'),
+      incentive: pickNum('Incentive'),
+    };
+  };
+
   return {
     applyPayrollFormulaeToEmployee,
+    applySetupAndGetPayrollDisplay,
     getComponentDisplayValue,
     getDisplayTotalDeduction,
     evaluateFormulaExpression,

@@ -3,6 +3,18 @@
 const catalyst = require('zcatalyst-sdk-node');
 const url = require('url');
 
+function normalizeEmployeeCodeBank(code) {
+  const raw = String(code ?? '').trim();
+  if (!raw) return '';
+  const withoutDecimalZero = raw.endsWith('.0') ? raw.slice(0, -2) : raw;
+  return withoutDecimalZero.replace(/^0+(?=\d)/, '') || raw;
+}
+
+function runPayrollRowIdBank(r) {
+  const n = Number(r?.ROWID);
+  return Number.isFinite(n) && n > 0 ? n : -1;
+}
+
 // Helper function to calculate total hours from FirstIn and LastOut timestamps
 function calculateHoursFromTimestamps(firstIn, lastOut) {
     if (!firstIn || !lastOut) return 0;
@@ -4374,11 +4386,12 @@ module.exports = async (req, res) => {
               const r = rec.RunPayroll ?? rec.runPayroll ?? rec;
               const empCodeRun = String(r.EmployeeCode ?? r.employeeCode ?? '').trim();
               if (!empCodeRun) continue;
-              const existingRun = bestRunByEmp.get(empCodeRun);
-              const candRid = toNumBank(r.ROWID);
-              const existRid = existingRun ? toNumBank(existingRun.ROWID) : -1;
-              if (!existingRun || candRid >= existRid) {
-                bestRunByEmp.set(empCodeRun, r);
+              const empKey = normalizeEmployeeCodeBank(empCodeRun) || empCodeRun;
+              const existingRun = bestRunByEmp.get(empKey);
+              const candRid = runPayrollRowIdBank(r);
+              const existRid = existingRun ? runPayrollRowIdBank(existingRun) : -1;
+              if (!existingRun || candRid > existRid) {
+                bestRunByEmp.set(empKey, r);
               }
             }
             for (const [code, r] of bestRunByEmp) {
@@ -4519,12 +4532,15 @@ module.exports = async (req, res) => {
 
           if (rpRow) {
             const egRp = pickRunPayrollEarnedGrossForBank(rpRow);
-            if (egRp != null && Number.isFinite(egRp)) {
+            if (egRp != null && Number.isFinite(egRp) && egRp > 0) {
               earnedGrossFormatted = egRp.toFixed(2);
               runPayrollOverrideEarnedGross = true;
             }
             const npRp = pickRunPayrollNetPayForBank(rpRow);
-            if (npRp != null && Number.isFinite(npRp)) {
+            const rpNetStored =
+              (rpRow.NetPay != null || rpRow.netPay != null) &&
+              String(rpRow.NetPay ?? rpRow.netPay ?? '').trim() !== '';
+            if (rpNetStored && npRp != null && Number.isFinite(npRp) && npRp > 0) {
               netPayFormatted = npRp.toFixed(2);
               salaryAmountOut = netPayFormatted;
               runPayrollOverrideNetPay = true;
@@ -4968,12 +4984,12 @@ module.exports = async (req, res) => {
           const r = rec.RunPayroll ?? rec.runPayroll ?? rec;
           const empCodeRun = String(r.EmployeeCode ?? r.employeeCode ?? '').trim();
           if (!empCodeRun) continue;
-          const empNorm = empCodeRun.endsWith('.0') ? empCodeRun.slice(0, -2).trim() : empCodeRun;
-          const existingRun = bestRunByEmpNeft.get(empNorm);
-          const candRid = toNum(r.ROWID);
-          const existRid = existingRun ? toNum(existingRun.ROWID) : -1;
-          if (!existingRun || candRid >= existRid) {
-            bestRunByEmpNeft.set(empNorm, r);
+          const empKey = normalizeEmployeeCodeBank(empCodeRun) || empCodeRun;
+          const existingRun = bestRunByEmpNeft.get(empKey);
+          const candRid = runPayrollRowIdBank(r);
+          const existRid = existingRun ? runPayrollRowIdBank(existingRun) : -1;
+          if (!existingRun || candRid > existRid) {
+            bestRunByEmpNeft.set(empKey, r);
           }
         }
         for (const [codeRp, rowRp] of bestRunByEmpNeft) {

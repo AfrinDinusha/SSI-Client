@@ -17,6 +17,22 @@ module.exports = async (req, res) => {
       return /(^|\+)CompOff($|\+)/.test(s);
     }
 
+    /** Regularization: 4–8+ hrs → Present; under 4 hrs → Half Day Present. */
+    function regularizationStatusFromHours(firstIn, lastOut) {
+      if (!firstIn || !lastOut) return 'Absent';
+      try {
+        const inDate = new Date(String(firstIn).substring(0, 19).replace(' ', 'T'));
+        const outDate = new Date(String(lastOut).substring(0, 19).replace(' ', 'T'));
+        if (isNaN(inDate.getTime()) || isNaN(outDate.getTime())) return 'Absent';
+        const hours = (outDate - inDate) / (1000 * 60 * 60);
+        if (hours >= 4) return 'Present';
+        if (hours > 0) return 'Half Day Present';
+        return 'Absent';
+      } catch (_) {
+        return 'Absent';
+      }
+    }
+
     const url = new URL(req.url, `http://${req.headers.host}`);
     const startDateRaw = url.searchParams.get('startDate');
     const endDateRaw = url.searchParams.get('endDate');
@@ -2015,15 +2031,14 @@ module.exports = async (req, res) => {
             } catch (_) { /* keep lastOutDateTime */ }
           }
          
-          // Regularization records should show as "Present" (P) when they exist
-          // They take precedence over BHR/Attendance/BioMax but not over OnDuty/CompOff
+          const regularizationStatus = regularizationStatusFromHours(firstInDateTime, lastOutDateTime);
+
+          // Regularization takes precedence over BHR/Attendance/BioMax but not over OnDuty/CompOff
           if (byKey[key]) {
             // Only update if source is not OnDuty or CompOff (they take highest precedence)
             const currentSource = byKey[key].Source || '';
             if (!currentSource.includes('OnDuty') && !sourceHasCompOffTakenSegment(currentSource)) {
-              // Update existing record with Regularization status
-              // Regularization always shows as Present
-              byKey[key].ProvidedStatus = 'Present';
+              byKey[key].ProvidedStatus = regularizationStatus;
               byKey[key].Source = currentSource === 'BHR' || currentSource === 'Attendance' || currentSource === 'Both' || currentSource.includes('BioMax')
                 ? (currentSource + '+Regularization')
                 : (currentSource || 'Regularization');
@@ -2049,7 +2064,7 @@ module.exports = async (req, res) => {
               FirstIN: firstInDateTime || null,
               LastOUT: lastOutDateTime || null,
               Source: 'Regularization',
-              ProvidedStatus: 'Present' // Regularization always shows as Present
+              ProvidedStatus: regularizationStatus
             };
           }
         });
@@ -2201,10 +2216,11 @@ module.exports = async (req, res) => {
         return providedStatus;
       }
      
-      // Regularization status takes precedence over Attendance/BHR/BioMax calculated status
-      // Regularization always shows as Present
+      // Regularization: 4+ hrs Present, under 4 hrs Half Day Present
       if (source === 'Regularization' || source?.includes('Regularization')) {
-        return 'Present'; // Regularization always shows as Present
+        if (firstIn && lastOut) return regularizationStatusFromHours(firstIn, lastOut);
+        if (providedStatus) return providedStatus;
+        return 'Absent';
       }
      
       // BioMax status takes precedence over Attendance/BHR calculated status
