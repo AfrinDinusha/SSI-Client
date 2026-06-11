@@ -59,6 +59,8 @@ export const sidebarModules = [
     children: [
       { icon: <BarChart3 size={20} />, label: 'Payroll', path: '/payroll' },
       { icon: <BarChart3 size={20} />, label: 'Payroll Report', path: '/payroll-report' },
+      { icon: <FileText size={20} />, label: 'PF Report', path: '/pf-report' },
+      { icon: <FileText size={20} />, label: 'ESI Report', path: '/esi-report' },
       { icon: <FileText size={20} />, label: 'Payroll Template', path: '/payslip-template' },
     ],
   },
@@ -120,6 +122,8 @@ export const LIMITED_SIDEBAR_ALLOWED_PATHS = [
   '/employees',
   '/payroll',
   '/payroll-report',
+  '/pf-report',
+  '/esi-report',
   '/payslip-template',
 ];
 

@@ -1,0 +1,15 @@
+/* PF report uses Bank Format Report visual model */
+.pf-report-table th,
+.pf-report-table td {
+  white-space: nowrap;
+}
+
+.pf-report-table td:nth-child(3) {
+  white-space: normal;
+}
+
+.pf-report-total-row td {
+  font-weight: 700;
+  background: rgba(59, 130, 246, 0.08);
+  border-top: 2px solid #1e40af;
+}

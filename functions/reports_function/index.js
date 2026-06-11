@@ -6877,16 +6877,9 @@ module.exports = async (req, res) => {
 
         let lossOfMinutes = 0;
 
-        // Late arrival (after grace) — 30-minute buckets on check-in
+        // Late arrival (after grace) — round check-in up to next :00 or :30 (e.g. 09:45→10:00, 10:15→10:30)
         if (arrivalForLate > gracePeriodEnd) {
-          const bucket1End = Math.ceil(gracePeriodEnd / 30) * 30;
-          const bucket2End = bucket1End + 30;
-          let adjustedFirstInMinutes = arrivalForLate;
-          if (arrivalForLate <= bucket1End) {
-            adjustedFirstInMinutes = bucket1End;
-          } else if (arrivalForLate <= bucket2End) {
-            adjustedFirstInMinutes = bucket2End;
-          }
+          const adjustedFirstInMinutes = Math.ceil(arrivalForLate / 30) * 30;
           if (
             applyEightHourWorkedWaiver &&
             lastOutMinutes !== null &&
@@ -6898,9 +6891,10 @@ module.exports = async (req, res) => {
           }
         }
 
-        // Early departure (shift-out before shift end), e.g. General 08:30–13:00 → LOH from 13:00 to shift end
+        // Early departure — round check-out down to previous :00 or :30 (e.g. 15:45→15:30)
         if (hasShiftEnd && lastOutMinutes !== null && lastOutMinutes < shiftEnd) {
-          lossOfMinutes += (shiftEnd - lastOutMinutes);
+          const adjustedLastOutMinutes = Math.floor(lastOutMinutes / 30) * 30;
+          lossOfMinutes += (shiftEnd - adjustedLastOutMinutes);
         }
 
         const lohHours = lossOfMinutes > 0 ? lossOfMinutes / 60 : 0;
@@ -6965,15 +6959,8 @@ module.exports = async (req, res) => {
           return { shouldCalculate: false, lohHours: 0 };
         }
        
-        // Round to next 30-min clock boundaries (:00 or :30), same as main LOH
-        const bucket1End = Math.ceil(gracePeriodEnd / 30) * 30;
-        const bucket2End = bucket1End + 30;
-        let adjustedFirstInMinutes = firstInMinutes;
-        if (firstInMinutes <= bucket1End) {
-          adjustedFirstInMinutes = bucket1End;
-        } else if (firstInMinutes <= bucket2End) {
-          adjustedFirstInMinutes = bucket2End;
-        }
+        // Round check-in up to next :00 or :30, same as main LOH
+        const adjustedFirstInMinutes = Math.ceil(firstInMinutes / 30) * 30;
         const lateMinutes = adjustedFirstInMinutes - shiftStart;
         const lohHours = lateMinutes > 0 ? lateMinutes / 60 : 0;
        

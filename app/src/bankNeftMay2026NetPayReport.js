@@ -1,6 +1,6 @@
 /**
- * May 2026 Bank NEFT Salary Amount = NetPay from Payroll_Report_2026-05 export.
- * Source: app/src/Payroll_Report_2026-05_2026-06-04 (2).xlsx
+ * May 2026 Bank report Salary Amount = NetPay from Payroll_Report_2026-05 export.
+ * Source: app/src/Payroll_Report_2026-05_2026-06-11.xlsx
  */
 export const BANK_NEFT_MAY_2026_NET_PAY_FROM_REPORT = Object.freeze({
   '2': 14044,
@@ -14,7 +14,7 @@ export const BANK_NEFT_MAY_2026_NET_PAY_FROM_REPORT = Object.freeze({
   '21': 14744,
   '22': 22232,
   '27': 21018,
-  '29': 24175,
+  '29': 21375,
   '31': 7349,
   '32': 12770,
   '33': 16383,
@@ -33,12 +33,13 @@ export const BANK_NEFT_MAY_2026_NET_PAY_FROM_REPORT = Object.freeze({
   '133': 20585,
   '134': 31279,
   '158': 17543,
+  '1029': -800,
   '100001': 23667,
   '100004': 24969,
   '100012': 16054,
   '100013': 65100,
   '100022': 17431,
-  '100043': 15690,
+  '100043': 15613,
   '100075': 14997,
   '100090': 27427,
   '100091': 24737,
@@ -59,4 +60,4 @@ export const BANK_NEFT_MAY_2026_NET_PAY_FROM_REPORT = Object.freeze({
 });
 
 export const BANK_NEFT_MAY_2026_NET_PAY_REPORT_SOURCE =
-  'Payroll_Report_2026-05_2026-06-04 (2).xlsx';
+  'Payroll_Report_2026-05_2026-06-11.xlsx';

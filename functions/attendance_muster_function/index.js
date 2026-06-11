@@ -2975,15 +2975,16 @@ module.exports = async (req, res) => {
       // Calculate LOH based on time outside effective work period
       let lossOfMinutes = 0;
      
-      // Late arrival: if check-in is after grace period, calculate LOH from shift start time to check-in time
+      // Late arrival (after grace): round check-in up to next :00 or :30, LOH = adjusted time − shift start
       if (clampedFirstInMinutes > gracePeriodEnd) {
-        lossOfMinutes += (clampedFirstInMinutes - shiftStart);
+        const adjustedFirstInMinutes = Math.ceil(clampedFirstInMinutes / 30) * 30;
+        lossOfMinutes += (adjustedFirstInMinutes - shiftStart);
       }
      
-      // Early departure: if check-out is before shift end, add time from check-out to shift end
-      // NOTE: Only count early departure if employee leaves BEFORE shift end time
+      // Early departure: round check-out down to previous :00 or :30, LOH = shift end − adjusted time
       if (lastOutMinutes < shiftEnd) {
-        lossOfMinutes += (shiftEnd - lastOutMinutes);
+        const adjustedLastOutMinutes = Math.floor(lastOutMinutes / 30) * 30;
+        lossOfMinutes += (shiftEnd - adjustedLastOutMinutes);
       }
      
       // Convert to hours
@@ -3059,14 +3060,13 @@ module.exports = async (req, res) => {
       return excludedDates.includes(normalizedDate);
     };
 
-    // LOH-adjusted first-in for display: round to next 30-min clock boundaries (:00 or :30), not shiftStart+30/60
-    // e.g. grace ends 8:35 → 8:35-9:00 -> 9:00; 9:01-9:30 -> 9:30; after 9:31 use actual
+    // LOH-adjusted first-in for display: after grace, round up to next :00 or :30 (e.g. 09:45→10:00, 10:15→10:30)
     const LOH_GRACE_MINUTES = 10;
     const shiftStartByType = { GENERAL: 8 * 60 + 25, FIRST: 6 * 60 + 0, SECOND: 14 * 60 + 0, GENERAL_II: 12 * 60 + 0 };
+    const shiftEndByType = { GENERAL: 16 * 60 + 55, FIRST: 14 * 60 + 0, SECOND: 22 * 60 + 0, GENERAL_II: 20 * 60 + 0 };
     const lohFirstIn = employees.map((empId, empIdx) =>
       dates.map((date, dateIdx) => {
         const firstInTime = firstIn[empIdx] && firstIn[empIdx][dateIdx] ? firstIn[empIdx][dateIdx] : '';
-        const lastOutTime = lastOut[empIdx] && lastOut[empIdx][dateIdx] ? lastOut[empIdx][dateIdx] : '';
         if (!firstInTime) return '';
         const shiftType = getShiftTypeForDate(empId, date);
         if (shiftType === 'HOUSEKEEPING') return '';
@@ -3076,14 +3076,22 @@ module.exports = async (req, res) => {
         if (firstInMinutes === null) return firstInTime;
         if (firstInMinutes < shiftStart) return firstInTime;
         if (firstInMinutes <= gracePeriodEnd) return firstInTime;
-        const bucket1End = Math.ceil(gracePeriodEnd / 30) * 30;
-        const bucket2End = bucket1End + 30;
-        if (firstInMinutes <= bucket1End) return minutesToTimeStr(bucket1End);
-        if (firstInMinutes <= bucket2End) return minutesToTimeStr(bucket2End);
-        return firstInTime;
+        return minutesToTimeStr(Math.ceil(firstInMinutes / 30) * 30);
       })
     );
-    const lohLastOut = lastOut; // LOH uses original last-out (no rounding)
+    const lohLastOut = employees.map((empId, empIdx) =>
+      dates.map((date, dateIdx) => {
+        const lastOutTime = lastOut[empIdx] && lastOut[empIdx][dateIdx] ? lastOut[empIdx][dateIdx] : '';
+        if (!lastOutTime) return '';
+        const shiftType = getShiftTypeForDate(empId, date);
+        if (shiftType === 'HOUSEKEEPING') return lastOutTime;
+        const shiftEnd = shiftEndByType[shiftType] ?? shiftEndByType.GENERAL;
+        const lastOutMinutes = parseTime(lastOutTime);
+        if (lastOutMinutes === null) return lastOutTime;
+        if (lastOutMinutes >= shiftEnd) return lastOutTime;
+        return minutesToTimeStr(Math.floor(lastOutMinutes / 30) * 30);
+      })
+    );
 
     // LOH data must be fetched from reports_function only (same as LOH Report page)
     const lohReportMap = {}; // Map: employeeId_date -> LOH hours

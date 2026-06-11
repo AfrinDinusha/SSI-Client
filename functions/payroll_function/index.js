@@ -1212,14 +1212,16 @@ async function calculateLOHFromMuster(catalystApp, month, contractor, department
       // Calculate LOH based on time outside effective work period
       let lossOfMinutes = 0;
      
-      // Late arrival: if check-in is after grace period, calculate LOH from shift start time to check-in time
+      // Late arrival (after grace): round check-in up to next :00 or :30, LOH = adjusted time − shift start
       if (clampedFirstInMinutes > gracePeriodEnd) {
-        lossOfMinutes += (clampedFirstInMinutes - shiftStart);
+        const adjustedFirstInMinutes = Math.ceil(clampedFirstInMinutes / 30) * 30;
+        lossOfMinutes += (adjustedFirstInMinutes - shiftStart);
       }
      
-      // Early departure: if check-out is before shift end, add time from check-out to shift end
+      // Early departure: round check-out down to previous :00 or :30, LOH = shift end − adjusted time
       if (lastOutMinutes < shiftEnd) {
-        lossOfMinutes += (shiftEnd - lastOutMinutes);
+        const adjustedLastOutMinutes = Math.floor(lastOutMinutes / 30) * 30;
+        lossOfMinutes += (shiftEnd - adjustedLastOutMinutes);
       }
      
       // Convert to hours
@@ -8463,7 +8465,8 @@ async function computePayrollData(catalystApp, month, contractor, department, em
         'Food Allownace': foodAllowance,
         'Days Present': daysPresent,
         'Days In Month': daysInMonthForCalc,
-        'LOH': loh
+        'LOH': loh,
+        'Incentive': incentive
       };
       const esiFormula = Array.isArray(payrollFormulae) && payrollFormulae.find((f) => {
         const v = String(f.variable).trim().toLowerCase();
@@ -8475,15 +8478,15 @@ async function computePayrollData(catalystApp, month, contractor, department, em
         if (esi > 0) employerEsi = esiBase * 0.0325;
         console.log(`Employee ${empId}: ESI from Setup formula = ${esi}`);
       } else {
-        // Default: ESI = (Earned Basic + Earned HRA + Earned Special Allowance + OT Amount + Travel Charges) * 0.75%. When sum is 0 or less, ESI = 0.
-        const esiBaseComponents = earnedBasic + earnedHRA + earnedSpecialAllowance + otAmount + travelChargers;
+        // Default: ESI = (Earned Basic + OT Amount + Incentive) * 0.75%. When sum is 0 or less, ESI = 0.
+        const esiBaseComponents = earnedBasic + otAmount + incentive;
         if (esiBaseComponents <= 0) {
           esi = 0;
         } else {
-          esi = Math.ceil(esiBaseComponents * 0.0075);
+          esi = Math.round(esiBaseComponents * 0.0075);
           if (esi > 0) employerEsi = esiBase * 0.0325;
         }
-        console.log(`Employee ${empId}: ESI from default formula (Earned Basic + Earned HRA + Earned Special Allowance + OT Amount + Travel Charges) * 0.75% = ${esi}`);
+        console.log(`Employee ${empId}: ESI from default formula (Earned Basic + OT Amount + Incentive) * 0.75% = ${esi}`);
       }
     } else {
       console.log(`Employee ${empId}: ESI Status is No - ESI not calculated`);
@@ -10886,7 +10889,7 @@ module.exports = async (req, res) => {
             } else {
               isEsiApplicable = await checkESIPeriodEligibility(catalystApp, month, empCodeStr, actualTotalSalary);
             }
-            // ESI: from Setup formula when defined, else default (Earned Basic + Earned HRA + Earned Special Allowance + OT Amount + Travel Charges) * 0.75%. When sum is 0 or less, ESI = 0.
+            // ESI: from Setup formula when defined, else default (Earned Basic + OT Amount + Incentive) * 0.75%. When sum is 0 or less, ESI = 0.
             const esiBaseImported = earnedSalaryCross;
             const actualBasicImp = getPayrollNum(payroll, 'ActualBasic', 'actualBasic');
             const actualHRAImp = getPayrollNum(payroll, 'ActualHRA', 'actualHRA');
@@ -10919,17 +10922,18 @@ module.exports = async (req, res) => {
                   'Food Allownace': foodAllowanceImp,
                   'Days Present': actualDaysPresent,
                   'Days In Month': importDaysInMonth,
-                  'LOH': importLOH
+                  'LOH': importLOH,
+                  'Incentive': incentiveImported
                 };
                 const esiFromFormulaImport = evaluateFormulaExpression(esiFormulaImport.expression, esiContextImport);
                 esiImported = Number.isFinite(esiFromFormulaImport) ? Math.max(0, Math.ceil(esiFromFormulaImport)) : 0;
                 if (esiImported > 0) employerEsiImported = esiBaseImported * 0.0325;
               } else {
-                const esiBaseComponentsImp = earnedBasicImported + earnedHRAImported + earnedSpecialAllowanceImported + otAmountImported + travelChargersForEsi;
+                const esiBaseComponentsImp = earnedBasicImported + otAmountImported + incentiveImported;
                 if (esiBaseComponentsImp <= 0) {
                   esiImported = 0;
                 } else {
-                  esiImported = Math.ceil(esiBaseComponentsImp * 0.0075);
+                  esiImported = Math.round(esiBaseComponentsImp * 0.0075);
                   if (esiImported > 0) employerEsiImported = esiBaseImported * 0.0325;
                 }
               }
@@ -12117,7 +12121,7 @@ module.exports = async (req, res) => {
         } else {
           isEsiApplicable = await checkESIPeriodEligibility(catalystApp, month, String(emp.EmployeeCode || ''), actualTotalSalary);
         }
-        // ESI: from Setup formula when defined, else default (Earned Basic + Earned HRA + Earned Special Allowance + OT Amount + Travel Charges) * 0.75%. When sum is 0 or less, ESI = 0.
+        // ESI: from Setup formula when defined, else default (Earned Basic + OT Amount + Incentive) * 0.75%. When sum is 0 or less, ESI = 0.
         let esi = 0;
         let employerEsi = 0;
         if (isEsiApplicable) {
@@ -12145,17 +12149,18 @@ module.exports = async (req, res) => {
               'Food Allownace': foodAllowanceDetForEarned,
               'Days Present': daysPresent,
               'Days In Month': daysInMonthForCalc,
-              'LOH': loh
+              'LOH': loh,
+              'Incentive': incentive
             };
             const esiFromFormulaDet = evaluateFormulaExpression(esiFormulaDet.expression, esiContextDet);
             esi = Number.isFinite(esiFromFormulaDet) ? Math.max(0, Math.ceil(esiFromFormulaDet)) : 0;
             if (esi > 0) employerEsi = earnedSalaryCross * 0.0325;
           } else {
-            const esiBaseComponentsDet = earnedBasic + earnedHRA + earnedSpecialAllowanceDet + otAmount + travelChargers;
+            const esiBaseComponentsDet = earnedBasic + otAmount + incentive;
             if (esiBaseComponentsDet <= 0) {
               esi = 0;
             } else {
-              esi = Math.ceil(esiBaseComponentsDet * 0.0075);
+              esi = Math.round(esiBaseComponentsDet * 0.0075);
               if (esi > 0) employerEsi = earnedSalaryCross * 0.0325;
             }
           }
@@ -12192,7 +12197,7 @@ module.exports = async (req, res) => {
               earnedBasic: 'Actual Basic / no.of days in month * no.of present days',
               earnedHRA: 'Actual HRA / no.of days in month * no.of present days',
               pf: 'if(Earned Basic > 15000, 1800 else Earned Basic * 12%)',
-              esi: '(Earned Basic + Earned HRA + Earned Special Allowance + OT Amount + Travel Charges) * 0.75%',
+              esi: '(Earned Basic + OT Amount + Incentive) * 0.75%',
               employerEsi: 'Earned Gross Salary * 3.25%'
             },
             calculation: {
@@ -12785,11 +12790,12 @@ module.exports = async (req, res) => {
       const employeeSpecialAllowanceMap = {};
       const employeeAttendanceAllowanceMap = {};
       const employeeTotalSalaryMap = {};
+      const pfStatusMap = {};
       try {
         const employeeCodes = records.map(r => r.EmployeeCode).filter(Boolean);
         if (employeeCodes.length > 0) {
           const empCodesList = employeeCodes.map(code => `'${String(code).replace(/'/g, "''")}'`).join(',');
-          const dateQuery = `SELECT EmployeeCode, DateofJoining, Designation, Category, AttendanceAllowance, OtherAllowance, RevisedOtherAllowance, ActualBasic, ActualHRA, ActualDA, SpecialAllowance, ActualSpecialAllowance, TotalSalary FROM Employee WHERE EmployeeCode IN (${empCodesList})`;
+          const dateQuery = `SELECT EmployeeCode, DateofJoining, Designation, Category, AttendanceAllowance, OtherAllowance, RevisedOtherAllowance, ActualBasic, ActualHRA, ActualDA, SpecialAllowance, ActualSpecialAllowance, TotalSalary, PFStatus FROM Employee WHERE EmployeeCode IN (${empCodesList})`;
           const dateRecords = await catalystApp.zcql().executeZCQLQuery(dateQuery);
           for (const row of dateRecords) {
             const emp = row.Employee;
@@ -12848,9 +12854,13 @@ module.exports = async (req, res) => {
               if (/^\d+$/.test(empCode)) {
                 setEmpMaps(String(parseInt(empCode)), hra, da, basic, special, attAllowance);
               }
+              const pfStatusVal = String(emp.PFStatus ?? emp.pfStatus ?? '').trim().toLowerCase();
               [empCode, normalizeEmployeeCode(empCode), /^\d+$/.test(empCode) ? String(parseInt(empCode)) : null]
                 .filter(Boolean)
-                .forEach(code => { employeeTotalSalaryMap[code] = totalSalary; });
+                .forEach((code) => {
+                  employeeTotalSalaryMap[code] = totalSalary;
+                  pfStatusMap[code] = pfStatusVal;
+                });
             }
           }
         }
@@ -12860,7 +12870,7 @@ module.exports = async (req, res) => {
           const employeeCodes = records.map(r => r.EmployeeCode).filter(Boolean);
           if (employeeCodes.length > 0) {
             const empCodesList = employeeCodes.map(code => `'${String(code).replace(/'/g, "''")}'`).join(',');
-            const fallbackQuery = `SELECT EmployeeCode, DateofJoining, Designation, Category, AttendanceAllowance, OtherAllowance, RevisedOtherAllowance, ActualBasic, ActualHRA, ActualDA, SpecialAllowance, ActualSpecialAllowance, TotalSalary FROM Employee WHERE EmployeeCode IN (${empCodesList})`;
+            const fallbackQuery = `SELECT EmployeeCode, DateofJoining, Designation, Category, AttendanceAllowance, OtherAllowance, RevisedOtherAllowance, ActualBasic, ActualHRA, ActualDA, SpecialAllowance, ActualSpecialAllowance, TotalSalary, PFStatus FROM Employee WHERE EmployeeCode IN (${empCodesList})`;
             const fallbackRecords = await catalystApp.zcql().executeZCQLQuery(fallbackQuery);
             for (const row of fallbackRecords) {
               const emp = row.Employee;
@@ -12894,6 +12904,7 @@ module.exports = async (req, res) => {
                 const special = getEmployeeNum(emp, 'ActualSpecialAllowance', 'actualSpecialAllowance', 'SpecialAllowance', 'specialAllowance', 'Special Allowance');
                 const attAllowance = getEmployeeNum(emp, 'AttendanceAllowance', 'attendanceAllowance', 'Attendance Allowance');
                 const totalSalary = getEmployeeNum(emp, 'TotalSalary', 'totalSalary', 'Total Salary', 'Total Salary (Auto-calculated)');
+                const pfStatusFb = String(emp.PFStatus ?? emp.pfStatus ?? '').trim().toLowerCase();
                 [empCode, normalizeEmployeeCode(empCode), /^\d+$/.test(empCode) ? String(parseInt(empCode)) : null].filter(Boolean).forEach(code => {
                   employeeActualHRAMap[code] = hra;
                   employeeActualDAMap[code] = da;
@@ -12901,6 +12912,7 @@ module.exports = async (req, res) => {
                   employeeSpecialAllowanceMap[code] = special;
                   employeeAttendanceAllowanceMap[code] = attAllowance;
                   employeeTotalSalaryMap[code] = totalSalary;
+                  pfStatusMap[code] = pfStatusFb;
                 });
               }
             }
@@ -12912,6 +12924,12 @@ module.exports = async (req, res) => {
 
       // Helper to get Employee-code keys for lookup
       const empKeys = (ec) => [ec, normalizeEmployeeCode(ec), /^\d+$/.test(ec) ? String(parseInt(ec)) : null].filter(Boolean);
+      const lookupPfStatus = (ec) => {
+        for (const k of empKeys(ec)) {
+          if (pfStatusMap[k] !== undefined) return pfStatusMap[k];
+        }
+        return '';
+      };
       const fromEmployeeOrPayroll = (payrollVal, empMap, ec) => {
         const payNum = Number(payrollVal);
         if (payNum > 0) return payNum;
@@ -13000,8 +13018,13 @@ module.exports = async (req, res) => {
         arrearForPF: Number(p.ArrearForPF) || 0,
         lop: lopRow,
         earnedSalaryCross: Number(p.EarnedSalaryCross) || 0,
+        pfStatus: lookupPfStatus(ec),
         pf: (() => {
           if (isYashaswiContractor) return 0;
+          if (lookupPfStatus(ec) === 'no') return 0;
+          if (p.PF !== null && p.PF !== undefined && String(p.PF).trim() !== '') {
+            return Number(p.PF) || 0;
+          }
           const earnedBasicRow = Number(p.EarnedBasic) || 0;
           if (earnedBasicRow <= 0) return 0;
           if (earnedBasicRow > 15000) return 1800;
@@ -13010,12 +13033,11 @@ module.exports = async (req, res) => {
         esi: (() => {
           if (isYashaswiContractor) return 0;
           const earnedBasicRow = Number(p.EarnedBasic) || 0;
-          const earnedHRARow = Number(p.EarnedHRA) || 0;
-          const earnedSpecialAllowanceRow = Number(p.EarnedSpecialAllowance) || 0;
           const otAmountRow = Number(p.OTAmount) || 0;
-          const esiBaseList = earnedBasicRow + earnedHRARow + earnedSpecialAllowanceRow + otAmountRow + travelChargersRow;
+          const incentiveRow = Number(p.Incentive) || 0;
+          const esiBaseList = earnedBasicRow + otAmountRow + incentiveRow;
           if (esiBaseList <= 0) return 0;
-          return Math.ceil(esiBaseList * 0.0075);
+          return Math.round(esiBaseList * 0.0075);
         })(),
         employerEsi: isYashaswiContractor ? 0 : (Number(p.EmployerESI ?? p.employerEsi) || 0),
         esiContribution: Number(p.ESIContribution ?? p.esiContribution) || 0,

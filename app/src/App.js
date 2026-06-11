@@ -34,6 +34,8 @@ import ContractForm from './ContractForm';
 import StatutoryRegisters from './StatutoryRegisters';
 import Payroll from './Payroll';
 import PayrollReport from './PayrollReport';
+import PFReport from './PFReport';
+import ESIReport from './ESIReport';
 import PayslipTemplatePage from './PayslipTemplatePage';
 import Detection from './Detection';
 import Grace from './Grace';
@@ -249,6 +251,8 @@ function Home({ userRole, userEmail, setUserRole }) {
     '/tasks': { title: 'Designation Management', description: 'Manage job titles, roles, and organizational hierarchy' },
     '/payroll': { title: 'Payroll', description: 'Process payroll, manage salary structures, and handle compensation.' },
     '/payroll-report': { title: 'Payroll Report', description: 'View and export payroll reports and summaries.' },
+    '/pf-report': { title: 'PF Report', description: 'Employee-wise Provident Fund (PF) deduction report.' },
+    '/esi-report': { title: 'ESI Report', description: 'Employee-wise Employee State Insurance (ESI) deduction report.' },
     '/payslip-template': { title: 'Payroll Template', description: 'Manage payslip templates and formatting.' },
     '/shift': { title: 'Shift Management', description: 'Create and manage work schedules, shift patterns, and time allocations' },
     '/newshiftmap': { title: 'Shift Roaster', description: 'Map shifts to employees and manage shift assignments.' },
@@ -1179,6 +1183,26 @@ function App() {
             <ProtectedRoute>
               <RoleProtectedRoute allowedRoles={['App User', 'App Administrator']} userRole={userRole}>
                 <PayrollReport />
+              </RoleProtectedRoute>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/pf-report"
+          element={
+            <ProtectedRoute>
+              <RoleProtectedRoute allowedRoles={['App User', 'App Administrator']} userRole={userRole}>
+                <PFReport />
+              </RoleProtectedRoute>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/esi-report"
+          element={
+            <ProtectedRoute>
+              <RoleProtectedRoute allowedRoles={['App User', 'App Administrator']} userRole={userRole}>
+                <ESIReport />
               </RoleProtectedRoute>
             </ProtectedRoute>
           }
