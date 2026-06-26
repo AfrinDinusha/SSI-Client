@@ -115,6 +115,7 @@ function NewShiftMap({ userRole = 'App Administrator', userEmail = null }) {
   
   const userContractor = finalUserEmail ? emailContractorMap[finalUserEmail] : null;
   const shouldFilterByContractor = finalUserRole === 'App User' && userContractor;
+  const canImportRoster = finalUserRole === 'App Administrator' || finalUserRole === 'App User';
   
   // Sidebar state
   const [expandedMenus, setExpandedMenus] = useState({});
@@ -500,31 +501,32 @@ function NewShiftMap({ userRole = 'App Administrator', userEmail = null }) {
       return false;
     };
     
-    // Normalize user contractor for comparison
-    const normalizedUserContractor = userContractor ? normalizeContractor(userContractor) : null;
-    
-    // First, initialize all unique employees from the backend (ensures all employees are shown)
-    if (uniqueEmployeesFromSchedule.length > 0) {
-      uniqueEmployeesFromSchedule.forEach(emp => {
-        // Filter by contractor if user is App User
-        if (shouldFilterByContractor && userContractor) {
-          if (!contractorsMatch(emp.contractor, userContractor)) {
-            return; // Skip employees that don't match the user's contractor
-          }
+    // Prefer the full employee list from cms_function so export/table includes
+    // every active employee for the selected contractor, not just employees
+    // that already have roster rows in NewShiftMap.
+    const rosterEmployees = Array.isArray(employees) && employees.length > 0
+      ? employees
+      : uniqueEmployeesFromSchedule;
+
+    rosterEmployees.forEach(emp => {
+      // Filter by contractor if user is App User
+      if (shouldFilterByContractor && userContractor) {
+        if (!contractorsMatch(emp.contractor, userContractor)) {
+          return; // Skip employees that don't match the user's contractor
         }
-        
-        const key = String(emp.employeeCode || '').trim();
-        if (key && !grouped[key]) {
-          grouped[key] = {
-            employeeCode: emp.employeeCode,
-            employeeName: emp.employeeName,
-            contractor: emp.contractor,
-            shifts: {},
-            recordIds: {} // shiftDate -> schedule ROWID
-          };
-        }
-      });
-    }
+      }
+
+      const key = String(emp.employeeCode || '').trim();
+      if (key && !grouped[key]) {
+        grouped[key] = {
+          employeeCode: emp.employeeCode,
+          employeeName: emp.employeeName,
+          contractor: emp.contractor,
+          shifts: {},
+          recordIds: {} // shiftDate -> schedule ROWID
+        };
+      }
+    });
     
     // Then, process all schedules from the API and add shift data
     schedules.forEach(schedule => {
@@ -546,7 +548,7 @@ function NewShiftMap({ userRole = 'App Administrator', userEmail = null }) {
         };
       }
       
-      // Safety: some entries are created from uniqueEmployeesFromSchedule (they may not have recordIds yet)
+      // Safety: some entries are created from the employee list (they may not have recordIds yet)
       if (!grouped[key].recordIds) grouped[key].recordIds = {};
       if (!grouped[key].shifts) grouped[key].shifts = {};
       // Only add shift if it's within the date range
@@ -587,7 +589,7 @@ function NewShiftMap({ userRole = 'App Administrator', userEmail = null }) {
     console.log('Employee codes:', Object.keys(sortedGrouped));
     
     return sortedGrouped;
-  }, [schedules, startDate, endDate, uniqueEmployeesFromSchedule, shouldFilterByContractor, userContractor]);
+  }, [schedules, startDate, endDate, employees, uniqueEmployeesFromSchedule, shouldFilterByContractor, userContractor]);
   
   const dateColumns = startDate && endDate ? getDateRange(startDate, endDate) : [];
   
@@ -1216,7 +1218,7 @@ function NewShiftMap({ userRole = 'App Administrator', userEmail = null }) {
                   <Plus size={18} className="add-shift-roster-icon" />
                   Add Shift Roaster
                 </button>
-                {finalUserRole === 'App Administrator' && (
+                {canImportRoster && (
                   <>
                     <input
                       type="file"
@@ -1236,7 +1238,7 @@ function NewShiftMap({ userRole = 'App Administrator', userEmail = null }) {
                   </>
                 )}
                 <button
-                  className={`import-btn export-excel-btn ${finalUserRole !== 'App Administrator' ? 'export-excel-btn-first' : ''}`}
+                  className={`import-btn export-excel-btn ${canImportRoster ? '' : 'export-excel-btn-first'}`}
                   onClick={handleExportExcel}
                   disabled={!startDate || !endDate || Object.keys(groupedSchedules).length === 0}
                   title="Export to Excel"

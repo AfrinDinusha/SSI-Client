@@ -3,6 +3,8 @@
  * Bank Format Report uses this so Salary / Earned Basic / Earned Gross / Total Deduction / Net Pay match the Payroll grid.
  */
 
+import { getRevisedLohForPayrollRow } from './payrollLiveLoh';
+
 export function normalizeFormulaVariable(s) {
   return String(s || '')
     .trim()
@@ -34,6 +36,7 @@ const DEFAULT_PAYROLL_KEY_TO_HEADER_LABEL = {
   otherAllowances: 'Other Allowances',
   travelChargers: 'Travel Chargers',
   specialAllowance: 'Special Allowance',
+  earnedSpecialAllowance: 'Earned Special Allowance',
   loanAllowance: 'Loan Allowance',
   noOfDaysWithoutUniforms: 'No of days without uniforms',
   actualTotalSalary: 'Actual Total Gross',
@@ -353,21 +356,45 @@ export function createPayrollSetupFormulaeEngine(opts) {
     return Math.round(earnedBasic * 0.12);
   };
 
+  /** Employee ESI 0.75%: Earned Basic + OT Amount + Incentive only (same as Payroll.js). */
+  const getEsiEmployeeAmountBasicOtIncentive = (record) => {
+    const eb = Number(record?.earnedBasic ?? record?.EarnedBasic ?? 0) || 0;
+    const ot = Number(record?.otAmount ?? record?.OTAmount ?? 0) || 0;
+    const inc = Number(record?.incentive ?? record?.Incentive ?? 0) || 0;
+    const base = eb + ot + inc;
+    if (base <= 0) return 0;
+    return Math.round(base * 0.0075);
+  };
+
   const getEsiDisplayValue = (record) => {
     if (isYashaswiContractor(record)) return 0;
     if (!isEsiEnabled(record)) return '';
-    const esiFormula = findPayrollFormula(
-      (v) =>
-        (v === 'esi' || v === 'esi 0.75%' || (v.includes('esi') && v.includes('0.75'))) &&
-        !v.includes('employer')
-    );
-    if (esiFormula?.expression) {
-      const skipVars = [esiFormula.variable, 'ESI', 'ESI 0.75%', payrollKeyToHeaderLabel?.esi].filter(Boolean);
-      const n = evaluateFormulaExpression(record, esiFormula.expression, { skipVariables: skipVars });
-      if (Number.isFinite(n)) return Math.round(n);
+    return getEsiEmployeeAmountBasicOtIncentive(record);
+  };
+
+  /** Sum payslip deduction columns — Attendance Bonus/Deduction once; exclude Food Allowance (Payroll grid rule). */
+  const sumDeductionKeysWithPayrollRules = (emp, keys) => {
+    let sum = 0;
+    let attendanceUsed = false;
+    for (const key of keys) {
+      const lower = String(key || '').trim().toLowerCase();
+      if (
+        lower.includes('food') &&
+        (lower.includes('allowance') || lower.includes('allownace'))
+      ) {
+        continue;
+      }
+      const isAttendance =
+        (lower.includes('attendance') && lower.includes('bonus')) ||
+        (lower.includes('attendance') && lower.includes('deduction'));
+      if (isAttendance) {
+        if (attendanceUsed) continue;
+        attendanceUsed = true;
+      }
+      const v = parseFloat(getComponentDisplayValue(emp, key));
+      sum += Number.isFinite(v) ? v : 0;
     }
-    const esiValue = record?.esi ?? record?.ESI ?? 0;
-    return Math.round(parseFloat(esiValue) || 0);
+    return Math.round(sum);
   };
 
   const getDisplayTotalDeduction = (emp) => {
@@ -397,11 +424,8 @@ export function createPayrollSetupFormulaeEngine(opts) {
     });
 
     if (filteredKeys.length > 0) {
-      const dedSum = filteredKeys.reduce((sum, key) => {
-        const v = parseFloat(getComponentDisplayValue(emp, key));
-        return sum + (Number.isFinite(v) ? v : 0);
-      }, 0);
-      return Math.round(dedSum);
+      const dedSum = sumDeductionKeysWithPayrollRules(emp, filteredKeys);
+      return dedSum;
     }
 
     return Math.round(parseFloat(emp?.totalDeduction ?? emp?.TotalDeduction ?? 0) || 0);
@@ -549,23 +573,8 @@ export function createPayrollSetupFormulaeEngine(opts) {
       const n = parseFloat(v);
       return Number.isFinite(n) ? Math.round(n) : v !== '' && v !== null && v !== undefined ? v : '';
     }
+    // Net Pay: always Earned Gross Salary − Total Deduction (same rule as Payroll.js getComponentDisplayValue).
     if (lower === 'net pay' || lower === 'netpay') {
-      const netPayFormula = findPayrollFormula((v) => v === 'net pay' || v === 'netpay');
-      if (netPayFormula?.expression && typeof evaluateFormulaExpression === 'function') {
-        const npSkip = [
-          netPayFormula.variable,
-          'Net Pay',
-          'NetPay',
-          'netPay',
-          'net_pay',
-          'netpay',
-          payrollKeyToHeaderLabel?.netPay,
-        ].filter(Boolean);
-        const fromSetup = evaluateFormulaExpression(employee, netPayFormula.expression, {
-          skipVariables: npSkip,
-        });
-        if (Number.isFinite(fromSetup)) return Math.round(fromSetup);
-      }
       const earned =
         parseFloat(
           employee.earnedSalaryCross ??
@@ -745,6 +754,16 @@ export function createPayrollSetupFormulaeEngine(opts) {
       const getVal = (name) => {
         if (skipVariableNorm.has(normalizeFormulaVariable(name))) return 0;
         const vNorm = normalizeFormulaVariable(name);
+        // Late formula: LOH minus 1.5h grace (same as Payroll.js Revised LOH column).
+        if (options.useLohGraceForLate) {
+          if (
+            (vNorm.includes('revised') && vNorm.includes('loh')) ||
+            vNorm === 'loh' ||
+            vNorm.includes('loss of hours')
+          ) {
+            return getRevisedLohForPayrollRow(employee);
+          }
+        }
         if (
           vNorm === 'washing allowance' ||
           (vNorm.includes('washing') && (vNorm.includes('allowance') || vNorm.includes('allownace')))
@@ -887,10 +906,7 @@ export function createPayrollSetupFormulaeEngine(opts) {
             const lowerKey = String(k || '').trim().toLowerCase();
             return lowerKey && lowerKey !== 'total deduction' && lowerKey !== 'total deductions' && lowerKey !== 'net pay';
           });
-          const fallbackSum = fallbackKeys.reduce((sum, keyName) => {
-            const n = parseFloat(getComponentDisplayValue(updated, keyName));
-            return sum + (Number.isFinite(n) ? n : 0);
-          }, 0);
+          const fallbackSum = sumDeductionKeysWithPayrollRules(updated, fallbackKeys);
           if (fallbackSum > 0) updated[key] = Math.round(fallbackSum);
           else updated[key] = Math.round(value);
         } else if (
@@ -978,7 +994,10 @@ export function createPayrollSetupFormulaeEngine(opts) {
     const lateFormulaFinal = formulaeAfterWash.find((f) => String(f.variable || '').trim().toLowerCase() === 'late');
     if (lateFormulaFinal && lateFormulaFinal.expression) {
       const lateSkip = [lateFormulaFinal.variable, 'Late', payrollKeyToHeaderLabel?.late].filter(Boolean);
-      const lv = evaluateFormulaExpression(updated, lateFormulaFinal.expression, { skipVariables: lateSkip });
+      const lv = evaluateFormulaExpression(updated, lateFormulaFinal.expression, {
+        skipVariables: lateSkip,
+        useLohGraceForLate: true,
+      });
       if (Number.isFinite(lv)) {
         const rounded = Math.round(lv);
         updated.late = rounded;
@@ -986,27 +1005,8 @@ export function createPayrollSetupFormulaeEngine(opts) {
       }
     }
 
-    const netPayFormulaFinal = formulaeAfterWash.find((f) => {
-      const v = normalizeFormulaVariable(f.variable);
-      return v === 'net pay' || v === 'netpay';
-    });
-    if (netPayFormulaFinal && netPayFormulaFinal.expression) {
-      const npSkip = [
-        netPayFormulaFinal.variable,
-        'Net Pay',
-        'NetPay',
-        'netPay',
-        'net_pay',
-        'netpay',
-        payrollKeyToHeaderLabel?.netPay,
-      ].filter(Boolean);
-      const vNp = evaluateFormulaExpression(updated, netPayFormulaFinal.expression, { skipVariables: npSkip });
-      if (Number.isFinite(vNp)) {
-        const rounded = Math.round(vNp);
-        updated.netPay = rounded;
-        updated.NetPay = rounded;
-      }
-    } else if (Number.isFinite(Number(originalNetPay))) {
+    // Preserve backend netPay — Payroll grid displays EGS − Total Deduction via getComponentDisplayValue.
+    if (Number.isFinite(Number(originalNetPay))) {
       updated.netPay = Number(originalNetPay);
       updated.NetPay = Number(originalNetPay);
     }
@@ -1017,8 +1017,7 @@ export function createPayrollSetupFormulaeEngine(opts) {
   /** Apply Setup formulae then return display amounts (same Net Pay rule as Payroll.js grid: EGS − Total Deduction). */
   const applySetupAndGetPayrollDisplay = (employee) => {
     if (!employee) return null;
-    let updated = applyPayrollFormulaeToEmployee({ ...employee });
-    updated = applyPayrollFormulaeToEmployee(updated);
+    const updated = applyPayrollFormulaeToEmployee({ ...employee });
     const pickNum = (label) => {
       const v = getComponentDisplayValue(updated, label);
       const n = typeof v === 'number' ? v : parseFloat(v);

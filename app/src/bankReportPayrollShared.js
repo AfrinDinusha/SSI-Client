@@ -9,7 +9,124 @@ import {
 } from './payrollBankReportNetPay';
 import { BANK_NEFT_MAY_2026_NET_PAY_FROM_REPORT } from './bankNeftMay2026NetPayReport';
 import { createPayrollSetupFormulaeEngine } from './payrollSetupFormulaeEngine';
-import { computePayrollGridNetPayForBankReport } from './payrollGridAlignForBankReports';
+import {
+  computePayrollGridNetPayForBankReport,
+  preparePayrollRowForGridDisplay,
+  sumPreparedPayslipDeductionKeys,
+} from './payrollGridAlignForBankReports';
+
+function parseGridDisplayNumber(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const n = typeof v === 'number' ? v : parseFloat(String(v).replace(/,/g, '').trim());
+  return Number.isFinite(n) ? Math.round(n) : null;
+}
+
+function gridAlignedEarnedGrossFromPrepared(prepared) {
+  const earned =
+    parseFloat(
+      prepared?.earnedSalaryCross ??
+        prepared?.EarnedSalaryCross ??
+        prepared?.earnedGrossSalary ??
+        prepared?.EarnedGrossSalary ??
+        0
+    ) || 0;
+  return Number.isFinite(earned) ? Math.round(earned) : null;
+}
+
+function gridAlignedNetPayFromPrepared(engine, prepared, bankReportPayrollOpts) {
+  if (!engine || !prepared) return null;
+  const earned = gridAlignedEarnedGrossFromPrepared(prepared);
+  const totalDed = gridAlignedTotalDeductionFromPrepared(engine, prepared, bankReportPayrollOpts);
+  if (earned != null && totalDed != null && Number.isFinite(earned) && Number.isFinite(totalDed)) {
+    return Math.round(earned - totalDed);
+  }
+  const v = engine.getComponentDisplayValue(prepared, 'Net Pay');
+  return parseGridDisplayNumber(v);
+}
+
+function gridAlignedPfFromPrepared(engine, prepared) {
+  if (!engine || !prepared) return null;
+  const v = engine.getComponentDisplayValue(prepared, 'PF 12%');
+  return parseGridDisplayNumber(v);
+}
+
+function gridAlignedEsiFromPrepared(engine, prepared) {
+  if (!engine || !prepared) return null;
+  const v = engine.getComponentDisplayValue(prepared, 'ESI 0.75%');
+  return parseGridDisplayNumber(v);
+}
+
+function gridAlignedTotalDeductionFromPrepared(engine, prepared, bankReportPayrollOpts) {
+  if (!engine || !prepared) return null;
+  const viaSum = sumPreparedPayslipDeductionKeys(
+    engine,
+    prepared,
+    bankReportPayrollOpts?.payslipTemplateConfig
+  );
+  if (viaSum != null) return viaSum;
+  const td = engine.getDisplayTotalDeduction(prepared);
+  return Number.isFinite(td) ? Math.round(td) : null;
+}
+
+/** Late from Setup "Late" formula (Revised LOH grace applied — same as Payroll grid). */
+function gridAlignedLateFromPrepared(engine, prepared) {
+  if (!engine || !prepared) return null;
+  const v = engine.getComponentDisplayValue(prepared, 'Late');
+  return parseGridDisplayNumber(v);
+}
+
+/** Grid display amounts for one payroll row (same pipeline as Payroll screen). */
+export function computePayrollGridDisplayForPayrollRow(raw, bankReportPayrollOpts) {
+  const flat = flattenPayrollRowIfNeeded(raw);
+  if (!flat) return null;
+  const { engine, prepared } = preparePayrollRowForGridDisplay(flat, bankReportPayrollOpts);
+  return {
+    earnedGross: gridAlignedEarnedGrossFromPrepared(prepared),
+    netPay: gridAlignedNetPayFromPrepared(engine, prepared, bankReportPayrollOpts),
+    pf: gridAlignedPfFromPrepared(engine, prepared),
+    esi: gridAlignedEsiFromPrepared(engine, prepared),
+    late: gridAlignedLateFromPrepared(engine, prepared),
+    totalDeduction: gridAlignedTotalDeductionFromPrepared(engine, prepared, bankReportPayrollOpts),
+  };
+}
+
+/** Per employee code: payroll grid display amounts from aligned payroll rows. */
+export function buildPayrollGridDisplayMapForBankReports(payrollRows, bankReportPayrollOpts) {
+  const map = new Map();
+  for (const raw of payrollRows || []) {
+    const flat = flattenPayrollRowIfNeeded(raw);
+    const entry = computePayrollGridDisplayForPayrollRow(flat, bankReportPayrollOpts);
+    if (!entry) continue;
+    indexPayrollEntryByPrimaryCode(map, flat, entry);
+  }
+  return map;
+}
+
+export function lookupPayrollGridDisplayForBankRow(map, bankRow) {
+  if (!map) return null;
+  for (const c of candidateEmployeeCodesLongestFirst(bankRow)) {
+    if (map.has(c)) return map.get(c);
+  }
+  return null;
+}
+
+/** Net Pay / Earned Gross for a bank row — matched payroll row first (primary code, no alias collisions). */
+export function resolvePayrollGridDisplayForBankRow(
+  bankRow,
+  payrollMap,
+  bankReportPayrollOpts,
+  gridDisplayMap
+) {
+  const payrollRow = getPayrollRowForBank(payrollMap, bankRow);
+  if (payrollRow && bankReportPayrollOpts) {
+    const primary = primaryEmployeeCodeFromRow(payrollRow);
+    if (primary && gridDisplayMap?.has(primary)) {
+      return gridDisplayMap.get(primary);
+    }
+    return computePayrollGridDisplayForPayrollRow(payrollRow, bankReportPayrollOpts);
+  }
+  return lookupPayrollGridDisplayForBankRow(gridDisplayMap, bankRow);
+}
 
 /** True when bank-format API sent a usable amount, including 0. */
 export function bankApiFieldHasNumericValue(v) {
@@ -179,31 +296,13 @@ export async function fetchPayrollTableRowsForMonth({
   return Array.isArray(json?.data) ? json.data : [];
 }
 
-/** Bank NEFT Salary Amount: May 2026 report NetPay → Payroll table Net Pay → merged netPayPayroll. */
+/** Bank NEFT Salary Amount: May 2026 report NetPay override, else grid-aligned Net Pay (same as Payroll screen). */
 export function resolveBankNeftNetPayAmount(row, reportMonth) {
   const empCode =
     row?.employeeCode ?? row?.EmployeeCode ?? row?.employeeId ?? row?.employeeID ?? '';
   const mayDefault = getBankNeftDefaultNetPayForMonth(reportMonth, empCode);
   if (mayDefault != null) return mayDefault;
-
-  if (row?.hasPayrollTableRow !== true) {
-    const fallback = parsePayrollAmountLoose(
-      row?.salaryAmount ?? row?.netPay ?? row?.amount ?? row?.SalaryAmount
-    );
-    return fallback != null && Number.isFinite(fallback) ? fallback : 0;
-  }
-
-  const fromMerge = parsePayrollAmountLoose(row?.netPayPayroll);
-  if (fromMerge != null && Number.isFinite(fromMerge)) {
-    return fromMerge;
-  }
-
-  const stored = pickStoredPayrollNetPayFromRow(row);
-  if (stored != null && Number.isFinite(stored)) {
-    return stored;
-  }
-
-  return 0;
+  return resolveBankReportNetPayAmount(row);
 }
 
 export function resolveBankReportNetPayAmount(row) {
@@ -290,6 +389,12 @@ export function normalizeEmployeeCode(code) {
   return withoutDecimalZero.replace(/^0+(?=\d)/, '') || raw;
 }
 
+export function primaryEmployeeCodeFromRow(row) {
+  if (!row || typeof row !== 'object') return '';
+  return String(row.employeeCode ?? row.EmployeeCode ?? row.employeeId ?? row.employeeID ?? '').trim();
+}
+
+/** Lookup variants for bank ↔ payroll code match (no parseInt aliases — avoids 12 vs 0012 collisions). */
 export function candidateEmployeeCodesFromRow(row) {
   if (!row || typeof row !== 'object') return [];
   const raw = [
@@ -308,10 +413,20 @@ export function candidateEmployeeCodesFromRow(row) {
     out.add(s);
     const norm = normalizeEmployeeCode(s);
     if (norm && norm !== s) out.add(norm);
-    if (/^\d+$/.test(s)) out.add(String(parseInt(s, 10)));
-    if (norm && /^\d+$/.test(norm)) out.add(String(parseInt(norm, 10)));
   }
   return [...out];
+}
+
+function candidateEmployeeCodesLongestFirst(row) {
+  return [...new Set(candidateEmployeeCodesFromRow(row))].sort(
+    (a, b) => String(b).length - String(a).length
+  );
+}
+
+function indexPayrollEntryByPrimaryCode(map, flatRow, value) {
+  const primary = primaryEmployeeCodeFromRow(flatRow);
+  if (!primary) return;
+  map.set(primary, value);
 }
 
 export function flattenPayrollRowIfNeeded(raw) {
@@ -327,17 +442,23 @@ export function buildPayrollByEmployeeCode(rows) {
   const map = new Map();
   for (const raw of rows || []) {
     const r = flattenPayrollRowIfNeeded(raw);
-    for (const c of candidateEmployeeCodesFromRow(r)) {
-      map.set(c, r);
-    }
+    indexPayrollEntryByPrimaryCode(map, r, r);
   }
   return map;
 }
 
 export function getPayrollRowForBank(map, bankRow) {
   if (!map) return undefined;
-  for (const c of candidateEmployeeCodesFromRow(bankRow)) {
+  for (const c of candidateEmployeeCodesLongestFirst(bankRow)) {
     if (map.has(c)) return map.get(c);
+  }
+  const bankNorms = new Set(
+    candidateEmployeeCodesFromRow(bankRow).map(normalizeEmployeeCode).filter(Boolean)
+  );
+  if (bankNorms.size === 0) return undefined;
+  for (const row of map.values()) {
+    const p = primaryEmployeeCodeFromRow(row);
+    if (p && bankNorms.has(normalizeEmployeeCode(p))) return row;
   }
   return undefined;
 }
@@ -362,20 +483,26 @@ export function buildRunPayrollTableMapFromApi(rows) {
         parsePayrollAmountLoose(flat.TotalDeduction ?? flat.totalDeduction) ?? null,
       earnedBasic: parsePayrollAmountLoose(flat.EarnedBasic ?? flat.earnedBasic) ?? null,
     };
-    for (const c of candidateEmployeeCodesFromRow({
-      employeeCode: synthetic.employeeCode,
-      EmployeeCode: synthetic.employeeCode,
-    })) {
-      map.set(c, synthetic);
-    }
+    indexPayrollEntryByPrimaryCode(
+      map,
+      { employeeCode: synthetic.employeeCode, EmployeeCode: synthetic.employeeCode },
+      synthetic
+    );
   }
   return map;
 }
 
 export function getRunPayrollTableRowForBank(map, bankRow) {
   if (!map) return undefined;
-  for (const c of candidateEmployeeCodesFromRow(bankRow)) {
+  for (const c of candidateEmployeeCodesLongestFirst(bankRow)) {
     if (map.has(c)) return map.get(c);
+  }
+  const bankNorms = new Set(
+    candidateEmployeeCodesFromRow(bankRow).map(normalizeEmployeeCode).filter(Boolean)
+  );
+  for (const row of map.values()) {
+    const p = primaryEmployeeCodeFromRow(row);
+    if (p && bankNorms.has(normalizeEmployeeCode(p))) return row;
   }
   return undefined;
 }
@@ -560,9 +687,7 @@ export function mergeBankFormatRowsWithPayroll({
       next.employeeCode ?? next.EmployeeCode ?? row.employeeCode ?? row.EmployeeCode ?? '';
     const mayDefaultNet = getBankNeftDefaultNetPayForMonth(reportMonth, empCodeForDefault);
     if (mayDefaultNet != null) {
-      next.netPayPayroll = mayDefaultNet;
-      next.netPay = mayDefaultNet;
-      next.salaryAmount = mayDefaultNet;
+      next.may2026SalaryAmountOverride = mayDefaultNet;
     }
     return next;
   });

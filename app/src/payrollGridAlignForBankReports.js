@@ -62,13 +62,9 @@ export function normalizePayrollRowForGridAlign(row) {
   const rawEarnedSpecial = payrollFieldNumber(row.earnedSpecialAllowance, row.EarnedSpecialAllowance);
   const dim = payrollFieldNumber(row.daysInMonth, row.DaysInMonth) || 31;
   const dp = payrollFieldNumber(row.daysPresent, row.DaysPresent);
-  const lohRow = payrollFieldNumber(row.loh, row.LOH);
   let earnedSpecialAllowance = rawEarnedSpecial;
-  if (specialAllowance > 0 && rawEarnedSpecial === 0) {
-    earnedSpecialAllowance =
-      dim > 0
-        ? Math.max(0, Math.round((specialAllowance / dim) * dp - (specialAllowance / dim / 8) * lohRow))
-        : 0;
+  if (specialAllowance > 0 && dim > 0) {
+    earnedSpecialAllowance = Math.max(0, Math.round((specialAllowance / dim) * dp));
   }
   const revisedFromApi = pickRevisedLohFromPayrollRow(row);
   const normalized = {
@@ -241,13 +237,7 @@ export function recalculateEarnedFieldsFromPayrollRow(emp) {
         ((otherAllowancesVal / daysInMonth) / 8) * loh
       : 0;
   const earnedSpecialFromProration =
-    daysInMonth > 0
-      ? Math.max(
-          0,
-          (specialAllowance / daysInMonth) * daysPresent -
-            ((specialAllowance / daysInMonth) / 8) * loh
-        )
-      : 0;
+    daysInMonth > 0 ? Math.max(0, (specialAllowance / daysInMonth) * daysPresent) : 0;
   const storedEarnedSpecial = num(emp.earnedSpecialAllowance ?? emp.EarnedSpecialAllowance);
   const earnedSpecialAllowance = specialAllowance > 0 ? earnedSpecialFromProration : storedEarnedSpecial;
   const lop = Math.max(0, daysInMonth - daysPresent);
@@ -428,9 +418,100 @@ export async function alignPayrollRowsWithAttendanceMuster(rows, { month, fromDa
   }).map(normalizePayrollRowForGridAlign);
 }
 
-/** Net Pay for bank reports — same as Payroll grid (muster row + normalize + Setup formulae ×2 + EGS − TD). */
-export function computePayrollGridNetPayForBankReport(row, bankReportPayrollOpts) {
-  if (!row) return null;
+function normalizeStatusValue(value) {
+  return `${value ?? ''}`.trim().toLowerCase();
+}
+
+function getStatusFromRecord(record, keys) {
+  if (!record) return '';
+  for (const key of keys) {
+    if (record[key] !== undefined && record[key] !== null && record[key] !== '') {
+      return record[key];
+    }
+  }
+  return '';
+}
+
+function isPfEnabledForSeed(record) {
+  return normalizeStatusValue(getStatusFromRecord(record, ['pfStatus', 'PFStatus', 'pfstatus'])) !== 'no';
+}
+
+function isEsiEnabledForSeed(record) {
+  const esiStatus = normalizeStatusValue(getStatusFromRecord(record, ['esiStatus', 'ESIStatus', 'esi_status']));
+  return esiStatus !== 'no';
+}
+
+/** PF / ESI / Total Deduction seed before Setup formulae — same as Payroll.js recalculateEarnedFromRow. */
+export function seedPayrollRowPreFormulaeDeductions(emp, reportMonth = '') {
+  if (!emp) return emp;
+  const parseLooseNumber = (value) => {
+    const raw = String(value ?? '').trim();
+    if (!raw) return null;
+    const cleaned = raw.replace(/[^0-9.\-]/g, '');
+    const n = Number(cleaned);
+    return Number.isFinite(n) ? n : null;
+  };
+  const num = (v) => parseLooseNumber(v) ?? 0;
+  const actualBasic = num(emp.actualBasic ?? emp.ActualBasic);
+  const specialAllowance = num(emp.specialAllowance ?? emp.SpecialAllowance);
+  const earnedSalaryCross =
+    parseFloat(
+      emp.earnedSalaryCross ?? emp.EarnedSalaryCross ?? emp.earnedGrossSalary ?? emp.EarnedGrossSalary ?? 0
+    ) || 0;
+  const pfEnabled = isPfEnabledForSeed(emp);
+  const esiEnabled = isEsiEnabledForSeed(emp);
+  const actualPlusSpecial = actualBasic + specialAllowance;
+  let pf = 0;
+  if (pfEnabled) {
+    if (actualPlusSpecial > 15000) pf = 1800;
+    else pf = Math.round(actualPlusSpecial * 0.12);
+  }
+  const esi = esiEnabled ? Math.round(earnedSalaryCross * 0.0075) : 0;
+  return {
+    ...emp,
+    pf,
+    esi,
+    late: 0,
+    Late: 0,
+  };
+}
+
+/** Sum payslip deduction columns on a prepared row (Food excluded; Attendance once). */
+export function sumPreparedPayslipDeductionKeys(engine, prepared, payslipTemplateConfig) {
+  if (!engine || !prepared) return null;
+  const deductionKeys = Array.isArray(payslipTemplateConfig?.deductionKeys)
+    ? payslipTemplateConfig.deductionKeys
+    : [];
+  const filteredKeys = deductionKeys.filter((k) => {
+    const lower = String(k || '').trim().toLowerCase();
+    return lower && lower !== 'total deduction' && lower !== 'total deductions' && lower !== 'net pay';
+  });
+  if (filteredKeys.length === 0) return null;
+  let sum = 0;
+  let attendanceUsed = false;
+  for (const key of filteredKeys) {
+    const lower = String(key || '').trim().toLowerCase();
+    if (
+      lower.includes('food') &&
+      (lower.includes('allowance') || lower.includes('allownace'))
+    ) {
+      continue;
+    }
+    const isAttendance =
+      (lower.includes('attendance') && lower.includes('bonus')) ||
+      (lower.includes('attendance') && lower.includes('deduction'));
+    if (isAttendance) {
+      if (attendanceUsed) continue;
+      attendanceUsed = true;
+    }
+    const v = parseFloat(engine.getComponentDisplayValue(prepared, key));
+    sum += Number.isFinite(v) ? v : 0;
+  }
+  return Math.round(sum);
+}
+
+/** Muster-aligned row → same prepared state as Payroll grid after fetch (seed + formulae once). */
+export function preparePayrollRowForGridDisplay(row, bankReportPayrollOpts) {
   const engine = createPayrollSetupFormulaeEngine({
     payrollFormulae: bankReportPayrollOpts?.payrollFormulae || [],
     payrollComponents: bankReportPayrollOpts?.payrollComponents || [],
@@ -438,8 +519,15 @@ export function computePayrollGridNetPayForBankReport(row, bankReportPayrollOpts
     reportMonth: bankReportPayrollOpts?.reportMonth || '',
   });
   let prepared = normalizePayrollRowForGridAlign(row);
+  prepared = seedPayrollRowPreFormulaeDeductions(prepared, bankReportPayrollOpts?.reportMonth);
   prepared = engine.applyPayrollFormulaeToEmployee(prepared);
-  prepared = engine.applyPayrollFormulaeToEmployee(prepared);
+  return { engine, prepared };
+}
+
+/** Net Pay for bank reports — Earned Gross − Total Deduction (same as Payroll grid). */
+export function computePayrollGridNetPayForBankReport(row, bankReportPayrollOpts) {
+  if (!row) return null;
+  const { engine, prepared } = preparePayrollRowForGridDisplay(row, bankReportPayrollOpts);
   const earned =
     parseFloat(
       prepared.earnedSalaryCross ??
@@ -448,7 +536,12 @@ export function computePayrollGridNetPayForBankReport(row, bankReportPayrollOpts
         prepared.EarnedGrossSalary ??
         0
     ) || 0;
-  const totalDed = engine.getDisplayTotalDeduction(prepared);
+  const totalDed =
+    sumPreparedPayslipDeductionKeys(
+      engine,
+      prepared,
+      bankReportPayrollOpts?.payslipTemplateConfig
+    ) ?? engine.getDisplayTotalDeduction(prepared);
   if (Number.isFinite(earned) && Number.isFinite(totalDed)) {
     return Math.round(earned - totalDed);
   }

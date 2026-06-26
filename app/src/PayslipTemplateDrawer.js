@@ -163,6 +163,26 @@ const getActualEarned = (emp, key, label, payrollKeyToHeaderLabel) => {
   }
   const resolvedKey = labelToKey(label, payrollKeyToHeaderLabel) || key;
   const { actualKey, earnedKey } = getActualEarnedKeys(resolvedKey);
+  const labelNorm = String(label || key || '').trim().toLowerCase();
+  if (labelNorm === 'earned basic' || labelNorm === 'earned hra' || labelNorm === 'earned da') {
+    const actualHeader =
+      labelNorm === 'earned basic' ? 'Actual Basic' : labelNorm === 'earned hra' ? 'Actual HRA' : 'Actual DA';
+    const earnedHeader =
+      labelNorm === 'earned basic' ? 'Earned Basic' : labelNorm === 'earned hra' ? 'Earned HRA' : 'Earned DA';
+    const actualVal = getPayslipValue(emp, actualKey, actualHeader);
+    const earnedVal = getPayslipValue(emp, earnedKey, earnedHeader);
+    return { actual: safeMoney(actualVal), earned: safeMoney(earnedVal) };
+  }
+  if (
+    labelNorm === 'earned special allowance' ||
+    labelNorm === 'special allowance' ||
+    resolvedKey === 'specialAllowance' ||
+    resolvedKey === 'earnedSpecialAllowance'
+  ) {
+    const actualVal = getPayslipValue(emp, 'specialAllowance', 'Special Allowance');
+    const earnedVal = getPayslipValue(emp, 'earnedSpecialAllowance', 'Earned Special Allowance');
+    return { actual: safeMoney(actualVal), earned: safeMoney(earnedVal) };
+  }
   const actualVal = emp[actualKey] !== undefined && emp[actualKey] !== null ? emp[actualKey] : getPayslipValue(emp, actualKey, label);
   const earnedVal = emp[earnedKey] !== undefined && emp[earnedKey] !== null ? emp[earnedKey] : getPayslipValue(emp, earnedKey, label);
   return { actual: safeMoney(actualVal), earned: safeMoney(earnedVal) };
@@ -542,9 +562,9 @@ export default function PayslipTemplateDrawer({
         <div className="payslip-box">
           <div className="payslip-kv">
             <div className="k">UAN NO</div>
-            <div className="v payslip-v-right">{(emp.uanNo ?? emp.uan) || ''}</div>
+            <div className="v payslip-v-right">{String(emp.uanNo ?? emp.UANNo ?? emp.uan ?? emp.uanNumber ?? '')}</div>
             <div className="k">ESIC NO</div>
-            <div className="v payslip-v-right">{(emp.esicNo ?? emp.esic) || ''}</div>
+            <div className="v payslip-v-right">{String(emp.esicNo ?? emp.ESICNo ?? emp.esic ?? emp.esicNumber ?? '')}</div>
             <div className="k">Actual Days</div>
             <div className="v payslip-v-right">{String(emp.daysPresent ?? '')}</div>
             <div className="k">No of Working Days</div>

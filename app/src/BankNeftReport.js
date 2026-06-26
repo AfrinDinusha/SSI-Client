@@ -10,15 +10,33 @@ import './bankneftreport.css';
 import HeaderBranding from './HeaderBranding';
 import { getSidebarModulesForUser, resolveSidebarUserEmail } from './modulesConfig';
 import {
+  extractPayrollFormulaeRows,
+  parsePayrollComponentsFromApi,
+  parsePayrollFormulaeFromApi,
+} from './payrollBankReportNetPay';
+import {
   buildPayrollByEmployeeCode,
-  fetchPayrollTableRowsForMonth,
+  buildPayrollGridDisplayMapForBankReports,
+  buildRunPayrollTableMapFromApi,
   mergeBankFormatRowsWithPayroll,
   payrollMonthToFromToDates,
   resolveBankNeftNetPayAmount,
+  resolvePayrollGridDisplayForBankRow,
 } from './bankReportPayrollShared';
+import { fetchPayrollRowsAlignedWithPayrollGrid } from './payrollGridAlignForBankReports';
 
-function mergedBankRowToNeft(row, neftMeta, index, reportMonth) {
-  const amountNum = resolveBankNeftNetPayAmount(row, reportMonth);
+function mergedBankRowToNeft(row, neftMeta, index, reportMonth, gridDisplayMap, payrollMap, bankReportPayrollOpts) {
+  const lookup = resolvePayrollGridDisplayForBankRow(
+    row,
+    payrollMap,
+    bankReportPayrollOpts,
+    gridDisplayMap
+  );
+  const amountRow =
+    lookup?.netPay != null && Number.isFinite(lookup.netPay)
+      ? { ...row, hasPayrollTableRow: true, netPayPayroll: lookup.netPay }
+      : row;
+  const amountNum = resolveBankNeftNetPayAmount(amountRow, reportMonth);
   const employeeId = String(row.employeeCode ?? row.EmployeeCode ?? row.employeeId ?? '').trim();
   return {
     id: employeeId || row.id || `row-${index}`,
@@ -163,10 +181,15 @@ export default function BankNeftReport({ userRole = 'App Administrator', userEma
       const neftMetaParams = new URLSearchParams({ month: m });
       if (userEmail) neftMetaParams.set('userEmail', userEmail);
       if (userRole) neftMetaParams.set('userRole', userRole);
-      const [bankRes, neftMetaRes] = await Promise.all([
-        fetch(`/server/reports_function/bank-format-report?${bankParams.toString()}`),
-        fetch(`/server/reports_function/bank-neft-report?${neftMetaParams.toString()}`),
-      ]);
+      const [bankRes, neftMetaRes, componentsRes, formulaeRes, payslipRes, runPayrollTableRes] =
+        await Promise.all([
+          fetch(`/server/reports_function/bank-format-report?${bankParams.toString()}`),
+          fetch(`/server/reports_function/bank-neft-report?${neftMetaParams.toString()}`),
+          fetch('/server/setupconfig/payroll/components'),
+          fetch('/server/setupconfig/payroll/formulae'),
+          fetch('/server/payslip_function/getPayslipTemplate'),
+          fetch(`/server/payroll_function/run-payroll-table?${new URLSearchParams({ month: m }).toString()}`),
+        ]);
       const bankText = await bankRes.text();
       let bankJson;
       try {
@@ -184,7 +207,7 @@ export default function BankNeftReport({ userRole = 'App Administrator', userEma
       let payrollRows = [];
       let payrollLoadedOk = false;
       try {
-        payrollRows = await fetchPayrollTableRowsForMonth({
+        payrollRows = await fetchPayrollRowsAlignedWithPayrollGrid({
           month: payrollMonth,
           fromDate: fromD,
           toDate: toD,
@@ -196,10 +219,47 @@ export default function BankNeftReport({ userRole = 'App Administrator', userEma
         console.warn('Bank NEFT payroll table fetch:', payrollErr.message);
         payrollRows = [];
       }
+      let componentsJson = {};
+      let formulaeJson = {};
+      let payslipJson = {};
+      try {
+        componentsJson = await componentsRes.json();
+      } catch {
+        componentsJson = {};
+      }
+      try {
+        formulaeJson = formulaeRes.ok ? await formulaeRes.json() : {};
+      } catch {
+        formulaeJson = {};
+      }
+      try {
+        payslipJson = await payslipRes.json();
+      } catch {
+        payslipJson = {};
+      }
+      let runPayrollTableMap = new Map();
+      try {
+        const rpText = await runPayrollTableRes.text();
+        let rpJson = {};
+        try {
+          rpJson = rpText ? JSON.parse(rpText) : {};
+        } catch {
+          rpJson = {};
+        }
+        if (runPayrollTableRes.ok && Array.isArray(rpJson.data)) {
+          runPayrollTableMap = buildRunPayrollTableMapFromApi(rpJson.data);
+        }
+      } catch {
+        runPayrollTableMap = new Map();
+      }
+      const payrollFormulae = parsePayrollFormulaeFromApi(extractPayrollFormulaeRows(formulaeJson));
+      const payrollComponents = parsePayrollComponentsFromApi(componentsJson);
+      const deductionKeys =
+        payslipJson?.success && Array.isArray(payslipJson.deductionKeys) ? payslipJson.deductionKeys : [];
       const bankReportPayrollOpts = {
-        payrollFormulae: [],
-        payrollComponents: [],
-        payslipTemplateConfig: { deductionKeys: [] },
+        payrollFormulae,
+        payrollComponents,
+        payslipTemplateConfig: { deductionKeys },
         reportMonth: m,
       };
       let payrollMap = new Map();
@@ -207,6 +267,14 @@ export default function BankNeftReport({ userRole = 'App Administrator', userEma
       if (!payrollLoadedOk) {
         setPayrollNotice(
           `No payroll rows for ${payrollMonth} (${fromD}–${toD}). Run Payroll for this month, then refresh. May 2026 Salary Amount uses NetPay from the payroll report export.`
+        );
+      } else if (!formulaeRes.ok) {
+        setPayrollNotice(
+          `Setup formulae could not be loaded (HTTP ${formulaeRes.status}). Salary Amount uses payroll row defaults where needed.`
+        );
+      } else if (payrollFormulae.length === 0) {
+        setPayrollNotice(
+          'No payroll formulae parsed from Setup Configuration. Salary Amount may not match the Payroll screen until formulas are configured.'
         );
       }
       let neftDefaults = { ourBankAct: '', bc: '10', sender: 'S S Industries' };
@@ -228,9 +296,18 @@ export default function BankNeftReport({ userRole = 'App Administrator', userEma
         payrollMap,
         payrollLoadedOk,
         bankReportPayrollOpts,
-        preferPayrollTableNetPay: true,
+        runPayrollTableMap,
+        preferPayrollTableNetPay: false,
       });
-      setRows(merged.map((row, idx) => mergedBankRowToNeft(row, neftDefaults, idx, m)));
+      const gridDisplayMap = buildPayrollGridDisplayMapForBankReports(
+        payrollRows,
+        bankReportPayrollOpts
+      );
+      setRows(
+        merged.map((row, idx) =>
+          mergedBankRowToNeft(row, neftDefaults, idx, m, gridDisplayMap, payrollMap, bankReportPayrollOpts)
+        )
+      );
       if (!merged.length) setInfo('No bank rows for this month (check contractor filter or Employee master).');
     } catch (e) {
       console.warn('Bank NEFT report:', e.message);

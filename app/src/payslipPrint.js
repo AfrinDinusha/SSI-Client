@@ -46,6 +46,8 @@ const amountForEarningsActualColumn = (value, label) => {
     norm === 'earned basic' ||
     norm === 'earned hra' ||
     norm === 'earned da' ||
+    norm === 'earned special allowance' ||
+    norm === 'special allowance' ||
     norm === 'actual basic' ||
     norm === 'actual hra' ||
     norm === 'actual da'
@@ -221,6 +223,17 @@ const getComponentDisplayValue = (employee, componentName) => {
   if (lower.includes('net') && lower.includes('pay')) {
     return employee.netPay ?? employee.NetPay ?? '';
   }
+  if (lower === 'earned special allowance') {
+    const specialAllowance = Number(employee.specialAllowance ?? employee.SpecialAllowance) || 0;
+    const daysInMonth = parseFloat(employee.daysInMonth ?? employee.DaysInMonth) || 31;
+    const daysPresent = parseFloat(employee.daysPresent ?? employee.DaysPresent) || 0;
+    if (specialAllowance > 0 && daysInMonth > 0) {
+      return Math.round(Math.max(0, (specialAllowance / daysInMonth) * daysPresent));
+    }
+    const v = employee.earnedSpecialAllowance ?? employee.EarnedSpecialAllowance ?? '';
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.round(n) : v !== '' && v != null ? v : 0;
+  }
 
   const camel = base
     .toLowerCase()
@@ -313,6 +326,12 @@ const getPayslipValue = (employee, key, label, getDisplayValueOverride) => {
   if (norm === 'earned hra' && (employee.EarnedHRA !== undefined && employee.EarnedHRA !== null)) return employee.EarnedHRA;
   if (norm === 'earned basic' && (employee.EarnedBasic !== undefined && employee.EarnedBasic !== null)) return employee.EarnedBasic;
   if (norm === 'earned da' && (employee.EarnedDA !== undefined && employee.EarnedDA !== null)) return employee.EarnedDA;
+  if (norm === 'earned special allowance' && employee.EarnedSpecialAllowance !== undefined && employee.EarnedSpecialAllowance !== null) {
+    return employee.EarnedSpecialAllowance;
+  }
+  if (norm === 'special allowance' && employee.SpecialAllowance !== undefined && employee.SpecialAllowance !== null) {
+    return employee.SpecialAllowance;
+  }
 
   if (key) {
     const keyNoSpace = String(key).replace(/\s+/g, '');
@@ -390,6 +409,16 @@ const getActualEarned = (emp, key, label, payrollKeyToHeaderLabel, getDisplayVal
       labelNorm === 'earned basic' ? 'Earned Basic' : labelNorm === 'earned hra' ? 'Earned HRA' : 'Earned DA';
     const actualVal = getPayslipValue(emp, actualKey, actualHeader, getDisplayValueOverride);
     const earnedVal = getPayslipValue(emp, earnedKey, earnedHeader, getDisplayValueOverride);
+    return { actual: safeMoney(actualVal), earned: safeMoney(earnedVal) };
+  }
+  if (
+    labelNorm === 'earned special allowance' ||
+    labelNorm === 'special allowance' ||
+    resolvedKey === 'specialAllowance' ||
+    resolvedKey === 'earnedSpecialAllowance'
+  ) {
+    const actualVal = getPayslipValue(emp, 'specialAllowance', 'Special Allowance', getDisplayValueOverride);
+    const earnedVal = getPayslipValue(emp, 'earnedSpecialAllowance', 'Earned Special Allowance', getDisplayValueOverride);
     return { actual: safeMoney(actualVal), earned: safeMoney(earnedVal) };
   }
   const actualVal = getPayslipValue(emp, actualKey, label, getDisplayValueOverride);

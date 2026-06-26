@@ -475,16 +475,9 @@ export function normalizePayrollRowLikePayrollFetch(row) {
   const rawEarnedSpecial = payrollFieldNumber(row.earnedSpecialAllowance, row.EarnedSpecialAllowance);
   const dim = payrollFieldNumber(row.daysInMonth, row.DaysInMonth) || 31;
   const dp = payrollFieldNumber(row.daysPresent, row.DaysPresent);
-  const lohRow = payrollFieldNumber(row.loh, row.LOH);
   let earnedSpecialAllowance = rawEarnedSpecial;
-  if (specialAllowance > 0 && rawEarnedSpecial === 0) {
-    earnedSpecialAllowance =
-      dim > 0
-        ? Math.max(
-            0,
-            Math.round((specialAllowance / dim) * dp - (specialAllowance / dim / 8) * lohRow)
-          )
-        : 0;
+  if (specialAllowance > 0 && dim > 0) {
+    earnedSpecialAllowance = Math.max(0, Math.round((specialAllowance / dim) * dp));
   }
   return {
     ...row,

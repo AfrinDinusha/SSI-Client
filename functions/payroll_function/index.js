@@ -8154,14 +8154,13 @@ async function computePayrollData(catalystApp, month, contractor, department, em
     // Earned HRA = (Actual HRA / No. of Days(In month) * No. of Days Present) - ((Actual HRA / No. of Days(In month)) / 8 * LOH)
     const dailyHRARate = daysInMonthForCalc > 0 ? actualHRA / daysInMonthForCalc : 0;
     const dailyDARate = daysInMonthForCalc > 0 ? actualDA / daysInMonthForCalc : 0;
-    // Earned Special Allowance = (Special Allowance / No. of Days(In month) * No. of Days Present) - ((Special Allowance / No. of Days(In month)) / 8 * LOH)
+    // Earned Special Allowance = (Special Allowance / No. of Days(In month) * No. of Days Present)
     const dailySpecialRate = daysInMonthForCalc > 0 ? specialAllowance / daysInMonthForCalc : 0;
     let earnedBasicRaw = (dailyBasicRate * daysPresent) - ((dailyBasicRate / 8) * loh);
     let earnedBasic = Math.max(0, earnedBasicRaw);
     let earnedHRA = (dailyHRARate * daysPresent) - ((dailyHRARate / 8) * loh);
     let earnedDA = (dailyDARate * daysPresent) - ((dailyDARate / 8) * loh);
-    let earnedSpecialAllowanceRaw = (dailySpecialRate * daysPresent) - ((dailySpecialRate / 8) * loh);
-    let earnedSpecialAllowance = Math.max(0, earnedSpecialAllowanceRaw);
+    let earnedSpecialAllowance = Math.max(0, dailySpecialRate * daysPresent);
     // Apply Setup formulae when defined (overrides hardcoded earned values so UI and backend match)
     if (payrollFormulae.length > 0) {
       const formulaContext = {
@@ -9106,7 +9105,7 @@ module.exports = async (req, res) => {
 `SELECT EmployeeCode, EmployeeName, Department, Category, Designation, ContractorName, ActualBasic, ActualHRA, ActualDA, AttendanceAllowance, OtherAllowance, TravelChargers, TotalSalary` +
     (includeSpecialAllowance ? `, SpecialAllowance, ActualSpecialAllowance` : ``) +
     (includeFoodUniform ? `, FoodAllowance, UniformAllowance` : ``) +
-    `, BankHolderName, BankName, IFSCCode, BankBranch, PFStatus, ESIStatus, employeeStatus, DateofJoining, RelevantExperience FROM Employee WHERE EmployeeCode IS NOT NULL ${empWhereClause}`
+    `, BankHolderName, BankName, IFSCCode, BankBranch, PFStatus, ESIStatus, employeeStatus, DateofJoining, UANNo, ESICNo, RelevantExperience FROM Employee WHERE EmployeeCode IS NOT NULL ${empWhereClause}`
       );
 
       const empQuery = buildEmpQuery(true, true);
@@ -10702,9 +10701,9 @@ module.exports = async (req, res) => {
             const dailyDARateImported = importDaysInMonth > 0 ? importActualDA / importDaysInMonth : 0;
             let earnedDAImported = (dailyDARateImported * actualDaysPresent) - ((dailyDARateImported / 8) * importLOH);
             const specialAllowanceForEarned = parseNum(payroll.SpecialAllowance) || 0;
-            // Earned Special Allowance = (Special Allowance / No. of Days(In month) * No. of Days Present) - ((Special Allowance / No. of Days(In month)) / 8 * LOH)
+            // Earned Special Allowance = (Special Allowance / No. of Days(In month) * No. of Days Present)
             const dailySpecialRateImported = importDaysInMonth > 0 ? specialAllowanceForEarned / importDaysInMonth : 0;
-            let earnedSpecialAllowanceImported = Math.max(0, (dailySpecialRateImported * actualDaysPresent) - ((dailySpecialRateImported / 8) * importLOH));
+            let earnedSpecialAllowanceImported = Math.max(0, dailySpecialRateImported * actualDaysPresent);
             if (importFormulae.length > 0) {
               const otherAllowancesImportedForCtx = (parseNum(payroll.OtherAllowances) || 0) || (employeeOtherAllowancesMapForImport[String(payroll.EmployeeCode)] ?? 0);
               const importCtx = {
@@ -11939,9 +11938,9 @@ module.exports = async (req, res) => {
         // Earned DA = (Actual DA / daysInMonth * daysPresent) - ((Actual DA / daysInMonth) / 8 * LOH)
         const dailyDARate = daysInMonthForCalc > 0 ? actualDA / daysInMonthForCalc : 0;
         let earnedDA = (dailyDARate * daysPresent) - ((dailyDARate / 8) * loh);
-        // Earned Special Allowance = (Special Allowance / No. of Days(In month) * No. of Days Present) - ((Special Allowance / No. of Days(In month)) / 8 * LOH)
+        // Earned Special Allowance = (Special Allowance / No. of Days(In month) * No. of Days Present)
         const dailySpecialRateDet = daysInMonthForCalc > 0 ? specialAllowance / daysInMonthForCalc : 0;
-        let earnedSpecialAllowanceDet = Math.max(0, (dailySpecialRateDet * daysPresent) - ((dailySpecialRateDet / 8) * loh));
+        let earnedSpecialAllowanceDet = Math.max(0, dailySpecialRateDet * daysPresent);
         if (detailFormulae.length > 0) {
           const formulaContextDet = {
             'Actual Basic': actualBasic,
@@ -12376,6 +12375,8 @@ module.exports = async (req, res) => {
           bankName: emp.BankName || '',
           ifscCode: emp.IFSCCode || '',
           bankBranch: emp.BankBranch || '',
+          uanNo: String(emp.UANNo ?? emp.uanNo ?? emp.UAN ?? ''),
+          esicNo: String(emp.ESICNo ?? emp.esicNo ?? emp.ESIC ?? ''),
           pfStatus: emp.PFStatus || '',
           esiStatus: emp.ESIStatus || '',
           employeeStatus: emp.EmployeeStatus || emp.employeeStatus || ''

@@ -107,6 +107,17 @@ module.exports = async (req, res) => {
 
     console.log(`Processing attendance muster for ${dates.length} days: ${startDate} to ${endDate}`);
 
+    // Extend BHR fetch through next calendar day for 3rd/4th shift overnight checkout punches (e.g. 04:00 next morning)
+    const bhrFetchEndExtended = (() => {
+      const d = new Date(`${endDate}T12:00:00`);
+      if (isNaN(d.getTime())) return endDate;
+      d.setDate(d.getDate() + 1);
+      const y = d.getFullYear();
+      const mo = String(d.getMonth() + 1).padStart(2, '0');
+      const da = String(d.getDate()).padStart(2, '0');
+      return `${y}-${mo}-${da}`;
+    })();
+
     // Get employee filter conditions based on user role and filters
     let employeeFilterConditions = [];
     let employeeIds = [];
@@ -1057,7 +1068,7 @@ module.exports = async (req, res) => {
       while (hasMore) {
         let query = `SELECT EmployeeID, EventTime, DeviceSerial FROM BHR
                      WHERE EventTime >= '${startDate} 00:00:00'
-                     AND EventTime <= '${endDate} 23:59:59'`;
+                     AND EventTime <= '${bhrFetchEndExtended} 23:59:59'`;
         if (employeeFilterConditions.length > 0) {
           query += ` AND ${employeeFilterConditions.join(' AND ')}`;
         }
@@ -2157,6 +2168,286 @@ module.exports = async (req, res) => {
       }
     }
 
+    // Fetch shift information from Shiftmap table (legacy) and NewShiftMap table (priority)
+    const shiftMap = {}; // Key: empId -> [{ assignedShift, fromdate, todate }]
+    try {
+      const shiftQuery = `SELECT EmployeeId, AssignedShift, Fromdate, Todate FROM Shiftmap WHERE Fromdate <= '${endDate}' AND Todate >= '${startDate}'`;
+      const shiftRecords = await zcql.executeZCQLQuery(shiftQuery);
+      for (const row of shiftRecords) {
+        const shift = row.Shiftmap;
+        const empId = String(shift.EmployeeId || '').trim();
+        if (!empId) continue;
+
+        const normalizeShiftmapDate = (dateVal) => {
+          if (!dateVal) return '';
+          if (typeof dateVal === 'string') {
+            if (/^\d{4}-\d{2}-\d{2}$/.test(dateVal)) return dateVal;
+            const d = new Date(dateVal);
+            if (!isNaN(d)) return d.toISOString().slice(0, 10);
+          } else {
+            const d = new Date(dateVal);
+            if (!isNaN(d)) return d.toISOString().slice(0, 10);
+          }
+          return '';
+        };
+
+        const fromDate = normalizeShiftmapDate(shift.Fromdate);
+        const toDate = normalizeShiftmapDate(shift.Todate);
+        const assignedShift = String(shift.AssignedShift || '').trim().toUpperCase();
+
+        if (!shiftMap[empId]) {
+          shiftMap[empId] = [];
+        }
+        shiftMap[empId].push({
+          assignedShift: assignedShift,
+          fromdate: fromDate,
+          todate: toDate
+        });
+      }
+      console.log(`Fetched shift information for ${Object.keys(shiftMap).length} employees`);
+    } catch (err) {
+      console.error('Error fetching shift information:', err);
+    }
+
+    const newShiftMap = {}; // Key: "employeeCode_date" -> shiftType
+    try {
+      console.log(`Attendance Muster: Fetching shift data from NewShiftMap for date range ${startDate} to ${endDate}`);
+      let newShiftMapQuery = `SELECT EmployeeCode, ShiftDate, ShiftType FROM NewShiftMap WHERE ShiftDate >= '${startDate}' AND ShiftDate <= '${endDate}'`;
+      try {
+        if (Array.isArray(employeeIds) && employeeIds.length > 0) {
+          const employeeIdList = employeeIds.map(id => `'${String(id).replace(/'/g, "''")}'`).join(',');
+          newShiftMapQuery += ` AND EmployeeCode IN (${employeeIdList})`;
+        }
+      } catch (e) { /* ignore */ }
+
+      const pageSize = 300;
+      let offset = 0;
+      let hasMore = true;
+      const allNewShiftRecords = [];
+
+      while (hasMore) {
+        try {
+          const paginatedQuery = `${newShiftMapQuery} ORDER BY EmployeeCode, ShiftDate LIMIT ${pageSize} OFFSET ${offset}`;
+          const batch = await zcql.executeZCQLQuery(paginatedQuery);
+          if (!batch || batch.length === 0) {
+            hasMore = false;
+            break;
+          }
+          allNewShiftRecords.push(...batch);
+          offset += pageSize;
+          if (batch.length < pageSize) hasMore = false;
+          if (allNewShiftRecords.length > 20000) hasMore = false;
+        } catch (pagErr) {
+          try {
+            const rows = await zcql.executeZCQLQuery(newShiftMapQuery);
+            allNewShiftRecords.push(...rows);
+          } catch (queryErr) {
+            console.error('Attendance Muster: NewShiftMap query error:', queryErr);
+          }
+          hasMore = false;
+        }
+      }
+
+      for (const row of allNewShiftRecords) {
+        const record = row.NewShiftMap || row;
+        const empCode = String(record.EmployeeCode || '').trim();
+        const shiftDateRaw = String(record.ShiftDate || '').trim();
+        const shiftType = String(record.ShiftType || '').trim().toUpperCase();
+        if (!empCode || !shiftDateRaw) continue;
+
+        let normalizedDate = shiftDateRaw;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(shiftDateRaw)) {
+          const d = new Date(shiftDateRaw);
+          if (!isNaN(d.getTime())) {
+            normalizedDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+          }
+        }
+        newShiftMap[`${empCode}_${normalizedDate}`] = shiftType;
+      }
+      console.log(`Attendance Muster: Built NewShiftMap with ${Object.keys(newShiftMap).length} employee-date entries`);
+    } catch (err) {
+      console.log('Attendance Muster: NewShiftMap query error:', err.message);
+    }
+
+    const normalizeDateForCompare = (dateVal) => {
+      if (!dateVal) return '';
+      if (typeof dateVal === 'string') {
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dateVal)) return dateVal;
+        const ddmmyyyyMatch = dateVal.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+        if (ddmmyyyyMatch) {
+          const [, day, month, year] = ddmmyyyyMatch;
+          return `${year}-${month}-${day}`;
+        }
+      }
+      return String(dateVal);
+    };
+
+    const classifyShiftType = (rawType) => {
+      const t = String(rawType || '').trim().toUpperCase();
+      const compact = t.replace(/\s+/g, '');
+      if (!t) return 'GENERAL';
+      if (
+        t === 'HOUSEKEEPING' || t === 'HOUSEKEEPING SHIFT' || t === 'HOUSE KEEPING' || t === 'HK' ||
+        t.includes('HOUSEKEEPING') || compact.includes('HOUSEKEEPING')
+      ) return 'HOUSEKEEPING';
+      if (t === '1ST' || t === '1ST SHIFT' || t === 'FIRST' || t === 'FIRST SHIFT' || t === '1' || t === 'SHIFT 1' || t.includes('1ST') || t.includes('FIRST')) {
+        return 'FIRST';
+      }
+      if (t === '2ND' || t === '2ND SHIFT' || t === 'SECOND' || t === 'SECOND SHIFT' || t === '2' || t === 'SHIFT 2' || t.includes('2ND') || t.includes('SECOND')) {
+        return 'SECOND';
+      }
+      if (t === '3RD' || t === '3RD SHIFT' || t === 'THIRD' || t === 'THIRD SHIFT' || t === '3' || t === 'SHIFT 3' || t.includes('3RD') || t.includes('THIRD')) {
+        return 'THIRD';
+      }
+      if (t === '4TH' || t === '4TH SHIFT' || t === 'FOURTH' || t === 'FOURTH SHIFT' || t === '4' || t === 'SHIFT 4' || t.includes('4TH') || t.includes('FOURTH')) {
+        return 'FOURTH';
+      }
+      if (t === 'GENERAL II' || t === 'GENERALII' || compact.includes('GENERALII') || (t.includes('GENERAL') && t.includes('II'))) {
+        return 'GENERAL_II';
+      }
+      return 'GENERAL';
+    };
+
+    const getShiftTypeForDate = (empId, dateStr) => {
+      const emp = String(empId || '').trim();
+      const date = normalizeDateForCompare(dateStr);
+      const fromNew = newShiftMap[`${emp}_${date}`];
+      if (fromNew) return classifyShiftType(fromNew);
+
+      // Employee has NewShiftMap rows in range but not this date → General (not legacy 3rd/4th).
+      const hasNewShiftMapRows = Object.keys(newShiftMap).some((k) => k.startsWith(`${emp}_`));
+      if (hasNewShiftMapRows) return 'GENERAL';
+
+      if (!shiftMap[emp] || shiftMap[emp].length === 0) return 'GENERAL';
+
+      let foundGeneral = false;
+      for (const shift of shiftMap[emp]) {
+        const s = String(shift.assignedShift || '').trim().toUpperCase();
+        const inRange =
+          (shift.fromdate && shift.todate && dateStr >= shift.fromdate && dateStr <= shift.todate) ||
+          (shift.fromdate && !shift.todate && dateStr >= shift.fromdate) ||
+          (!shift.fromdate && shift.todate && dateStr <= shift.todate) ||
+          (!shift.fromdate && !shift.todate);
+        if (!inRange) continue;
+
+        const cls = classifyShiftType(s);
+        if (cls === 'GENERAL') foundGeneral = true;
+        else return cls;
+      }
+      return foundGeneral ? 'GENERAL' : 'GENERAL';
+    };
+
+    const isThirdOrFourthShiftOnDate = (empId, dateStr) => {
+      const cls = getShiftTypeForDate(empId, dateStr);
+      return cls === 'THIRD' || cls === 'FOURTH';
+    };
+
+    const addDaysYmd = (ymd, days) => {
+      if (!ymd || !/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return ymd;
+      const d = new Date(`${ymd}T12:00:00`);
+      if (isNaN(d.getTime())) return ymd;
+      d.setDate(d.getDate() + days);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    };
+
+    const canRePairOvernightPunches = (rec) => {
+      if (!rec) return true;
+      const s = String(rec.Source || '');
+      if (s.includes('OnDuty')) return false;
+      if (sourceHasCompOffTakenSegment(s) || s.includes('CompOffWorkedOn')) return false;
+      if (s === 'Regularization' || s.includes('Regularization')) return false;
+      if (s === 'BioMax' || (s.includes('BioMax') && !s.includes('BHR') && !s.includes('Attendance'))) return false;
+      return true;
+    };
+
+    const getPunchMinutes = (eventTime) => {
+      const parts = String(eventTime || '').trim().split(' ');
+      if (parts.length < 2) return null;
+      const [h, m] = parts[1].split(':').map(Number);
+      if (Number.isNaN(h) || Number.isNaN(m)) return null;
+      return h * 60 + m;
+    };
+
+    const isEarlyMorningPunch = (eventTime) => {
+      const mins = getPunchMinutes(eventTime);
+      return mins !== null && mins < 12 * 60;
+    };
+
+    // 3rd/4th shift: alternate IN/OUT across days — checkout next morning pairs with previous evening check-in.
+    if (allLogs.length > 0) {
+      const punchesByEmp = {};
+      for (const r of allLogs) {
+        const empId = String(r.EmployeeID || '').trim();
+        const eventTime = String(r.EventTime || '').trim();
+        if (!empId || !eventTime) continue;
+        const punchDate = eventTime.split(' ')[0];
+        if (punchDate < startDate || punchDate > bhrFetchEndExtended) continue;
+        if (!punchesByEmp[empId]) punchesByEmp[empId] = [];
+        punchesByEmp[empId].push(eventTime);
+      }
+
+      for (const empId of Object.keys(punchesByEmp)) {
+        const hasOvernightShift = dates.some((date) => isThirdOrFourthShiftOnDate(empId, date));
+        if (!hasOvernightShift) continue;
+
+        for (const date of dates) {
+          if (!isThirdOrFourthShiftOnDate(empId, date)) continue;
+          const key = `${empId}_${date}`;
+          const rec = byKey[key];
+          if (rec && canRePairOvernightPunches(rec)) {
+            rec.FirstIN = null;
+            rec.LastOUT = null;
+          }
+        }
+
+        const punches = punchesByEmp[empId].sort();
+        let openShiftDate = null;
+
+        for (const eventTime of punches) {
+          const punchDate = eventTime.split(' ')[0];
+
+          if (openShiftDate !== null) {
+            const key = `${empId}_${openShiftDate}`;
+            if (!byKey[key]) {
+              byKey[key] = { EmployeeID: empId, Date: openShiftDate, FirstIN: null, LastOUT: null, Source: 'BHR' };
+            }
+            if (canRePairOvernightPunches(byKey[key])) {
+              byKey[key].LastOUT = eventTime;
+              byKey[key].Source = byKey[key].Source || 'BHR';
+            }
+            openShiftDate = null;
+            continue;
+          }
+
+          if (isEarlyMorningPunch(eventTime)) {
+            const prevDate = addDaysYmd(punchDate, -1);
+            if (prevDate >= startDate && isThirdOrFourthShiftOnDate(empId, prevDate)) {
+              const prevKey = `${empId}_${prevDate}`;
+              const prevRec = byKey[prevKey];
+              if (prevRec && prevRec.FirstIN && !prevRec.LastOUT && canRePairOvernightPunches(prevRec)) {
+                prevRec.LastOUT = eventTime;
+                continue;
+              }
+            }
+            continue;
+          }
+
+          if (punchDate <= endDate && isThirdOrFourthShiftOnDate(empId, punchDate)) {
+            const key = `${empId}_${punchDate}`;
+            if (!byKey[key]) {
+              byKey[key] = { EmployeeID: empId, Date: punchDate, FirstIN: null, LastOUT: null, Source: 'BHR' };
+            }
+            if (canRePairOvernightPunches(byKey[key])) {
+              byKey[key].FirstIN = eventTime;
+              byKey[key].Source = byKey[key].Source || 'BHR';
+              openShiftDate = punchDate;
+            }
+          }
+        }
+      }
+      console.log('Applied overnight punch pairing for 3rd/4th shift employees');
+    }
+
     // Helper function to check if a date is Sunday
     function isSunday(dateStr) {
       const date = new Date(dateStr);
@@ -2619,196 +2910,6 @@ module.exports = async (req, res) => {
       return dates.map(() => doe); // Repeat the same date of exit for each date
     });
 
-    // Fetch shift information from Shiftmap table (legacy) and NewShiftMap table (priority)
-    const shiftMap = {}; // Key: empId -> [{ assignedShift, fromdate, todate }]
-    try {
-      const shiftQuery = `SELECT EmployeeId, AssignedShift, Fromdate, Todate FROM Shiftmap WHERE Fromdate <= '${endDate}' AND Todate >= '${startDate}'`;
-      const shiftRecords = await zcql.executeZCQLQuery(shiftQuery);
-      for (const row of shiftRecords) {
-        const shift = row.Shiftmap;
-        const empId = String(shift.EmployeeId || '').trim();
-        if (!empId) continue;
-       
-        // Normalize dates to YYYY-MM-DD format
-        const normalizeDate = (dateVal) => {
-          if (!dateVal) return '';
-          if (typeof dateVal === 'string') {
-            if (/^\d{4}-\d{2}-\d{2}$/.test(dateVal)) return dateVal;
-            const d = new Date(dateVal);
-            if (!isNaN(d)) return d.toISOString().slice(0, 10);
-          } else {
-            const d = new Date(dateVal);
-            if (!isNaN(d)) return d.toISOString().slice(0, 10);
-          }
-          return '';
-        };
-       
-        const fromDate = normalizeDate(shift.Fromdate);
-        const toDate = normalizeDate(shift.Todate);
-        const assignedShift = String(shift.AssignedShift || '').trim().toUpperCase();
-       
-        // Store shift info for this employee
-        if (!shiftMap[empId]) {
-          shiftMap[empId] = [];
-        }
-        shiftMap[empId].push({
-          assignedShift: assignedShift,
-          fromdate: fromDate,
-          todate: toDate
-        });
-      }
-      console.log(`Fetched shift information for ${Object.keys(shiftMap).length} employees`);
-    } catch (err) {
-      console.error('Error fetching shift information:', err);
-      // Continue without shift information if query fails
-    }
-
-    // Fetch NewShiftMap data for shift types (priority over Shiftmap)
-    const newShiftMap = {}; // Key: "employeeCode_date" -> shiftType
-    try {
-      console.log(`Attendance Muster: Fetching shift data from NewShiftMap for date range ${startDate} to ${endDate}`);
-      let newShiftMapQuery = `SELECT EmployeeCode, ShiftDate, ShiftType FROM NewShiftMap WHERE ShiftDate >= '${startDate}' AND ShiftDate <= '${endDate}'`;
-
-      // Apply employee filter if we have it (reduces payload)
-      try {
-        if (Array.isArray(employeeIds) && employeeIds.length > 0) {
-          const employeeIdList = employeeIds.map(id => `'${String(id).replace(/'/g, "''")}'`).join(',');
-          newShiftMapQuery += ` AND EmployeeCode IN (${employeeIdList})`;
-        }
-      } catch (e) {
-        // ignore filter build errors
-      }
-
-      const pageSize = 300;
-      let offset = 0;
-      let hasMore = true;
-      const allNewShiftRecords = [];
-
-      while (hasMore) {
-        try {
-          const paginatedQuery = `${newShiftMapQuery} ORDER BY EmployeeCode, ShiftDate LIMIT ${pageSize} OFFSET ${offset}`;
-          const batch = await zcql.executeZCQLQuery(paginatedQuery);
-          if (!batch || batch.length === 0) {
-            hasMore = false;
-            break;
-          }
-          allNewShiftRecords.push(...batch);
-          offset += pageSize;
-          if (batch.length < pageSize) hasMore = false;
-          if (allNewShiftRecords.length > 20000) {
-            console.log('Attendance Muster: NewShiftMap safety limit hit (20000), stopping pagination');
-            hasMore = false;
-          }
-        } catch (pagErr) {
-          console.log('Attendance Muster: NewShiftMap pagination failed, trying without pagination:', pagErr.message);
-          try {
-            const rows = await zcql.executeZCQLQuery(newShiftMapQuery);
-            allNewShiftRecords.push(...rows);
-          } catch (queryErr) {
-            console.error('Attendance Muster: Error executing NewShiftMap query without pagination:', queryErr);
-          }
-          hasMore = false;
-        }
-      }
-
-      console.log(`Attendance Muster: Fetched ${allNewShiftRecords.length} records from NewShiftMap`);
-
-      for (const row of allNewShiftRecords) {
-        const record = row.NewShiftMap || row;
-        const empCode = String(record.EmployeeCode || '').trim();
-        const shiftDateRaw = String(record.ShiftDate || '').trim();
-        const shiftType = String(record.ShiftType || '').trim().toUpperCase();
-        if (!empCode || !shiftDateRaw) continue;
-
-        // Normalize date to YYYY-MM-DD format
-        let normalizedDate = shiftDateRaw;
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(shiftDateRaw)) {
-          const d = new Date(shiftDateRaw);
-          if (!isNaN(d.getTime())) {
-            const year = d.getFullYear();
-            const month = String(d.getMonth() + 1).padStart(2, '0');
-            const day = String(d.getDate()).padStart(2, '0');
-            normalizedDate = `${year}-${month}-${day}`;
-          }
-        }
-
-        const key = `${empCode}_${normalizedDate}`;
-        newShiftMap[key] = shiftType;
-      }
-
-      console.log(`Attendance Muster: Built NewShiftMap with ${Object.keys(newShiftMap).length} employee-date entries`);
-    } catch (err) {
-      console.log('Attendance Muster: NewShiftMap query error:', err.message);
-      // Continue without NewShiftMap information if query fails
-    }
-
-    // Normalize date for NewShiftMap key compare
-    const normalizeDateForCompare = (dateVal) => {
-      if (!dateVal) return '';
-      if (typeof dateVal === 'string') {
-        if (/^\d{4}-\d{2}-\d{2}$/.test(dateVal)) return dateVal;
-        const ddmmyyyyMatch = dateVal.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-        if (ddmmyyyyMatch) {
-          const [, day, month, year] = ddmmyyyyMatch;
-          return `${year}-${month}-${day}`;
-        }
-      }
-      return String(dateVal);
-    };
-
-    // Shift type classifier used for UI coloring
-    const classifyShiftType = (rawType) => {
-      const t = String(rawType || '').trim().toUpperCase();
-      const compact = t.replace(/\s+/g, '');
-      if (!t) return 'GENERAL';
-      if (
-        t === 'HOUSEKEEPING' || t === 'HOUSEKEEPING SHIFT' || t === 'HOUSE KEEPING' || t === 'HK' ||
-        t.includes('HOUSEKEEPING') || compact.includes('HOUSEKEEPING')
-      ) return 'HOUSEKEEPING';
-      if (t === '1ST' || t === '1ST SHIFT' || t === 'FIRST' || t === 'FIRST SHIFT' || t === '1' || t === 'SHIFT 1' || t.includes('1ST') || t.includes('FIRST')) {
-        return 'FIRST';
-      }
-      if (t === '2ND' || t === '2ND SHIFT' || t === 'SECOND' || t === 'SECOND SHIFT' || t === '2' || t === 'SHIFT 2' || t.includes('2ND') || t.includes('SECOND')) {
-        return 'SECOND';
-      }
-      if (t === '3RD' || t === '3RD SHIFT' || t === 'THIRD' || t === 'THIRD SHIFT' || t === '3' || t === 'SHIFT 3' || t.includes('3RD') || t.includes('THIRD')) {
-        return 'THIRD';
-      }
-      // General II: 12:00-20:00, 10 min grace, OT after 21:00
-      if (t === 'GENERAL II' || t === 'GENERALII' || compact.includes('GENERALII') || (t.includes('GENERAL') && t.includes('II'))) {
-        return 'GENERAL_II';
-      }
-      return 'GENERAL';
-    };
-
-    const getShiftTypeForDate = (empId, dateStr) => {
-      const emp = String(empId || '').trim();
-      const date = normalizeDateForCompare(dateStr);
-      const newKey = `${emp}_${date}`;
-      const fromNew = newShiftMap[newKey];
-      if (fromNew) return classifyShiftType(fromNew);
-
-      // Fallback to Shiftmap assignment for that date
-      if (!shiftMap[emp] || shiftMap[emp].length === 0) return 'GENERAL';
-
-      // Find any shift entry covering this date; prefer explicit non-general shifts
-      let foundGeneral = false;
-      for (const shift of shiftMap[emp]) {
-        const s = String(shift.assignedShift || '').trim().toUpperCase();
-        const inRange =
-          (shift.fromdate && shift.todate && dateStr >= shift.fromdate && dateStr <= shift.todate) ||
-          (shift.fromdate && !shift.todate && dateStr >= shift.fromdate) ||
-          (!shift.fromdate && shift.todate && dateStr <= shift.todate) ||
-          (!shift.fromdate && !shift.todate);
-        if (!inRange) continue;
-
-        const cls = classifyShiftType(s);
-        if (cls === 'GENERAL') foundGeneral = true;
-        else return cls;
-      }
-      return foundGeneral ? 'GENERAL' : 'GENERAL';
-    };
-
     const isHousekeepingShift = (empId, dateStr) => getShiftTypeForDate(empId, dateStr) === 'HOUSEKEEPING';
     const isGeneralIIShift = (empId, dateStr) => getShiftTypeForDate(empId, dateStr) === 'GENERAL_II';
 
@@ -2846,12 +2947,12 @@ module.exports = async (req, res) => {
         }
       }
      
-      // If employee is in shiftmap but doesn't have 1st or 2nd shift for this date, default to general
+      // If employee is in shiftmap but doesn't have 1st, 2nd, 3rd, or 4th shift for this date, default to general
       const hasFirstShift = isFirstShift(empId, dateStr);
       const hasSecondShift = isSecondShift(empId, dateStr);
+      const shiftCls = getShiftTypeForDate(empId, dateStr);
      
-      // If they don't have 1st or 2nd shift, default to general
-      return !hasFirstShift && !hasSecondShift;
+      return !hasFirstShift && !hasSecondShift && shiftCls !== 'THIRD' && shiftCls !== 'FOURTH';
     };
    
     // Helper function to check if employee is on 1st shift for a specific date

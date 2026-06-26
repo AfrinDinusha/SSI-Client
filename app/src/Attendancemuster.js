@@ -105,6 +105,18 @@ function getShiftClassName(shiftTypeValue) {
   ) {
     return 'shift-third';
   }
+  if (
+    shiftRaw === 'FOURTH' ||
+    shiftRaw === '4TH' ||
+    shiftRaw === '4TH SHIFT' ||
+    shiftRaw === 'FOURTH SHIFT' ||
+    shiftRaw === '4' ||
+    shiftRaw === 'SHIFT 4' ||
+    shiftCompact.includes('4TH') ||
+    shiftCompact.includes('FOURTH')
+  ) {
+    return 'shift-fourth';
+  }
   if (shiftRaw === 'HOUSEKEEPING' || shiftRaw === 'HK' || shiftCompact === 'HOUSEKEEPING') {
     return 'shift-housekeeping';
   }
@@ -155,6 +167,7 @@ function getMusterDateCellColors(status, shiftType, firstIn, lastOut) {
     if (shiftClass === 'shift-first') return { fgHex: '765341', fontHex: 'FFFFFF' };
     if (shiftClass === 'shift-second') return { fgHex: '06B1CF', fontHex: 'FFFFFF' };
     if (shiftClass === 'shift-third') return { fgHex: 'B80F0A', fontHex: 'FFFFFF' };
+    if (shiftClass === 'shift-fourth') return { fgHex: 'F70ADF', fontHex: 'FFFFFF' };
     if (shiftClass === 'shift-housekeeping') return { fgHex: 'FF7F7F', fontHex: '000000' };
     if (shiftClass === 'shift-general-ii') return { fgHex: 'B8B8B8', fontHex: '333333' };
     return {
@@ -288,6 +301,18 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
       shiftCompact.includes('THIRD')
     ) {
       return '3rd Shift';
+    }
+    if (
+      shiftUpper === 'FOURTH' ||
+      shiftUpper === '4TH' ||
+      shiftUpper === '4TH SHIFT' ||
+      shiftUpper === 'FOURTH SHIFT' ||
+      shiftUpper === '4' ||
+      shiftUpper === 'SHIFT 4' ||
+      shiftCompact.includes('4TH') ||
+      shiftCompact.includes('FOURTH')
+    ) {
+      return '4th Shift';
     }
     if (shiftUpper === 'HK' || shiftCompact === 'HOUSEKEEPING') {
       return 'Housekeeping';
@@ -1306,7 +1331,7 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
                                 <td key={colIdx} className={`muster-date-col ${className}`.trim()} style={cellStyle}>
                                   <div className="muster-date-cell-inner" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                                     <div>{display}</div>
-                                    {shouldShowShiftText && shiftClass !== 'shift-third' ? (
+                                    {shouldShowShiftText && shiftClass !== 'shift-third' && shiftClass !== 'shift-fourth' ? (
                                       <div style={{ fontSize: '11px', color: '#2f2f2f', marginTop: '2px', fontWeight: '600' }}>
                                         {shiftDisplayName}
                                       </div>

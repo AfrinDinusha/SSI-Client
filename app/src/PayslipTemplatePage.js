@@ -25,6 +25,7 @@ function PayslipTemplatePage() {
       actualHRA: 'Actual HRA',
       otherAllowance: 'Attendance Allowance',
       specialAllowance: 'Special Allowance',
+      earnedSpecialAllowance: 'Earned Special Allowance',
       actualTotalSalary: 'Actual Total Gross',
       earnedBasic: 'Earned Basic',
       earnedDA: 'Earned DA',

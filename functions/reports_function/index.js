@@ -2,6 +2,13 @@
 
 const catalyst = require('zcatalyst-sdk-node');
 const url = require('url');
+const {
+  bhrFetchEndExtendedFrom,
+  buildDatesList,
+  buildGetShiftTypeForDate,
+  buildNewShiftMapDateHelpers,
+  applyOvernightShiftPunchPairing
+} = require('./overnight_shift_punch_pairing');
 
 function normalizeEmployeeCodeBank(code) {
   const raw = String(code ?? '').trim();
@@ -260,6 +267,8 @@ module.exports = async (req, res) => {
         startDate = startDateOnly;
         endDateStr = endDateOnly;
       }
+
+      const monthlyOtBhrFetchEndExtended = bhrFetchEndExtendedFrom(endDateOnly);
 
       // Category OT Applicable To (Setup Configuration): only these categories are included in OT calculation; others excluded. "All" = no filter.
       let designationApplicableToList = Array.isArray(designationApplicableToRaw)
@@ -640,13 +649,14 @@ module.exports = async (req, res) => {
         return String(dateVal);
       };
 
-      // True if this employee has a shift assigned in NewShiftMap for this date. If false, use General shift OT.
-      const hasNewShiftMapEntry = (empId, dateStr) => {
-        const key = `${String(empId).trim()}_${normalizeDateForCompare(dateStr)}`;
-        return newShiftMap[key] !== undefined && newShiftMap[key] !== null && String(newShiftMap[key]).trim() !== '';
-      };
+      const newShiftMapDateHelpers = buildNewShiftMapDateHelpers(newShiftMap);
+      const hasNewShiftMapEntry = (empId, dateStr) =>
+        newShiftMapDateHelpers.hasNewShiftMapEntry(empId, dateStr);
+      const isUnmappedNewShiftMapDate = (empId, dateStr) =>
+        newShiftMapDateHelpers.isUnmappedNewShiftMapDate(empId, dateStr);
 
       const getAssignedShiftForDate = (empId, dateStr) => {
+        if (isUnmappedNewShiftMapDate(empId, dateStr)) return '';
         const normalizedEmpId = String(empId).trim();
         const normalizedDate = normalizeDateForCompare(dateStr);
         const newShiftKey = `${normalizedEmpId}_${normalizedDate}`;
@@ -761,12 +771,19 @@ module.exports = async (req, res) => {
           const isFirst = isFirstShift(empId, dateStr);
           const isSecond = isSecondShift(empId, dateStr);
           const isThird = isThirdShift(empId, dateStr);
-          // If it's not 1st, 2nd, or 3rd, and NewShiftMap has a value, default to General
-          if (!isFirst && !isSecond && !isThird) {
+          const shiftU = String(newShiftType || '').trim().toUpperCase();
+          const isFourth = shiftU === '4TH' || shiftU === '4TH SHIFT' || shiftU === 'FOURTH' || shiftU === 'FOURTH SHIFT' ||
+            shiftU === '4' || shiftU === 'SHIFT 4' || shiftU.includes('4TH') || shiftU.includes('FOURTH');
+          // If it's not 1st, 2nd, 3rd, or 4th, and NewShiftMap has a value, default to General
+          if (!isFirst && !isSecond && !isThird && !isFourth) {
             console.log(`[Monthly OT] Employee ${normalizedEmpId} on ${normalizedDate} defaulting to General shift (NewShiftMap has "${newShiftType}" but not 1st or 2nd)`);
             return true; // Default to General if NewShiftMap has a shift type but it's not 1st or 2nd
           }
           return false; // If it's 1st or 2nd, it's not General
+        }
+
+        if (isUnmappedNewShiftMapDate(empId, dateStr)) {
+          return true;
         }
        
         // Fallback to Shiftmap if not found in NewShiftMap
@@ -828,6 +845,10 @@ module.exports = async (req, res) => {
             return true;
           }
         }
+
+        if (isUnmappedNewShiftMapDate(empId, dateStr)) {
+          return false;
+        }
        
         // Fallback to Shiftmap if not found in NewShiftMap
         if (!shiftMap[empId] || shiftMap[empId].length === 0) {
@@ -871,6 +892,10 @@ module.exports = async (req, res) => {
             return true;
           }
         }
+
+        if (isUnmappedNewShiftMapDate(empId, dateStr)) {
+          return false;
+        }
        
         // Fallback to Shiftmap if not found in NewShiftMap
         if (!shiftMap[empId] || shiftMap[empId].length === 0) {
@@ -909,6 +934,10 @@ module.exports = async (req, res) => {
             u === '3' || u === 'SHIFT 3' || u.includes('3RD') || u.includes('THIRD');
         }
 
+        if (isUnmappedNewShiftMapDate(empId, dateStr)) {
+          return false;
+        }
+
         if (!shiftMap[empId] || shiftMap[empId].length === 0) {
           return false;
         }
@@ -929,6 +958,45 @@ module.exports = async (req, res) => {
         }
         return false;
       };
+
+      const isFourthShift = (empId, dateStr) => {
+        const normalizedEmpId = String(empId).trim();
+        const normalizedDate = normalizeDateForCompare(dateStr);
+        const newShiftKey = `${normalizedEmpId}_${normalizedDate}`;
+        const newShiftType = newShiftMap[newShiftKey];
+
+        if (newShiftType) {
+          const u = String(newShiftType || '').trim().toUpperCase();
+          return u === '4TH' || u === '4TH SHIFT' || u === 'FOURTH' || u === 'FOURTH SHIFT' ||
+            u === '4' || u === 'SHIFT 4' || u.includes('4TH') || u.includes('FOURTH');
+        }
+
+        if (isUnmappedNewShiftMapDate(empId, dateStr)) {
+          return false;
+        }
+
+        if (!shiftMap[empId] || shiftMap[empId].length === 0) {
+          return false;
+        }
+
+        for (const shift of shiftMap[empId]) {
+          const shiftName = String(shift.assignedShift || '').trim().toUpperCase();
+          if (shiftName === '4TH' || shiftName === '4TH SHIFT' || shiftName === 'FOURTH' ||
+              shiftName === 'FOURTH SHIFT' || shiftName === '4' || shiftName === 'SHIFT 4' ||
+              shiftName.includes('4TH') || shiftName.includes('FOURTH')) {
+            if (shift.fromdate && shift.todate) {
+              if (dateStr >= shift.fromdate && dateStr <= shift.todate) return true;
+            } else if (shift.fromdate && dateStr >= shift.fromdate) {
+              return true;
+            } else if (shift.todate && dateStr <= shift.todate) {
+              return true;
+            }
+          }
+        }
+        return false;
+      };
+
+      const isThirdOrFourthShift = (empId, dateStr) => isThirdShift(empId, dateStr) || isFourthShift(empId, dateStr);
 
       // Helper function to check if employee is on Housekeeping shift for a specific date
       // Housekeeping OT rule: no fixed start/end; OT only when total > 9h, then OT = total − 8.
@@ -1102,20 +1170,51 @@ module.exports = async (req, res) => {
         }
       };
 
-      /** Full standard day (8h 30m) on site before OT counts: OT = max(0, LastOUT − FirstIN − 8.5h). */
-      const STANDARD_DAY_HOURS_BEFORE_OT = 8.5;
-      const otHoursFromFirstInLastOutSpan = (firstInStr, lastOutStr) => {
-        if (!firstInStr || !lastOutStr) return 0;
-        try {
-          const a = new Date(String(firstInStr).trim().replace(' ', 'T'));
-          const b = new Date(String(lastOutStr).trim().replace(' ', 'T'));
-          if (isNaN(a.getTime()) || isNaN(b.getTime()) || b <= a) return 0;
-          const totalWorkingHours = (b - a) / (1000 * 60 * 60);
-          if (totalWorkingHours <= STANDARD_DAY_HOURS_BEFORE_OT) return 0;
-          return Math.max(0, parseFloat((totalWorkingHours - STANDARD_DAY_HOURS_BEFORE_OT).toFixed(3)));
-        } catch (_) {
-          return 0;
+      /** OT after shift end (checkout minus shift out), not FirstIN–LastOUT span minus 8.5h. */
+      const calculateOtHoursAfterShiftOut = (empId, dateStr, lastOutStr, firstInStr) => {
+        if (!lastOutStr || !dateStr) return 0;
+
+        if (isHousekeepingShift(empId, dateStr)) {
+          if (!firstInStr) return 0;
+          try {
+            const firstInDate = new Date(String(firstInStr).trim().replace(' ', 'T'));
+            const lastOutDate = new Date(String(lastOutStr).trim().replace(' ', 'T'));
+            if (isNaN(firstInDate.getTime()) || isNaN(lastOutDate.getTime())) return 0;
+            const diffMs = lastOutDate - firstInDate;
+            if (diffMs <= 0) return 0;
+            const totalWorkingHours = diffMs / (1000 * 60 * 60);
+            return totalWorkingHours > 9
+              ? parseFloat((totalWorkingHours - 8).toFixed(3))
+              : 0;
+          } catch (_) {
+            return 0;
+          }
         }
+
+        const assignedShiftDef = getShiftDefinitionForEmployeeDate(empId, dateStr);
+        if (assignedShiftDef) {
+          return calculateOvertimeForDynamicShift(
+            lastOutStr,
+            dateStr,
+            assignedShiftDef.toTime,
+            assignedShiftDef.fromTime
+          );
+        }
+
+        if (isGeneralIIShiftMonthlyOT(empId, dateStr)) {
+          return calculateOvertimeForGeneralIIShift(lastOutStr, dateStr);
+        }
+        if (isGeneralShift(empId, dateStr)) {
+          return calculateOvertimeForGeneralShift(lastOutStr, dateStr);
+        }
+        if (isFirstShift(empId, dateStr)) {
+          return calculateOvertimeForFirstShift(lastOutStr, dateStr);
+        }
+        if (isSecondShift(empId, dateStr)) {
+          return calculateOvertimeForSecondShift(lastOutStr, dateStr);
+        }
+
+        return calculateOvertimeForGeneralShift(lastOutStr, dateStr);
       };
 
       // Helper function to calculate overtime for General shift
@@ -1436,15 +1535,6 @@ module.exports = async (req, res) => {
               // Calculate total hours from FirstIn to LastOut
               const totalHours = (outTime - inTime) / (1000 * 60 * 60);
              
-              // Check which shift the employee is on for this date
-              const isHousekeeping = isHousekeepingShift(empDateData.EmployeeID, dateStr);
-              const isGeneralII = isGeneralIIShiftMonthlyOT(empDateData.EmployeeID, dateStr);
-              const isGeneral = isGeneralShift(empDateData.EmployeeID, dateStr);
-              const isFirst = isFirstShift(empDateData.EmployeeID, dateStr);
-              const isSecond = isSecondShift(empDateData.EmployeeID, dateStr);
-              const isThird = isThirdShift(empDateData.EmployeeID, dateStr);
-              const assignedShiftDef = getShiftDefinitionForEmployeeDate(empDateData.EmployeeID, dateStr);
-             
               let overtimeHours = 0;
 
             const currentDate = new Date(dateStr);
@@ -1481,9 +1571,8 @@ module.exports = async (req, res) => {
                 LastOut: lastOut,
                 Source: 'BHR_H'
               });
-            } else if (!hasNewShiftMapEntry(empDateData.EmployeeID, dateStr) && !assignedShiftDef && !isHousekeeping) {
-              // No shift in NewShiftMap: OT = time on site (FirstIn→LastOut) minus 8h30 standard day.
-              overtimeHours = otHoursFromFirstInLastOutSpan(firstIn, lastOut);
+            } else {
+              overtimeHours = calculateOtHoursAfterShiftOut(empDateData.EmployeeID, dateStr, lastOut, firstIn);
               if (overtimeHours > 0 || dateStr === '2026-01-03') {
                 overtimeRecords.push({
                   EmployeeID: empDateData.EmployeeID,
@@ -1495,132 +1584,7 @@ module.exports = async (req, res) => {
                   Source: 'BHR'
                 });
               }
-            } else if (isHousekeeping) {
-                // Housekeeping: OT only when total > 9h; then OT = total − 8 (e.g. 9h 30m → 1h 30m OT; 8h 30m → 0 OT). No early-arrival OT.
-                overtimeHours = totalHours > 9 ? (totalHours - 8) : 0;
-                if (overtimeHours > 0 || dateStr === '2026-01-03') {
-                  overtimeRecords.push({
-                    EmployeeID: empDateData.EmployeeID,
-                    Date: dateStr,
-                    TotalHours: totalHours,
-                    OvertimeHours: overtimeHours,
-                    FirstIn: firstIn,
-                    LastOut: lastOut,
-                    Source: 'BHR'
-                  });
-                  console.log(`Employee ${empDateData.EmployeeID} on ${dateStr} (Housekeeping): ${totalHours.toFixed(2)} hours, OT: ${overtimeHours.toFixed(2)} hours (total − 8h)`);
-                }
-              } else if (assignedShiftDef) {
-                overtimeHours = otHoursFromFirstInLastOutSpan(firstIn, lastOut);
-                if (overtimeHours > 0 || dateStr === '2026-01-03') {
-                  overtimeRecords.push({
-                    EmployeeID: empDateData.EmployeeID,
-                    Date: dateStr,
-                    TotalHours: totalHours,
-                    OvertimeHours: overtimeHours,
-                    FirstIn: firstIn,
-                    LastOut: lastOut,
-                    Source: 'BHR'
-                  });
-                }
-              } else if (isThird) {
-                overtimeHours = otHoursFromFirstInLastOutSpan(firstIn, lastOut);
-                if (overtimeHours > 0 || dateStr === '2026-01-03') {
-                  overtimeRecords.push({
-                    EmployeeID: empDateData.EmployeeID,
-                    Date: dateStr,
-                    TotalHours: totalHours,
-                    OvertimeHours: overtimeHours,
-                    FirstIn: firstIn,
-                    LastOut: lastOut,
-                    Source: 'BHR'
-                  });
-                }
-              } else if (hasNewShiftMapEntry(empDateData.EmployeeID, dateStr)) {
-                // Shift in NewShiftMap but not in Shift master → FirstIn–LastOUT − 8.5h.
-                overtimeHours = otHoursFromFirstInLastOutSpan(firstIn, lastOut);
-                if (overtimeHours > 0 || dateStr === '2026-01-03') {
-                  overtimeRecords.push({
-                    EmployeeID: empDateData.EmployeeID,
-                    Date: dateStr,
-                    TotalHours: totalHours,
-                    OvertimeHours: overtimeHours,
-                    FirstIn: firstIn,
-                    LastOut: lastOut,
-                    Source: 'BHR'
-                  });
-                }
-              } else if (isGeneralII) {
-                overtimeHours = otHoursFromFirstInLastOutSpan(firstIn, lastOut);
-                if (overtimeHours > 0 || dateStr === '2026-01-03') {
-                  overtimeRecords.push({
-                    EmployeeID: empDateData.EmployeeID,
-                    Date: dateStr,
-                    TotalHours: totalHours,
-                    OvertimeHours: overtimeHours,
-                    FirstIn: firstIn,
-                    LastOut: lastOut,
-                    Source: 'BHR'
-                  });
-                }
-              } else if (isGeneral) {
-                overtimeHours = otHoursFromFirstInLastOutSpan(firstIn, lastOut);
-                if (overtimeHours > 0 || dateStr === '2026-01-03') {
-                  overtimeRecords.push({
-                    EmployeeID: empDateData.EmployeeID,
-                    Date: dateStr,
-                    TotalHours: totalHours,
-                    OvertimeHours: overtimeHours,
-                    FirstIn: firstIn,
-                    LastOut: lastOut,
-                    Source: 'BHR'
-                  });
-                  console.log(`Employee ${empDateData.EmployeeID} on ${dateStr} (General shift): ${totalHours.toFixed(2)}h on site, OT (after 8h30): ${overtimeHours.toFixed(2)}h`);
-                }
-              } else if (isFirst) {
-                overtimeHours = otHoursFromFirstInLastOutSpan(firstIn, lastOut);
-                if (overtimeHours > 0 || dateStr === '2026-01-03') {
-                  overtimeRecords.push({
-                    EmployeeID: empDateData.EmployeeID,
-                    Date: dateStr,
-                    TotalHours: totalHours,
-                    OvertimeHours: overtimeHours,
-                    FirstIn: firstIn,
-                    LastOut: lastOut,
-                    Source: 'BHR'
-                  });
-                  console.log(`Employee ${empDateData.EmployeeID} on ${dateStr} (1st shift): ${totalHours.toFixed(2)}h on site, OT (after 8h30): ${overtimeHours.toFixed(2)}h`);
-                }
-              } else if (isSecond) {
-                overtimeHours = otHoursFromFirstInLastOutSpan(firstIn, lastOut);
-                if (overtimeHours > 0 || dateStr === '2026-01-03') {
-                  overtimeRecords.push({
-                    EmployeeID: empDateData.EmployeeID,
-                    Date: dateStr,
-                    TotalHours: totalHours,
-                    OvertimeHours: overtimeHours,
-                    FirstIn: firstIn,
-                    LastOut: lastOut,
-                    Source: 'BHR'
-                  });
-                  console.log(`Employee ${empDateData.EmployeeID} on ${dateStr} (2nd shift): ${totalHours.toFixed(2)}h on site, OT (after 8h30): ${overtimeHours.toFixed(2)}h`);
-                }
-              } else {
-                // Other shifts: FirstIn–LastOUT on site minus 8h30.
-                if (totalHours > 8.5 || dateStr === '2026-01-03') {
-                  overtimeHours = otHoursFromFirstInLastOutSpan(firstIn, lastOut);
-                  overtimeRecords.push({
-                    EmployeeID: empDateData.EmployeeID,
-                    Date: dateStr,
-                    TotalHours: totalHours,
-                    OvertimeHours: overtimeHours,
-                    FirstIn: firstIn,
-                    LastOut: lastOut,
-                    Source: 'BHR'
-                  });
-                  console.log(`Employee ${empDateData.EmployeeID} on ${dateStr}: ${totalHours.toFixed(2)} hours (${overtimeHours.toFixed(2)} OT hours)`);
-                }
-              }
+            }
             }
           });
         }
@@ -1750,16 +1714,6 @@ module.exports = async (req, res) => {
             const dateStr = row.AttendanceDate;
             console.log(`Processing attendance record: EmployeeId=${row.EmployeeId}, FirstIn="${row.FirstIn}", LastOut="${row.LastOut}" -> ${totalHours} decimal hours`);
            
-            // Check if employee is on General shift for this date
-            // Check which shift the employee is on for this date
-            const isHousekeeping = isHousekeepingShift(row.EmployeeId, dateStr);
-            const isGeneralII = isGeneralIIShiftMonthlyOT(row.EmployeeId, dateStr);
-            const isGeneral = isGeneralShift(row.EmployeeId, dateStr);
-            const isFirst = isFirstShift(row.EmployeeId, dateStr);
-            const isSecond = isSecondShift(row.EmployeeId, dateStr);
-            const isThird = isThirdShift(row.EmployeeId, dateStr);
-            const assignedShiftDef = getShiftDefinitionForEmployeeDate(row.EmployeeId, dateStr);
-           
             let overtimeHours = 0;
 
             const currentDate = new Date(dateStr);
@@ -1800,132 +1754,9 @@ module.exports = async (req, res) => {
                 Source: 'Attendance_WO'
               });
               console.log(`Added overtime record (WO - Sunday): ${row.EmployeeId} on ${dateStr} - ${totalHours}h worked, OT (total): ${overtimeHours.toFixed(3)}h`);
-            } else if (!hasNewShiftMapEntry(row.EmployeeId, dateStr) && !assignedShiftDef && !isHousekeeping) {
-              overtimeHours = otHoursFromFirstInLastOutSpan(row.FirstIn, row.LastOut);
-              if (overtimeHours > 0 || dateStr === '2026-01-03') {
-                overtimeRecords.push({
-                  EmployeeID: row.EmployeeId,
-                  Date: dateStr,
-                  TotalHours: totalHours,
-                  OvertimeHours: overtimeHours,
-                  FirstIn: row.FirstIn,
-                  LastOut: row.LastOut,
-                  Source: 'Attendance'
-                });
-              }
-            } else if (isHousekeeping) {
-              // Housekeeping: OT only when total > 9h; then OT = total − 8. No early-arrival OT.
-              overtimeHours = totalHours > 9 ? (totalHours - 8) : 0;
-              if (overtimeHours > 0 || dateStr === '2026-01-03') {
-                overtimeRecords.push({
-                  EmployeeID: row.EmployeeId,
-                  Date: dateStr,
-                  TotalHours: totalHours,
-                  OvertimeHours: overtimeHours,
-                  FirstIn: row.FirstIn,
-                  LastOut: row.LastOut,
-                  Source: 'Attendance'
-                });
-                console.log(`Added overtime record (Housekeeping): ${row.EmployeeId} on ${dateStr} - ${totalHours}h total, ${overtimeHours.toFixed(3)}h OT (total − 8h)`);
-              }
-            } else if (assignedShiftDef) {
-              overtimeHours = otHoursFromFirstInLastOutSpan(row.FirstIn, row.LastOut);
-              if (overtimeHours > 0 || dateStr === '2026-01-03') {
-                overtimeRecords.push({
-                  EmployeeID: row.EmployeeId,
-                  Date: dateStr,
-                  TotalHours: totalHours,
-                  OvertimeHours: overtimeHours,
-                  FirstIn: row.FirstIn,
-                  LastOut: row.LastOut,
-                  Source: 'Attendance'
-                });
-              }
-            } else if (isThird) {
-              overtimeHours = otHoursFromFirstInLastOutSpan(row.FirstIn, row.LastOut);
-              if (overtimeHours > 0 || dateStr === '2026-01-03') {
-                overtimeRecords.push({
-                  EmployeeID: row.EmployeeId,
-                  Date: dateStr,
-                  TotalHours: totalHours,
-                  OvertimeHours: overtimeHours,
-                  FirstIn: row.FirstIn,
-                  LastOut: row.LastOut,
-                  Source: 'Attendance'
-                });
-              }
-            } else if (hasNewShiftMapEntry(row.EmployeeId, dateStr)) {
-              overtimeHours = otHoursFromFirstInLastOutSpan(row.FirstIn, row.LastOut);
-              if (overtimeHours > 0 || dateStr === '2026-01-03') {
-                overtimeRecords.push({
-                  EmployeeID: row.EmployeeId,
-                  Date: dateStr,
-                  TotalHours: totalHours,
-                  OvertimeHours: overtimeHours,
-                  FirstIn: row.FirstIn,
-                  LastOut: row.LastOut,
-                  Source: 'Attendance'
-                });
-              }
-            } else if (isGeneralII) {
-              overtimeHours = otHoursFromFirstInLastOutSpan(row.FirstIn, row.LastOut);
-              if (overtimeHours > 0 || dateStr === '2026-01-03') {
-                overtimeRecords.push({
-                  EmployeeID: row.EmployeeId,
-                  Date: dateStr,
-                  TotalHours: totalHours,
-                  OvertimeHours: overtimeHours,
-                  FirstIn: row.FirstIn,
-                  LastOut: row.LastOut,
-                  Source: 'Attendance'
-                });
-              }
-            } else if (isGeneral) {
-              overtimeHours = otHoursFromFirstInLastOutSpan(row.FirstIn, row.LastOut);
-              if (overtimeHours > 0 || dateStr === '2026-01-03') {
-                overtimeRecords.push({
-                  EmployeeID: row.EmployeeId,
-                  Date: dateStr,
-                  TotalHours: totalHours,
-                  OvertimeHours: overtimeHours,
-                  FirstIn: row.FirstIn,
-                  LastOut: row.LastOut,
-                  Source: 'Attendance'
-                });
-                console.log(`Added overtime record (General shift): ${row.EmployeeId} on ${dateStr} - ${totalHours}h on site, OT (after 8h30): ${overtimeHours.toFixed(3)}h`);
-              }
-            } else if (isFirst) {
-              overtimeHours = otHoursFromFirstInLastOutSpan(row.FirstIn, row.LastOut);
-              if (overtimeHours > 0 || dateStr === '2026-01-03') {
-                overtimeRecords.push({
-                  EmployeeID: row.EmployeeId,
-                  Date: dateStr,
-                  TotalHours: totalHours,
-                  OvertimeHours: overtimeHours,
-                  FirstIn: row.FirstIn,
-                  LastOut: row.LastOut,
-                  Source: 'Attendance'
-                });
-                console.log(`Added overtime record (1st shift): ${row.EmployeeId} on ${dateStr} - ${totalHours}h on site, OT (after 8h30): ${overtimeHours.toFixed(2)}h`);
-              }
-            } else if (isSecond) {
-              overtimeHours = otHoursFromFirstInLastOutSpan(row.FirstIn, row.LastOut);
-              if (overtimeHours > 0 || dateStr === '2026-01-03') {
-                overtimeRecords.push({
-                  EmployeeID: row.EmployeeId,
-                  Date: dateStr,
-                  TotalHours: totalHours,
-                  OvertimeHours: overtimeHours,
-                  FirstIn: row.FirstIn,
-                  LastOut: row.LastOut,
-                  Source: 'Attendance'
-                });
-                console.log(`Added overtime record (2nd shift): ${row.EmployeeId} on ${dateStr} - ${totalHours}h on site, OT (after 8h30): ${overtimeHours.toFixed(2)}h`);
-              }
             } else {
-              // Other shifts: FirstIn–LastOUT minus 8h30.
-              if (totalHours > 8.5 || dateStr === '2026-01-03') {
-                overtimeHours = otHoursFromFirstInLastOutSpan(row.FirstIn, row.LastOut);
+              overtimeHours = calculateOtHoursAfterShiftOut(row.EmployeeId, dateStr, row.LastOut, row.FirstIn);
+              if (overtimeHours > 0 || dateStr === '2026-01-03') {
                 overtimeRecords.push({
                   EmployeeID: row.EmployeeId,
                   Date: dateStr,
@@ -1935,7 +1766,6 @@ module.exports = async (req, res) => {
                   LastOut: row.LastOut,
                   Source: 'Attendance'
                 });
-                console.log(`Added overtime record: ${row.EmployeeId} - ${totalHours}h total, ${overtimeHours.toFixed(2)}h overtime`);
               }
             }
           });
@@ -2036,16 +1866,16 @@ module.exports = async (req, res) => {
       // Add BHR records to byKey (always try, not just if bhrRecords > 0)
       // This ensures we get data even if original query didn't find records due to different filters
       // Use pagination like attendance muster to handle large date ranges
+      let allBhrRowsForByKey = [];
       try {
         let offset = 0;
         const pageSize = 300;
         let hasMore = true;
-        let allBhrRowsForByKey = [];
        
         while (hasMore) {
           let bhrQueryForByKey = `SELECT EmployeeID, EventTime, Direction FROM BHR
                                  WHERE EventTime >= '${startDate} 00:00:00'
-                                 AND EventTime <= '${endDateStr} 23:59:59'`;
+                                 AND EventTime <= '${monthlyOtBhrFetchEndExtended} 23:59:59'`;
           if (employeeFilterConditionsForByKey.length > 0) {
             bhrQueryForByKey += ` AND ${employeeFilterConditionsForByKey.join(' AND ')}`;
           }
@@ -2634,6 +2464,22 @@ module.exports = async (req, res) => {
       } catch (compoffErr) {
         console.error('Error fetching CompOff for monthly OT exclusions:', compoffErr);
       }
+
+      const monthlyOtDates = buildDatesList(startDateOnly, endDateOnly);
+      const getShiftTypeForOvernightMonthlyOt = buildGetShiftTypeForDate(shiftMap, newShiftMap);
+      applyOvernightShiftPunchPairing({
+        allLogs: allBhrRowsForByKey,
+        byKey,
+        startDate: startDateOnly,
+        endDate: endDateOnly,
+        dates: monthlyOtDates,
+        isThirdOrFourthShiftOnDate: (empId, dateStr) => {
+          const cls = getShiftTypeForOvernightMonthlyOt(empId, dateStr);
+          return cls === 'THIRD' || cls === 'FOURTH';
+        },
+        bhrFetchEndExtended: monthlyOtBhrFetchEndExtended,
+        logPrefix: 'Monthly OT'
+      });
      
       // Now recalculate OT from byKey using the same logic as attendance muster
       // This ensures we use the same data source and calculation as attendance muster
@@ -2741,67 +2587,7 @@ module.exports = async (req, res) => {
             });
             return;
           }
-          // No shift assigned in NewShiftMap for this employee-date → use General shift OT (e.g. 08:12-16:55 = 0 OT).
-          const hasShiftInfo = Object.keys(shiftMap).length > 0 || Object.keys(newShiftMap).length > 0;
-          const isHousekeeping = hasShiftInfo ? isHousekeepingShift(rec.EmployeeID, rec.Date) : false;
-          const assignedShiftDef = getShiftDefinitionForEmployeeDate(rec.EmployeeID, rec.Date);
-          if (!hasNewShiftMapEntry(rec.EmployeeID, rec.Date) && !assignedShiftDef && !isHousekeeping) {
-            const otHoursGeneral = otHoursFromFirstInLastOutSpan(rec.FirstIN, rec.LastOUT);
-            const finalOtHours = isOTExcluded(rec.EmployeeID, rec.Date) ? 0 : otHoursGeneral;
-            overtimeFromByKey.push({
-              EmployeeID: rec.EmployeeID,
-              Date: rec.Date,
-              TotalHours: totalHours,
-              OvertimeHours: finalOtHours,
-              FirstIn: rec.FirstIN,
-              LastOut: rec.LastOUT,
-              Source: rec.Source
-            });
-            return;
-          }
-          const isGeneralII = hasShiftInfo ? isGeneralIIShiftMonthlyOT(rec.EmployeeID, rec.Date) : false;
-          const isGeneral = hasShiftInfo ? isGeneralShift(rec.EmployeeID, rec.Date) : false;
-          const isFirst = hasShiftInfo ? isFirstShift(rec.EmployeeID, rec.Date) : false;
-          const isSecond = hasShiftInfo ? isSecondShift(rec.EmployeeID, rec.Date) : false;
-         
-          // Debug logging for shift detection
-          if (rec.EmployeeID && rec.Date && (rec.LastOUT && rec.LastOUT.includes('23:59') || rec.LastOUT && rec.LastOUT.includes('23:5'))) {
-            console.log(`[Monthly OT Debug] Employee ${rec.EmployeeID} on ${rec.Date}: FirstIN=${rec.FirstIN}, LastOUT=${rec.LastOUT}, hasShiftInfo=${hasShiftInfo}, isHK=${isHousekeeping}, isGeneral=${isGeneral}, isFirst=${isFirst}, isSecond=${isSecond}`);
-          }
-
-          let otHours = 0;
-          // Holiday and WO already handled above (total hours, early return). Here only shift-based.
-          if (isHousekeeping) {
-            // Housekeeping: OT only when total > 9h; then OT = total − 8. No early-arrival OT.
-            if (!isNaN(firstInDate) && !isNaN(lastOutDate)) {
-              const diffMs = lastOutDate - firstInDate;
-              if (diffMs > 0) {
-                const totalWorkingHours = diffMs / (1000 * 60 * 60);
-                otHours = totalWorkingHours > 9 ? (totalWorkingHours - 8) : 0;
-              }
-            }
-          } else if (assignedShiftDef) {
-            otHours = otHoursFromFirstInLastOutSpan(rec.FirstIN, rec.LastOUT);
-          } else if (isThirdShift(rec.EmployeeID, rec.Date)) {
-            otHours = otHoursFromFirstInLastOutSpan(rec.FirstIN, rec.LastOUT);
-          } else if (hasNewShiftMapEntry(rec.EmployeeID, rec.Date)) {
-            // Shift is assigned in NewShiftMap but not resolved in Shift master → same span rule.
-            otHours = otHoursFromFirstInLastOutSpan(rec.FirstIN, rec.LastOUT);
-          } else if (isGeneralII) {
-            otHours = otHoursFromFirstInLastOutSpan(rec.FirstIN, rec.LastOUT);
-          } else if (isGeneral) {
-            otHours = otHoursFromFirstInLastOutSpan(rec.FirstIN, rec.LastOUT);
-            if (rec.EmployeeID && rec.Date && (rec.LastOUT && rec.LastOUT.includes('23:59') || rec.LastOUT && rec.LastOUT.includes('23:5'))) {
-              console.log(`[Monthly OT Debug] General shift OT (FirstIN–LastOUT − 8.5h): ${otHours} hours for Employee ${rec.EmployeeID} on ${rec.Date}`);
-            }
-          } else if (isFirst) {
-            otHours = otHoursFromFirstInLastOutSpan(rec.FirstIN, rec.LastOUT);
-          } else if (isSecond) {
-            otHours = otHoursFromFirstInLastOutSpan(rec.FirstIN, rec.LastOUT);
-          } else {
-            otHours = otHoursFromFirstInLastOutSpan(rec.FirstIN, rec.LastOUT);
-          }
-
+          const otHours = calculateOtHoursAfterShiftOut(rec.EmployeeID, rec.Date, rec.LastOUT, rec.FirstIN);
           const finalOtHours = isOTExcluded(rec.EmployeeID, rec.Date) ? 0 : otHours;
          
           overtimeFromByKey.push({
@@ -5189,6 +4975,9 @@ module.exports = async (req, res) => {
         startDate = `${date} 00:00:00`;
         endDate = `${date} 23:59:59`;
       }
+
+      const lohBhrFetchEndExtended = bhrFetchEndExtendedFrom(endDateOnly);
+      const lohBhrFetchEndDateTime = `${lohBhrFetchEndExtended} 23:59:59`;
      
       const zcql = catalystApp.zcql();
 
@@ -5465,7 +5254,7 @@ module.exports = async (req, res) => {
       while (hasMore) {
         let query = `SELECT EmployeeID, EventTime, DeviceSerial FROM BHR
                      WHERE EventTime >= '${startDate}'
-                     AND EventTime <= '${endDate}'`;
+                     AND EventTime <= '${lohBhrFetchEndDateTime}'`;
         if (employeeFilterConditions.length > 0) {
           query += ` AND ${employeeFilterConditions.join(' AND ')}`;
         }
@@ -5486,7 +5275,7 @@ module.exports = async (req, res) => {
           hasMore = false;
         }
       }
-      console.log(`LOH: Fetched ${allLogs.length} BHR records`);
+      console.log(`LOH: Fetched ${allLogs.length} BHR records (through ${lohBhrFetchEndDateTime} for overnight checkout)`);
      
       // Aggregate BHR per EmployeeID + Date using earliest and latest EventTime
       allLogs.forEach(r => {
@@ -6371,7 +6160,7 @@ module.exports = async (req, res) => {
       const newShiftMap = {}; // Key: "employeeCode_date" -> shiftType
       try {
         console.log(`LOH: Fetching shift data from NewShiftMap for date range ${startDate} to ${endDate}`);
-        const newShiftMapQuery = `SELECT EmployeeCode, ShiftDate, ShiftType FROM NewShiftMap WHERE ShiftDate >= '${startDate}' AND ShiftDate <= '${endDate}'`;
+        const newShiftMapQuery = `SELECT EmployeeCode, ShiftDate, ShiftType FROM NewShiftMap WHERE ShiftDate >= '${startDateOnly}' AND ShiftDate <= '${endDateOnly}'`;
        
         // Use pagination to fetch all records (ZCQL max limit is 300)
         const pageSize = 300;
@@ -6442,6 +6231,26 @@ module.exports = async (req, res) => {
         // Continue without NewShiftMap information if query fails
       }
 
+      const lohNewShiftMapDateHelpers = buildNewShiftMapDateHelpers(newShiftMap);
+      const isUnmappedNewShiftMapDateLOH = (empId, dateStr) =>
+        lohNewShiftMapDateHelpers.isUnmappedNewShiftMapDate(empId, dateStr);
+
+      const lohDates = buildDatesList(startDateOnly, endDateOnly);
+      const getShiftTypeForOvernightLoh = buildGetShiftTypeForDate(shiftMap, newShiftMap);
+      applyOvernightShiftPunchPairing({
+        allLogs,
+        byKey,
+        startDate: startDateOnly,
+        endDate: endDateOnly,
+        dates: lohDates,
+        isThirdOrFourthShiftOnDate: (empId, dateStr) => {
+          const cls = getShiftTypeForOvernightLoh(empId, dateStr);
+          return cls === 'THIRD' || cls === 'FOURTH';
+        },
+        bhrFetchEndExtended: lohBhrFetchEndExtended,
+        logPrefix: 'LOH'
+      });
+
       // Fetch Shift table (shift_function) definitions so LOH uses mapped shift start/end, not hardcoded times
       const lohShiftDefinitions = {};
       const normalizeShiftNameKeyLOH = (name) => String(name || '').trim().toUpperCase().replace(/\s+/g, '');
@@ -6471,6 +6280,7 @@ module.exports = async (req, res) => {
 
       // Get assigned shift name for employee+date (NewShiftMap priority, then Shiftmap)
       const getAssignedShiftForDateLOH = (empId, dateStr) => {
+        if (isUnmappedNewShiftMapDateLOH(empId, dateStr)) return '';
         const normalizedEmpId = String(empId).trim();
         const normalizedDate = normalizeDateForCompare(dateStr);
         const newShiftKey = `${normalizedEmpId}_${normalizedDate}`;
@@ -6555,6 +6365,7 @@ module.exports = async (req, res) => {
             return true;
           }
         }
+        if (isUnmappedNewShiftMapDateLOH(empId, dateStr)) return false;
         // Jan 3 2026 only: use only NewShiftMap for LOH; do not fallback to Shiftmap
         if (normalizedDate === normalizeDateForCompare('2026-01-03')) return false;
        
@@ -6631,6 +6442,7 @@ module.exports = async (req, res) => {
             return true;
           }
         }
+        if (isUnmappedNewShiftMapDateLOH(empId, dateStr)) return false;
         // Jan 3 2026 only: use only NewShiftMap for LOH; do not fallback to Shiftmap
         if (normalizedDate === normalizeDateForCompare('2026-01-03')) return false;
        
@@ -6722,6 +6534,7 @@ module.exports = async (req, res) => {
           }
           return false; // If it's 1st or 2nd, it's not General
         }
+        if (isUnmappedNewShiftMapDateLOH(empId, dateStr)) return true;
         // Jan 3 2026 only: use only NewShiftMap for LOH; do not fallback to Shiftmap
         if (normalizedDate === normalizeDateForCompare('2026-01-03')) return false;
        

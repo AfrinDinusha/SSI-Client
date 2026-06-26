@@ -246,6 +246,7 @@ const Payroll = () => {
     otherAllowances: 'Other Allowances',
     travelChargers: 'Travel Chargers',
     specialAllowance: 'Special Allowance',
+    earnedSpecialAllowance: 'Earned Special Allowance',
     loanAllowance: 'Loan',
     noOfDaysWithoutUniforms: 'No of days without uniforms',
     actualTotalSalary: 'Actual Total Gross',
@@ -1263,6 +1264,12 @@ const Payroll = () => {
       return Number.isFinite(n) ? Math.round(n) : (v !== '' && v !== null && v !== undefined ? v : 0);
     }
     if (lower === 'earned special allowance') {
+      const specialAllowance = Number(employee.specialAllowance ?? employee.SpecialAllowance) || 0;
+      const daysInMonth = parseFloat(employee.daysInMonth ?? employee.DaysInMonth) || 31;
+      const daysPresent = parseFloat(employee.daysPresent ?? employee.DaysPresent) || 0;
+      if (specialAllowance > 0 && daysInMonth > 0) {
+        return Math.round(Math.max(0, (specialAllowance / daysInMonth) * daysPresent));
+      }
       const v = employee.earnedSpecialAllowance ?? employee.EarnedSpecialAllowance ?? '';
       const n = Number(v);
       return Number.isFinite(n) ? Math.round(n) : (v !== '' && v !== null && v !== undefined ? v : 0);
@@ -1927,16 +1934,9 @@ const Payroll = () => {
         const rawEarnedSpecial = payrollFieldNumber(row.earnedSpecialAllowance, row.EarnedSpecialAllowance);
         const dim = payrollFieldNumber(row.daysInMonth, row.DaysInMonth) || 31;
         const dp = payrollFieldNumber(row.daysPresent, row.DaysPresent);
-        const lohRow = payrollFieldNumber(row.loh, row.LOH);
         let earnedSpecialAllowance = rawEarnedSpecial;
-        if (specialAllowance > 0 && rawEarnedSpecial === 0) {
-          earnedSpecialAllowance =
-            dim > 0
-              ? Math.max(
-                  0,
-                  Math.round((specialAllowance / dim) * dp - (specialAllowance / dim / 8) * lohRow)
-                )
-              : 0;
+        if (specialAllowance > 0 && dim > 0) {
+          earnedSpecialAllowance = Math.max(0, Math.round((specialAllowance / dim) * dp));
         }
         const revisedFromApi = pickRevisedLohFromPayrollRow(row);
         return {
@@ -2551,16 +2551,9 @@ const Payroll = () => {
           const rawEarnedSpecial = pfnRun(row.earnedSpecialAllowance, row.EarnedSpecialAllowance);
           const dim = pfnRun(row.daysInMonth, row.DaysInMonth) || 31;
           const dp = pfnRun(row.daysPresent, row.DaysPresent);
-          const lohRow = pfnRun(row.loh, row.LOH);
           let earnedSpecialAllowance = rawEarnedSpecial;
-          if (specialAllowance > 0 && rawEarnedSpecial === 0) {
-            earnedSpecialAllowance =
-              dim > 0
-                ? Math.max(
-                    0,
-                    Math.round((specialAllowance / dim) * dp - (specialAllowance / dim / 8) * lohRow)
-                  )
-                : 0;
+          if (specialAllowance > 0 && dim > 0) {
+            earnedSpecialAllowance = Math.max(0, Math.round((specialAllowance / dim) * dp));
           }
           return { ...row, specialAllowance, earnedSpecialAllowance, unit: payrollRowUnitDisplay(row) };
         });
@@ -3448,8 +3441,8 @@ const Payroll = () => {
     const earnedSalaryCross = baseEarnedGross + otAmount; // Earned Gross Salary = baseEarnedGross + OT only (exclude special allowance, other allowances)
     const pfEnabled = isPfEnabled(formData);
     const esiEnabled = isEsiEnabled(formData);
-    // Earned Special Allowance = (Special Allowance / No. of Days(In month) * No. of Days Present) - ((Special Allowance / No. of Days(In month)) / 8 * LOH)
-    const earnedSpecialAllowanceForm = daysInMonth > 0 ? Math.max(0, ((specialAllowance / daysInMonth) * daysPresent) - (((specialAllowance / daysInMonth) / 8) * loh)) : 0;
+    // Earned Special Allowance = (Special Allowance / No. of Days(In month) * No. of Days Present)
+    const earnedSpecialAllowanceForm = daysInMonth > 0 ? Math.max(0, (specialAllowance / daysInMonth) * daysPresent) : 0;
     // When Actual Special Allowance is 0 (or missing on row) but payroll row still has Earned Special Allowance from run/import/DB, keep it — otherwise Save sends 0 and the grid shows ₹0.
     const savedEarnedSpecialAllowance = parseLooseNumber(formData.earnedSpecialAllowance ?? formData.EarnedSpecialAllowance);
     const earnedSpecialAllowanceResolved =
@@ -4025,11 +4018,9 @@ const Payroll = () => {
     const earnedAttendanceAllowance = daysInMonth > 0 ? ((otherAllowance / daysInMonth) * daysPresent) - (((otherAllowance / daysInMonth) / 8) * loh) : 0;
     // Earned Other Allowances = (OtherAllowances / daysInMonth * daysPresent) - ((OtherAllowances / daysInMonth) / 8 * LOH)
     const earnedOtherAllowances = daysInMonth > 0 ? ((otherAllowancesVal / daysInMonth) * daysPresent) - (((otherAllowancesVal / daysInMonth) / 8) * loh) : 0;
-    // Earned Special Allowance (same proration as payroll run); DB/API often has 0 while Special Allowance is set — table was showing ₹0.
+    // Earned Special Allowance = (Special Allowance / daysInMonth * daysPresent)
     const earnedSpecialFromProration =
-      daysInMonth > 0
-        ? Math.max(0, ((specialAllowance / daysInMonth) * daysPresent) - (((specialAllowance / daysInMonth) / 8) * loh))
-        : 0;
+      daysInMonth > 0 ? Math.max(0, (specialAllowance / daysInMonth) * daysPresent) : 0;
     const storedEarnedSpecial = num(emp.earnedSpecialAllowance ?? emp.EarnedSpecialAllowance);
     const earnedSpecialAllowance =
       specialAllowance > 0 ? earnedSpecialFromProration : storedEarnedSpecial;
