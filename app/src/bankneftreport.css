@@ -1,5 +1,10 @@
 /* Bank NEFT Report — extends Bank Format Report (muster-table + bank-report-table) */
 
+.bank-report-status-select {
+  cursor: pointer;
+  min-width: 120px;
+}
+
 .bank-neft-report-table td.bank-neft-amount-cell,
 .bank-neft-report-table th:first-child {
   text-align: right;

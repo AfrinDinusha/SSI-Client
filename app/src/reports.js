@@ -188,16 +188,16 @@ export default function Reports({ userRole = 'App Administrator', userEmail = nu
   /** Per-employee OT adjustment (hours); added to Total Overtime for Final OT Value */
   const [otAdjustments, setOtAdjustments] = useState({});
 
-  // Generate array of dates between startDate and endDate
+  // Generate array of dates between startDate and endDate (noon local avoids UTC column shift)
   const generateDateRange = (start, end) => {
     const dates = [];
-    const startDateObj = new Date(start);
-    const endDateObj = new Date(end);
-    const currentDate = new Date(startDateObj);
-    
-    while (currentDate <= endDateObj) {
-      dates.push(currentDate.toISOString().slice(0, 10));
-      currentDate.setDate(currentDate.getDate() + 1);
+    const startD = new Date(`${start}T12:00:00`);
+    const endD = new Date(`${end}T12:00:00`);
+    if (isNaN(startD.getTime()) || isNaN(endD.getTime())) return dates;
+    for (let d = new Date(startD); d <= endD; d.setDate(d.getDate() + 1)) {
+      dates.push(
+        `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+      );
     }
     return dates;
   };

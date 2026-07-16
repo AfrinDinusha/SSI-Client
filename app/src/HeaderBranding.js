@@ -1,17 +1,11 @@
 import React from 'react';
-import payslipLogo from './assets/SSI Payslip logo.png';
 
 /**
- * Logo and "S.S. INDUSTRIES" text for the right side of the header.
- * Used across all pages with the cms-header.
+ * Header branding slot (logo + company name). Intentionally empty —
+ * previously showed SSI logo and "S.S. INDUSTRIES" on all pages.
  */
 function HeaderBranding() {
-  return (
-    <div className="cms-header-branding">
-      <img src={payslipLogo} alt="SSI" className="cms-header-payslip-logo" />
-      <span className="cms-header-branding-text">S.S. INDUSTRIES</span>
-    </div>
-  );
+  return null;
 }
 
 export default HeaderBranding;

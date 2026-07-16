@@ -1436,11 +1436,11 @@ module.exports = async (req, res) => {
           // If times are empty but NoofHours exists, try to calculate default times
           if (!normalizedFirstIn || !normalizedLastOut) {
             console.log(`⚠️ OnDuty times are empty after normalization, using defaults`);
-            // Default times: 08:25 to 16:55 (full day)
-            const defaultFirstIn = `${dateStr} 08:25:00`;
-            const defaultLastOut = `${dateStr} 16:55:00`;
+            // Default times: 08:30 to 17:00 (full day)
+            const defaultFirstIn = `${dateStr} 08:30:00`;
+            const defaultLastOut = `${dateStr} 17:00:00`;
            
-            // If NoofHours indicates half day, use 08:25 to 13:00 (half day)
+            // If NoofHours indicates half day, use 08:30 to 13:00 (half day)
             if (r.NoofHours) {
               const hours = String(r.NoofHours).trim().toLowerCase();
               if (hours === 'half day' || hours === 'halfday' || hours === '0.5') {
@@ -1599,8 +1599,8 @@ module.exports = async (req, res) => {
             if (comboffYes && isWoDate(workedOnDateStr)) compoffWoExcludeFromOT.add(workedOnKey);
             if (otYes) otYesFullHoursKeys.add(workedOnKey);
             const workedOnStatus = 'Present';
-            const workedOnFirstIn = `${workedOnDateStr} 08:25:00`;
-            const workedOnLastOut = `${workedOnDateStr} 16:55:00`;
+            const workedOnFirstIn = `${workedOnDateStr} 08:30:00`;
+            const workedOnLastOut = `${workedOnDateStr} 17:00:00`;
            
             // WorkedOn date should show as Present - takes precedence over Attendance but not OnDuty
             if (byKey[workedOnKey]) {
@@ -1641,8 +1641,8 @@ module.exports = async (req, res) => {
             compoffInRange++;
             const takenKey = `${employeeCode}_${takenDateStr}`;
             if (comboffYes) compoffWoExcludeFromOT.add(takenKey);
-            const defaultFirstIn = `${takenDateStr} 08:25:00`;
-            const defaultLastOut = `${takenDateStr} 16:55:00`;
+            const defaultFirstIn = `${takenDateStr} 08:30:00`;
+            const defaultLastOut = `${takenDateStr} 17:00:00`;
             if (comboffYes) {
             // CompOff records mark the Taken date as CO (Comp Off)
             const compoffStatus = 'CO';
@@ -2308,15 +2308,32 @@ module.exports = async (req, res) => {
       return 'GENERAL';
     };
 
+    const isDateWithinEmployeeNewShiftMapSpan = (shiftMapObj, empId, dateStr) => {
+      const emp = String(empId || '').trim();
+      const date = normalizeDateForCompare(dateStr);
+      if (!emp || !date || date.length < 7) return false;
+      const monthPrefix = date.slice(0, 7);
+      let minDate = null;
+      let maxDate = null;
+      for (const key of Object.keys(shiftMapObj || {})) {
+        if (!key.startsWith(`${emp}_`)) continue;
+        const d = key.slice(emp.length + 1);
+        if (!d.startsWith(monthPrefix)) continue;
+        if (!minDate || d < minDate) minDate = d;
+        if (!maxDate || d > maxDate) maxDate = d;
+      }
+      if (!minDate || !maxDate) return false;
+      return date >= minDate && date <= maxDate;
+    };
+
     const getShiftTypeForDate = (empId, dateStr) => {
       const emp = String(empId || '').trim();
       const date = normalizeDateForCompare(dateStr);
       const fromNew = newShiftMap[`${emp}_${date}`];
       if (fromNew) return classifyShiftType(fromNew);
 
-      // Employee has NewShiftMap rows in range but not this date → General (not legacy 3rd/4th).
-      const hasNewShiftMapRows = Object.keys(newShiftMap).some((k) => k.startsWith(`${emp}_`));
-      if (hasNewShiftMapRows) return 'GENERAL';
+      // NewShiftMap gap day inside employee's monthly span → General (not legacy 3rd/4th).
+      if (isDateWithinEmployeeNewShiftMapSpan(newShiftMap, emp, date)) return 'GENERAL';
 
       if (!shiftMap[emp] || shiftMap[emp].length === 0) return 'GENERAL';
 
@@ -3094,11 +3111,11 @@ module.exports = async (req, res) => {
       return { shouldCalculate: lohHours > 0, lohHours: lohHours };
     };
 
-    // Helper function to calculate LOH for general shift (8:25-16:55) with 10 min grace (8:25-8:35)
+    // Helper function to calculate LOH for general shift (8:30-17:00) with 10 min grace (8:30-8:40)
     const calculateLOHForGeneralShift = (firstInTime, lastOutTime) => {
-      const shiftStart = 8 * 60 + 25; // 08:25 = 505 minutes
-      const shiftEnd = 16 * 60 + 55; // 16:55 = 1015 minutes
-      const gracePeriodEnd = 8 * 60 + 35; // 08:35 = 515 minutes (10 min grace)
+      const shiftStart = 8 * 60 + 30; // 08:30 = 510 minutes
+      const shiftEnd = 17 * 60 + 0; // 17:00 = 1020 minutes
+      const gracePeriodEnd = 8 * 60 + 40; // 08:40 = 520 minutes (10 min grace)
       return calculateLOHForShift(firstInTime, lastOutTime, shiftStart, shiftEnd, gracePeriodEnd);
     };
 
@@ -3163,8 +3180,7 @@ module.exports = async (req, res) => {
 
     // LOH-adjusted first-in for display: after grace, round up to next :00 or :30 (e.g. 09:45→10:00, 10:15→10:30)
     const LOH_GRACE_MINUTES = 10;
-    const shiftStartByType = { GENERAL: 8 * 60 + 25, FIRST: 6 * 60 + 0, SECOND: 14 * 60 + 0, GENERAL_II: 12 * 60 + 0 };
-    const shiftEndByType = { GENERAL: 16 * 60 + 55, FIRST: 14 * 60 + 0, SECOND: 22 * 60 + 0, GENERAL_II: 20 * 60 + 0 };
+    const shiftStartByType = { GENERAL: 8 * 60 + 30, FIRST: 6 * 60 + 0, SECOND: 14 * 60 + 0, GENERAL_II: 12 * 60 + 0 };
     const lohFirstIn = employees.map((empId, empIdx) =>
       dates.map((date, dateIdx) => {
         const firstInTime = firstIn[empIdx] && firstIn[empIdx][dateIdx] ? firstIn[empIdx][dateIdx] : '';
@@ -3186,10 +3202,9 @@ module.exports = async (req, res) => {
         if (!lastOutTime) return '';
         const shiftType = getShiftTypeForDate(empId, date);
         if (shiftType === 'HOUSEKEEPING') return lastOutTime;
-        const shiftEnd = shiftEndByType[shiftType] ?? shiftEndByType.GENERAL;
         const lastOutMinutes = parseTime(lastOutTime);
         if (lastOutMinutes === null) return lastOutTime;
-        if (lastOutMinutes >= shiftEnd) return lastOutTime;
+        // Round check-out down to previous :00 or :30 for all shifts (e.g. 20:01→20:00, 17:02→17:00)
         return minutesToTimeStr(Math.floor(lastOutMinutes / 30) * 30);
       })
     );
@@ -3648,15 +3663,15 @@ module.exports = async (req, res) => {
 
         const lastOutTime = lastOutInstantFromStr(lastOutTimeStr, dateStr);
         if (!lastOutTime) return 0;
-        // Monthly OT report rule: no OT if checkout is 17:55 or earlier
-        const cutoffTime = new Date(`${dateStr} 17:55:00`.replace(' ', 'T'));
-        const baseTime = new Date(`${dateStr} 16:55:00`.replace(' ', 'T'));
+        // Monthly OT report rule: no OT if checkout is 18:00 or earlier
+        const cutoffTime = new Date(`${dateStr} 18:00:00`.replace(' ', 'T'));
+        const baseTime = new Date(`${dateStr} 17:00:00`.replace(' ', 'T'));
 
         if (isNaN(lastOutTime.getTime()) || isNaN(cutoffTime.getTime()) || isNaN(baseTime.getTime())) {
           return 0;
         }
 
-        // Only calculate OT if checkout is after cutoff (17:55)
+        // Only calculate OT if checkout is after cutoff (18:00)
         if (lastOutTime > cutoffTime) {
           const diffMs = lastOutTime - baseTime;
           const overtimeHours = diffMs / (1000 * 60 * 60);
@@ -3847,7 +3862,7 @@ module.exports = async (req, res) => {
             // For General II shift: 12:00-20:00, OT if checkout after 21:00
             otHours = calculateOvertimeForGeneralIIShift(rec.LastOUT, date);
           } else if (isGeneral) {
-            // For General shift: Calculate OT if checkout is after 17:55 (per Monthly OT report)
+            // For General shift: Calculate OT if checkout is after 18:00 (per Monthly OT report)
             otHours = calculateOvertimeForGeneralShift(rec.LastOUT, date);
           } else if (isFirst) {
             // For 1st shift: Calculate OT if checkout is after 15:00 (per Monthly OT report)

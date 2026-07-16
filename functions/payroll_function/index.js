@@ -204,10 +204,10 @@ async function calculatePresentDaysFromMuster(catalystApp, month, contractor, de
       try {
       const normalized = String(contractor || '').replace(/\s+/g, ' ').trim().replace(/'/g, "''");
         const contractorEmployeeQuery = await catalystApp.zcql().executeZCQLQuery(
-        `SELECT EmployeeID FROM Employee WHERE ContractorName LIKE '%${normalized}%'`
+        `SELECT EmployeeCode FROM Employee WHERE ContractorName LIKE '%${normalized}%'`
         );
         if (contractorEmployeeQuery && contractorEmployeeQuery.length > 0) {
-          employeeIds = contractorEmployeeQuery.map(emp => emp.Employee.EmployeeID);
+          employeeIds = contractorEmployeeQuery.map(emp => emp.Employee.EmployeeCode);
         }
       } catch (error) {
         console.error('Error applying contractor filter:', error);
@@ -218,10 +218,10 @@ async function calculatePresentDaysFromMuster(catalystApp, month, contractor, de
     if (department && department !== 'All') {
       try {
         const departmentEmployeeQuery = await catalystApp.zcql().executeZCQLQuery(
-          `SELECT EmployeeID FROM Employee WHERE Department = '${department}'`
+          `SELECT EmployeeCode FROM Employee WHERE Department = '${department}'`
         );
         if (departmentEmployeeQuery && departmentEmployeeQuery.length > 0) {
-          const departmentEmployeeIds = departmentEmployeeQuery.map(emp => emp.Employee.EmployeeID);
+          const departmentEmployeeIds = departmentEmployeeQuery.map(emp => emp.Employee.EmployeeCode);
           if (employeeIds.length > 0) {
             employeeIds = employeeIds.filter(id => departmentEmployeeIds.includes(id));
           } else {
@@ -637,8 +637,8 @@ async function calculatePresentDaysFromMuster(catalystApp, month, contractor, de
           if (workedOnDateStr && workedOnDateStr >= startDate && workedOnDateStr <= endDateStr) {
             const workedOnKey = `${employeeCode}_${workedOnDateStr}`;
             const workedOnStatus = 'Present';
-            const workedOnFirstIn = `${workedOnDateStr} 08:25:00`;
-            const workedOnLastOut = `${workedOnDateStr} 16:55:00`;
+            const workedOnFirstIn = `${workedOnDateStr} 08:30:00`;
+            const workedOnLastOut = `${workedOnDateStr} 17:00:00`;
          
             // WorkedOn date should show as Present - takes precedence over Attendance but not OnDuty
             if (byKey[workedOnKey]) {
@@ -681,8 +681,8 @@ async function calculatePresentDaysFromMuster(catalystApp, month, contractor, de
             // CompOff records mark the Taken date as CO (Comp Off)
             // They take precedence over Attendance but not over OnDuty
             const compoffStatus = 'CO';
-            const defaultFirstIn = `${takenDateStr} 08:25:00`;
-            const defaultLastOut = `${takenDateStr} 16:55:00`;
+            const defaultFirstIn = `${takenDateStr} 08:30:00`;
+            const defaultLastOut = `${takenDateStr} 17:00:00`;
          
             // CompOff records take precedence over Attendance but not OnDuty
             if (byKey[takenKey]) {
@@ -1032,10 +1032,10 @@ async function calculateLOHFromMuster(catalystApp, month, contractor, department
       try {
         const normalized = String(contractor || '').replace(/\s+/g, ' ').trim().replace(/'/g, "''");
         const contractorEmployeeQuery = await catalystApp.zcql().executeZCQLQuery(
-          `SELECT EmployeeID FROM Employee WHERE ContractorName LIKE '%${normalized}%'`
+          `SELECT EmployeeCode FROM Employee WHERE ContractorName LIKE '%${normalized}%'`
         );
         if (contractorEmployeeQuery && contractorEmployeeQuery.length > 0) {
-          employeeIds = contractorEmployeeQuery.map(emp => emp.Employee.EmployeeID);
+          employeeIds = contractorEmployeeQuery.map(emp => emp.Employee.EmployeeCode);
         }
       } catch (error) {
         console.error('Error applying contractor filter:', error);
@@ -1046,10 +1046,10 @@ async function calculateLOHFromMuster(catalystApp, month, contractor, department
     if (department && department !== 'All') {
       try {
         const departmentEmployeeQuery = await catalystApp.zcql().executeZCQLQuery(
-          `SELECT EmployeeID FROM Employee WHERE Department = '${department}'`
+          `SELECT EmployeeCode FROM Employee WHERE Department = '${department}'`
         );
         if (departmentEmployeeQuery && departmentEmployeeQuery.length > 0) {
-          const departmentEmployeeIds = departmentEmployeeQuery.map(emp => emp.Employee.EmployeeID);
+          const departmentEmployeeIds = departmentEmployeeQuery.map(emp => emp.Employee.EmployeeCode);
           if (employeeIds.length > 0) {
             employeeIds = employeeIds.filter(id => departmentEmployeeIds.includes(id));
           } else {
@@ -1230,11 +1230,11 @@ async function calculateLOHFromMuster(catalystApp, month, contractor, department
       return { shouldCalculate: lohHours > 0, lohHours: lohHours };
     };
 
-    // Helper function to calculate LOH for general shift (8:25-16:55) with 10 min grace (8:25-8:35)
+    // Helper function to calculate LOH for general shift (8:30-17:00) with 10 min grace (8:30-8:40)
     const calculateLOHForGeneralShift = (firstInTime, lastOutTime) => {
-      const shiftStart = 8 * 60 + 25; // 08:25 = 505 minutes
-      const shiftEnd = 16 * 60 + 55; // 16:55 = 1015 minutes
-      const gracePeriodEnd = 8 * 60 + 35; // 08:35 = 515 minutes (10 min grace)
+      const shiftStart = 8 * 60 + 30; // 08:30 = 510 minutes
+      const shiftEnd = 17 * 60 + 0; // 17:00 = 1020 minutes
+      const gracePeriodEnd = 8 * 60 + 40; // 08:40 = 520 minutes (10 min grace)
       return calculateLOHForShift(firstInTime, lastOutTime, shiftStart, shiftEnd, gracePeriodEnd);
     };
 
@@ -2737,10 +2737,10 @@ async function calculateOTHoursFromMuster(catalystApp, month, contractor, depart
       try {
         const normalized = String(contractor || '').replace(/\s+/g, ' ').trim().replace(/'/g, "''");
         const contractorEmployeeQuery = await catalystApp.zcql().executeZCQLQuery(
-          `SELECT EmployeeID FROM Employee WHERE ContractorName LIKE '%${normalized}%'`
+          `SELECT EmployeeCode FROM Employee WHERE ContractorName LIKE '%${normalized}%'`
         );
         if (contractorEmployeeQuery && contractorEmployeeQuery.length > 0) {
-          employeeIds = contractorEmployeeQuery.map(emp => emp.Employee.EmployeeID);
+          employeeIds = contractorEmployeeQuery.map(emp => emp.Employee.EmployeeCode);
         }
       } catch (error) {
         console.error('Error applying contractor filter:', error);
@@ -2750,10 +2750,10 @@ async function calculateOTHoursFromMuster(catalystApp, month, contractor, depart
     if (department && department !== 'All') {
       try {
         const departmentEmployeeQuery = await catalystApp.zcql().executeZCQLQuery(
-          `SELECT EmployeeID FROM Employee WHERE Department = '${department}'`
+          `SELECT EmployeeCode FROM Employee WHERE Department = '${department}'`
         );
         if (departmentEmployeeQuery && departmentEmployeeQuery.length > 0) {
-          const departmentEmployeeIds = departmentEmployeeQuery.map(emp => emp.Employee.EmployeeID);
+          const departmentEmployeeIds = departmentEmployeeQuery.map(emp => emp.Employee.EmployeeCode);
           if (employeeIds.length > 0) {
             employeeIds = employeeIds.filter(id => departmentEmployeeIds.includes(id));
           } else {
@@ -2958,9 +2958,9 @@ async function calculateOTHoursFromMuster(catalystApp, month, contractor, depart
         if (!timePart) return 0;
         const lastOutTime = lastOutInstantFromStr(lastOutTimeStr, dateStr);
         if (!lastOutTime) return 0;
-        // Keep aligned with Monthly OT report: no OT if checkout <= 17:55
-        const cutoffTime = new Date(`${dateStr} 17:55:00`.replace(' ', 'T'));
-        const baseTime = new Date(`${dateStr} 16:55:00`.replace(' ', 'T'));
+        // Keep aligned with Monthly OT report: no OT if checkout <= 18:00
+        const cutoffTime = new Date(`${dateStr} 18:00:00`.replace(' ', 'T'));
+        const baseTime = new Date(`${dateStr} 17:00:00`.replace(' ', 'T'));
         if (isNaN(lastOutTime.getTime()) || isNaN(cutoffTime.getTime()) || isNaN(baseTime.getTime())) {
           return 0;
         }
@@ -3411,9 +3411,9 @@ async function fetchOTHours(catalystApp, month, contractor, department, employee
         if (!timePart) return 0;
         const lastOutTime = lastOutInstantFromStr(lastOutTimeStr, dateStr);
         if (!lastOutTime) return 0;
-        // Keep aligned with Monthly OT report: no OT if checkout <= 17:55
-        const cutoffTime = new Date(`${dateStr} 17:55:00`.replace(' ', 'T'));
-        const baseTime = new Date(`${dateStr} 16:55:00`.replace(' ', 'T'));
+        // Keep aligned with Monthly OT report: no OT if checkout <= 18:00
+        const cutoffTime = new Date(`${dateStr} 18:00:00`.replace(' ', 'T'));
+        const baseTime = new Date(`${dateStr} 17:00:00`.replace(' ', 'T'));
         if (isNaN(lastOutTime.getTime()) || isNaN(cutoffTime.getTime()) || isNaN(baseTime.getTime())) {
           return 0;
         }
@@ -6878,6 +6878,51 @@ function normalizePayrollColumnNameForSkip(name) {
     .toLowerCase();
 }
 
+/** UAN from Employee master (handles Catalyst / import column name variants). */
+function pickUanNoFromRecord(rec) {
+  if (!rec || typeof rec !== 'object') return '';
+  const raw =
+    rec.UANNo ?? rec.uanNo ?? rec.UAN ?? rec.uanNumber ?? rec['UAN No'] ?? rec.UAN_No ?? '';
+  const s = String(raw ?? '').trim();
+  return s === 'null' || s === 'undefined' ? '' : s;
+}
+
+/** ESIC from Employee master (handles Catalyst / import column name variants). */
+function pickEsicNoFromRecord(rec) {
+  if (!rec || typeof rec !== 'object') return '';
+  const raw =
+    rec.ESICNo ?? rec.esicNo ?? rec.ESIC ?? rec.esicNumber ?? rec['ESIC No'] ?? rec.ESIC_No ?? '';
+  const s = String(raw ?? '').trim();
+  return s === 'null' || s === 'undefined' ? '' : s;
+}
+
+/** After Payroll/Sample merges, keep statutory IDs from Employee when saved rows blanked them out. */
+function applyEmployeeStatutoryIdsToPayrollRow(resultRow, employeeOrMaps) {
+  if (!resultRow || !employeeOrMaps) return;
+  const uan = pickUanNoFromRecord(employeeOrMaps);
+  const esic = pickEsicNoFromRecord(employeeOrMaps);
+  if (uan) {
+    resultRow.uanNo = uan;
+    resultRow.UANNo = uan;
+  }
+  if (esic) {
+    resultRow.esicNo = esic;
+    resultRow.ESICNo = esic;
+  }
+}
+
+function lookupEmployeeStatutoryMaps(maps, employeeCode) {
+  const ec = String(employeeCode || '').trim();
+  if (!ec || !maps) return { uan: '', esic: '' };
+  const norm = normalizeEmployeeCode(ec);
+  const num = /^\d+$/.test(ec) ? String(parseInt(ec, 10)) : '';
+  const uan =
+    maps.uanNoMap?.[ec] ?? maps.uanNoMap?.[norm] ?? (num ? maps.uanNoMap?.[num] : '') ?? '';
+  const esic =
+    maps.esicNoMap?.[ec] ?? maps.esicNoMap?.[norm] ?? (num ? maps.esicNoMap?.[num] : '') ?? '';
+  return { uan: String(uan || '').trim(), esic: String(esic || '').trim() };
+}
+
 /**
  * Columns on Payroll that are already computed or explicitly merged in computePayrollData.
  * Any other column on a saved row is treated as a Setup-defined custom component and copied onto the API row.
@@ -6972,6 +7017,12 @@ const PAYROLL_STANDARD_COLUMN_SKIP = new Set(
     'ButtonMonth',
     'Automatic',
     'Manual',
+    'UANNo',
+    'uanNo',
+    'UAN',
+    'ESICNo',
+    'esicNo',
+    'ESIC',
   ].map((c) => normalizePayrollColumnNameForSkip(c))
 );
 
@@ -8746,6 +8797,7 @@ async function computePayrollData(catalystApp, month, contractor, department, em
       latestRunPayrollRawByNormalizedCode.get(String(parseInt(empId, 10)));
     mergeRunPayrollCustomFillGaps(payrollResultRow, rawSavedRunPayroll);
     applyRevisedLohToPayrollRow(payrollResultRow);
+    applyEmployeeStatutoryIdsToPayrollRow(payrollResultRow, emp);
     result.push(payrollResultRow);
   }
   return result;
@@ -9767,8 +9819,8 @@ module.exports = async (req, res) => {
          
             const key = `${employeeCode}_${dateStr}`;
             const compoffStatus = 'Present';
-            const defaultFirstIn = `${dateStr} 08:25:00`;
-            const defaultLastOut = `${dateStr} 16:55:00`;
+            const defaultFirstIn = `${dateStr} 08:30:00`;
+            const defaultLastOut = `${dateStr} 17:00:00`;
          
             // CompOff records take precedence over Attendance but not OnDuty
             if (attendanceByKey[key]) {
@@ -11150,6 +11202,11 @@ module.exports = async (req, res) => {
               (!Number.isNaN(impNum) ? latestRunPayrollRawByNormalizedCodeApi.get(String(impNum)) : undefined);
             mergeRunPayrollCustomFillGaps(importedRow, rawRunImp);
             applyRevisedLohToPayrollRow(importedRow);
+            const statutoryIds = lookupEmployeeStatutoryMaps({ uanNoMap, esicNoMap }, empCodeStr);
+            applyEmployeeStatutoryIdsToPayrollRow(importedRow, {
+              UANNo: statutoryIds.uan,
+              ESICNo: statutoryIds.esic,
+            });
             importedPayrollData.push(importedRow);
           }
         } else {
@@ -12404,6 +12461,7 @@ module.exports = async (req, res) => {
           latestRunPayrollRawByNormalizedCodeApi.get(String(empIdForMerge).trim()) ||
           latestRunPayrollRawByNormalizedCodeApi.get(String(parseInt(empIdForMerge, 10)));
         mergeRunPayrollCustomFillGaps(payrollResultRowApi, rawSavedRunApi);
+        applyEmployeeStatutoryIdsToPayrollRow(payrollResultRowApi, emp);
       }
 
       // Summary log
@@ -12792,11 +12850,13 @@ module.exports = async (req, res) => {
       const employeeAttendanceAllowanceMap = {};
       const employeeTotalSalaryMap = {};
       const pfStatusMap = {};
+      const uanNoMap = {};
+      const esicNoMap = {};
       try {
         const employeeCodes = records.map(r => r.EmployeeCode).filter(Boolean);
         if (employeeCodes.length > 0) {
           const empCodesList = employeeCodes.map(code => `'${String(code).replace(/'/g, "''")}'`).join(',');
-          const dateQuery = `SELECT EmployeeCode, DateofJoining, Designation, Category, AttendanceAllowance, OtherAllowance, RevisedOtherAllowance, ActualBasic, ActualHRA, ActualDA, SpecialAllowance, ActualSpecialAllowance, TotalSalary, PFStatus FROM Employee WHERE EmployeeCode IN (${empCodesList})`;
+          const dateQuery = `SELECT EmployeeCode, DateofJoining, Designation, Category, AttendanceAllowance, OtherAllowance, RevisedOtherAllowance, ActualBasic, ActualHRA, ActualDA, SpecialAllowance, ActualSpecialAllowance, TotalSalary, PFStatus, UANNo, ESICNo FROM Employee WHERE EmployeeCode IN (${empCodesList})`;
           const dateRecords = await catalystApp.zcql().executeZCQLQuery(dateQuery);
           for (const row of dateRecords) {
             const emp = row.Employee;
@@ -12856,11 +12916,15 @@ module.exports = async (req, res) => {
                 setEmpMaps(String(parseInt(empCode)), hra, da, basic, special, attAllowance);
               }
               const pfStatusVal = String(emp.PFStatus ?? emp.pfStatus ?? '').trim().toLowerCase();
+              const uanVal = pickUanNoFromRecord(emp);
+              const esicVal = pickEsicNoFromRecord(emp);
               [empCode, normalizeEmployeeCode(empCode), /^\d+$/.test(empCode) ? String(parseInt(empCode)) : null]
                 .filter(Boolean)
                 .forEach((code) => {
                   employeeTotalSalaryMap[code] = totalSalary;
                   pfStatusMap[code] = pfStatusVal;
+                  uanNoMap[code] = uanVal;
+                  esicNoMap[code] = esicVal;
                 });
             }
           }
@@ -12871,7 +12935,7 @@ module.exports = async (req, res) => {
           const employeeCodes = records.map(r => r.EmployeeCode).filter(Boolean);
           if (employeeCodes.length > 0) {
             const empCodesList = employeeCodes.map(code => `'${String(code).replace(/'/g, "''")}'`).join(',');
-            const fallbackQuery = `SELECT EmployeeCode, DateofJoining, Designation, Category, AttendanceAllowance, OtherAllowance, RevisedOtherAllowance, ActualBasic, ActualHRA, ActualDA, SpecialAllowance, ActualSpecialAllowance, TotalSalary, PFStatus FROM Employee WHERE EmployeeCode IN (${empCodesList})`;
+            const fallbackQuery = `SELECT EmployeeCode, DateofJoining, Designation, Category, AttendanceAllowance, OtherAllowance, RevisedOtherAllowance, ActualBasic, ActualHRA, ActualDA, SpecialAllowance, ActualSpecialAllowance, TotalSalary, PFStatus, UANNo, ESICNo FROM Employee WHERE EmployeeCode IN (${empCodesList})`;
             const fallbackRecords = await catalystApp.zcql().executeZCQLQuery(fallbackQuery);
             for (const row of fallbackRecords) {
               const emp = row.Employee;
@@ -12906,6 +12970,8 @@ module.exports = async (req, res) => {
                 const attAllowance = getEmployeeNum(emp, 'AttendanceAllowance', 'attendanceAllowance', 'Attendance Allowance');
                 const totalSalary = getEmployeeNum(emp, 'TotalSalary', 'totalSalary', 'Total Salary', 'Total Salary (Auto-calculated)');
                 const pfStatusFb = String(emp.PFStatus ?? emp.pfStatus ?? '').trim().toLowerCase();
+                const uanValFb = pickUanNoFromRecord(emp);
+                const esicValFb = pickEsicNoFromRecord(emp);
                 [empCode, normalizeEmployeeCode(empCode), /^\d+$/.test(empCode) ? String(parseInt(empCode)) : null].filter(Boolean).forEach(code => {
                   employeeActualHRAMap[code] = hra;
                   employeeActualDAMap[code] = da;
@@ -12914,6 +12980,8 @@ module.exports = async (req, res) => {
                   employeeAttendanceAllowanceMap[code] = attAllowance;
                   employeeTotalSalaryMap[code] = totalSalary;
                   pfStatusMap[code] = pfStatusFb;
+                  uanNoMap[code] = uanValFb;
+                  esicNoMap[code] = esicValFb;
                 });
               }
             }
@@ -12982,6 +13050,7 @@ module.exports = async (req, res) => {
         }
         const savedLopRow = Number(p.LOP) || 0;
         const lopRow = isManagingPartnerDesignation({ Designation: desRow }) && dimRow > 0 ? 0 : savedLopRow;
+        const statutoryIdsReport = lookupEmployeeStatutoryMaps({ uanNoMap, esicNoMap }, ec);
         const mappedRow = {
         employeeCode: p.EmployeeCode,
         employeeName: p.EmployeeName || '',
@@ -13111,9 +13180,15 @@ module.exports = async (req, res) => {
         uniformAllowance: 0,
         washingAllowance: Number(p.WashingAllowance ?? p.washingAllowance) || 0,
         travelChargers: Number(p.TravelChargers ?? p.travelChargers) || 0,
+        uanNo: statutoryIdsReport.uan || pickUanNoFromRecord(p),
+        esicNo: statutoryIdsReport.esic || pickEsicNoFromRecord(p),
       };
         // Preserve Setup/custom Payroll columns (e.g. Attendance Deduction) so payslip deductions resolve by label.
         mergeSavedPayrollCustomColumnsIntoResultRow(mappedRow, p);
+        applyEmployeeStatutoryIdsToPayrollRow(mappedRow, {
+          UANNo: statutoryIdsReport.uan,
+          ESICNo: statutoryIdsReport.esic,
+        });
         return mappedRow;
       };
 

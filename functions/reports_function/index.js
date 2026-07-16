@@ -17,6 +17,37 @@ function normalizeEmployeeCodeBank(code) {
   return withoutDecimalZero.replace(/^0+(?=\d)/, '') || raw;
 }
 
+/** Normalize employee code for OT byKey / report rows (1031, 1031.0, 01031 → same key). */
+function normalizeOtEmployeeCode(code) {
+  return normalizeEmployeeCodeBank(code);
+}
+
+/** Normalize OT record date to YYYY-MM-DD for range checks and grid columns. */
+function normalizeOtDate(dateVal) {
+  if (!dateVal) return '';
+  const s = String(dateVal).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const dmy = s.match(/^(\d{2})[-\/](\d{2})[-\/](\d{4})$/);
+  if (dmy) return `${dmy[3]}-${dmy[2]}-${dmy[1]}`;
+  const d = new Date(s.includes('T') ? s : `${s}T12:00:00`);
+  if (!isNaN(d.getTime())) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+  return s.length >= 10 ? s.slice(0, 10) : s;
+}
+
+/** Split a date range into weekly chunks so BHR pagination never truncates mid-month. */
+function buildWeeklyDateChunks(startYmd, endYmd, daysPerChunk = 7) {
+  const allDates = buildDatesList(startYmd, endYmd);
+  if (allDates.length === 0) return [{ start: startYmd, end: endYmd }];
+  const chunks = [];
+  for (let i = 0; i < allDates.length; i += daysPerChunk) {
+    const slice = allDates.slice(i, i + daysPerChunk);
+    chunks.push({ start: slice[0], end: slice[slice.length - 1] });
+  }
+  return chunks;
+}
+
 function runPayrollRowIdBank(r) {
   const n = Number(r?.ROWID);
   return Number.isFinite(n) && n > 0 ? n : -1;
@@ -145,8 +176,8 @@ function stringifyReportsRoundOff(enabled, detail) {
 }
 
 /**
- * Same as Excel: INT(OT)+IF((OT-INT(OT))*60<=25,0,IF((OT-INT(OT))*60<=55,0.5,1))
- * OT is decimal hours (e.g. 3.22 → 3h13m → fractional minutes ≤25 → 3.0).
+ * OT RoundOff: INT(OT) + IF((OT-INT(OT))*60<=25, 0, 0.5)
+ * ≤25 fractional minutes → whole hours; 26–59 → add 0.5 h.
  */
 function applyOtHoursIntIfRoundOff(otHours) {
   const h = Number(otHours);
@@ -154,8 +185,7 @@ function applyOtHoursIntIfRoundOff(otHours) {
   const whole = Math.floor(h + 1e-6);
   const fracMin = (h - whole) * 60;
   if (fracMin <= 25 + 1e-6) return whole;
-  if (fracMin <= 55 + 1e-6) return whole + 0.5;
-  return whole + 1;
+  return whole + 0.5;
 }
 
 /** Catalyst / proxy may pass `/server/reports_function/...` or `/reports_function/...` instead of `/...`. */
@@ -332,7 +362,7 @@ module.exports = async (req, res) => {
       }
 
       if (monthlyOtRoundOffEnabled) {
-        console.log('Monthly OT: applying Setup RoundOff (INT + 0 / 0.5 / 1 h by fractional minutes 25/55)');
+        console.log('Monthly OT: applying Setup RoundOff (INT + 0 / 0.5 h by fractional minutes ≤25 / 26–59)');
       }
 
       const designationApplicableToSet = new Set(
@@ -1191,6 +1221,13 @@ module.exports = async (req, res) => {
           }
         }
 
+        if (isGeneralIIShiftMonthlyOT(empId, dateStr)) {
+          return calculateOvertimeForGeneralIIShift(lastOutStr, dateStr);
+        }
+        if (isGeneralShift(empId, dateStr)) {
+          return calculateOvertimeForGeneralShift(lastOutStr, dateStr);
+        }
+
         const assignedShiftDef = getShiftDefinitionForEmployeeDate(empId, dateStr);
         if (assignedShiftDef) {
           return calculateOvertimeForDynamicShift(
@@ -1201,12 +1238,6 @@ module.exports = async (req, res) => {
           );
         }
 
-        if (isGeneralIIShiftMonthlyOT(empId, dateStr)) {
-          return calculateOvertimeForGeneralIIShift(lastOutStr, dateStr);
-        }
-        if (isGeneralShift(empId, dateStr)) {
-          return calculateOvertimeForGeneralShift(lastOutStr, dateStr);
-        }
         if (isFirstShift(empId, dateStr)) {
           return calculateOvertimeForFirstShift(lastOutStr, dateStr);
         }
@@ -1217,11 +1248,9 @@ module.exports = async (req, res) => {
         return calculateOvertimeForGeneralShift(lastOutStr, dateStr);
       };
 
-      // Helper function to calculate overtime for General shift
-      // Uses 17:55:00 as the cutoff time (no OT if checkout is 17:55 or earlier)
-      // If checkout is after 17:55, calculate OT as (checkout time - 16:55)
-      // Example: 17:56 - 16:55 = 1.017 hours (61 minutes)
-      // If checkout is 17:55 or earlier (like 17:30), no OT is calculated
+      // General shift (08:30-17:00): no OT if checkout is 18:00 or earlier
+      // If checkout is after 18:00, calculate OT as (checkout time - 17:00)
+      // Example: 18:01 - 17:00 = 1.017 hours (61 minutes)
       const calculateOvertimeForGeneralShift = (lastOutTimeStr, dateStr) => {
         if (!lastOutTimeStr || !dateStr) {
           console.log(`[General Shift OT] Missing parameters: lastOutTimeStr=${lastOutTimeStr}, dateStr=${dateStr}`);
@@ -1252,25 +1281,25 @@ module.exports = async (req, res) => {
             console.log(`[General Shift OT] Invalid last out instant from: ${lastOutTimeStr}`);
             return 0;
           }
-          const cutoffTime = new Date(`${normalizedDate} 17:55:00`.replace(' ', 'T'));
-          const baseTime = new Date(`${normalizedDate} 16:55:00`.replace(' ', 'T'));
+          const cutoffTime = new Date(`${normalizedDate} 18:00:00`.replace(' ', 'T'));
+          const baseTime = new Date(`${normalizedDate} 17:00:00`.replace(' ', 'T'));
          
           if (isNaN(lastOutTime.getTime()) || isNaN(cutoffTime.getTime()) || isNaN(baseTime.getTime())) {
             console.log(`[General Shift OT] Invalid date/time: lastOutTime=${lastOutTime}, cutoffTime=${cutoffTime}, baseTime=${baseTime}`);
             return 0;
           }
          
-          // Only calculate OT if checkout is after 17:55
+          // Only calculate OT if checkout is after 18:00
           if (lastOutTime > cutoffTime) {
             const diffMs = lastOutTime - baseTime;
             const overtimeHours = diffMs / (1000 * 60 * 60); // Convert to hours
             const result = Math.max(0, parseFloat(overtimeHours.toFixed(3))); // Round to 3 decimal places
-            console.log(`[General Shift OT] date=${normalizedDate}, checkout=${timePart}, cutoff=17:55:00, base=16:55:00, OT=${result.toFixed(3)} hours`);
+            console.log(`[General Shift OT] date=${normalizedDate}, checkout=${timePart}, cutoff=18:00:00, base=17:00:00, OT=${result.toFixed(3)} hours`);
             return result;
           }
          
-          // If checkout is 17:55 or earlier, no OT
-          console.log(`[General Shift OT] date=${normalizedDate}, checkout=${timePart} is <= 17:55:00, no OT calculated`);
+          // If checkout is 18:00 or earlier, no OT
+          console.log(`[General Shift OT] date=${normalizedDate}, checkout=${timePart} is <= 18:00:00, no OT calculated`);
           return 0;
         } catch (error) {
           console.error(`[General Shift OT] Error calculating General shift overtime for date=${dateStr}, lastOut=${lastOutTimeStr}:`, error);
@@ -1864,44 +1893,38 @@ module.exports = async (req, res) => {
       }
      
       // Add BHR records to byKey (always try, not just if bhrRecords > 0)
-      // This ensures we get data even if original query didn't find records due to different filters
-      // Use pagination like attendance muster to handle large date ranges
+      // Fetch in weekly chunks so full-month ranges load every day (global 20k cap dropped June OT).
       let allBhrRowsForByKey = [];
       try {
-        let offset = 0;
-        const pageSize = 300;
-        let hasMore = true;
-       
-        while (hasMore) {
-          let bhrQueryForByKey = `SELECT EmployeeID, EventTime, Direction FROM BHR
-                                 WHERE EventTime >= '${startDate} 00:00:00'
-                                 AND EventTime <= '${monthlyOtBhrFetchEndExtended} 23:59:59'`;
-          if (employeeFilterConditionsForByKey.length > 0) {
-            bhrQueryForByKey += ` AND ${employeeFilterConditionsForByKey.join(' AND ')}`;
-          }
-          bhrQueryForByKey += ` ORDER BY ROWID LIMIT ${pageSize} OFFSET ${offset}`;
-         
-          console.log(`Building byKey from BHR (offset ${offset}): ${bhrQueryForByKey.substring(0, 200)}...`);
-          const bhrResultsForByKey = await zcql.executeZCQLQuery(bhrQueryForByKey);
-          const bhrRowsForByKey = bhrResultsForByKey.map(r => r.BHR);
-         
-          if (bhrRowsForByKey.length === 0) {
-            hasMore = false;
-            break;
-          }
-         
-          allBhrRowsForByKey.push(...bhrRowsForByKey);
-          offset += pageSize;
-         
-          if (bhrRowsForByKey.length < pageSize) {
-            hasMore = false;
-          }
-         
-          // Safety guard for very large datasets
-          if (allBhrRowsForByKey.length > 20000) {
-            console.log(`Reached safety limit of 20000 BHR records, stopping pagination`);
-            hasMore = false;
-            break;
+        const bhrWeekChunks = buildWeeklyDateChunks(startDate, monthlyOtBhrFetchEndExtended, 7);
+        for (const chunk of bhrWeekChunks) {
+          let offset = 0;
+          const pageSize = 300;
+          let hasMore = true;
+          while (hasMore) {
+            let bhrQueryForByKey = `SELECT EmployeeID, EventTime, Direction FROM BHR
+                                   WHERE EventTime >= '${chunk.start} 00:00:00'
+                                   AND EventTime <= '${chunk.end} 23:59:59'`;
+            if (employeeFilterConditionsForByKey.length > 0) {
+              bhrQueryForByKey += ` AND ${employeeFilterConditionsForByKey.join(' AND ')}`;
+            }
+            bhrQueryForByKey += ` ORDER BY ROWID LIMIT ${pageSize} OFFSET ${offset}`;
+
+            console.log(`Building byKey from BHR chunk ${chunk.start}..${chunk.end} (offset ${offset}): ${bhrQueryForByKey.substring(0, 200)}...`);
+            const bhrResultsForByKey = await zcql.executeZCQLQuery(bhrQueryForByKey);
+            const bhrRowsForByKey = bhrResultsForByKey.map(r => r.BHR);
+
+            if (bhrRowsForByKey.length === 0) {
+              hasMore = false;
+              break;
+            }
+
+            allBhrRowsForByKey.push(...bhrRowsForByKey);
+            offset += pageSize;
+
+            if (bhrRowsForByKey.length < pageSize) {
+              hasMore = false;
+            }
           }
         }
        
@@ -1911,30 +1934,38 @@ module.exports = async (req, res) => {
           // Group by employee and date
           const bhrByEmployeeDate = {};
           allBhrRowsForByKey.forEach(row => {
-            const date = row.EventTime.split(' ')[0];
-            const key = `${row.EmployeeID}_${date}`;
+            const date = normalizeOtDate(row.EventTime.split(' ')[0]);
+            const empNorm = normalizeOtEmployeeCode(row.EmployeeID);
+            const key = `${empNorm}_${date}`;
             if (!bhrByEmployeeDate[key]) {
               bhrByEmployeeDate[key] = {
-                EmployeeID: row.EmployeeID,
+                EmployeeID: empNorm,
                 Date: date,
                 events: []
               };
             }
             bhrByEmployeeDate[key].events.push(row);
           });
-         
-          // Process BHR data into byKey
+
+          // Process BHR data into byKey (earliest IN / latest OUT per employee-day)
           Object.values(bhrByEmployeeDate).forEach(empDateData => {
             const events = empDateData.events.sort((a, b) => new Date(a.EventTime) - new Date(b.EventTime));
-            if (events.length >= 2) {
-              const key = `${empDateData.EmployeeID}_${empDateData.Date}`;
+            if (events.length < 2) return;
+            const key = `${empDateData.EmployeeID}_${empDateData.Date}`;
+            const firstIn = events[0].EventTime;
+            const lastOut = events[events.length - 1].EventTime;
+            if (!byKey[key]) {
               byKey[key] = {
                 EmployeeID: empDateData.EmployeeID,
                 Date: empDateData.Date,
-                FirstIN: events[0].EventTime,
-                LastOUT: events[events.length - 1].EventTime,
+                FirstIN: firstIn,
+                LastOUT: lastOut,
                 Source: 'BHR'
               };
+            } else {
+              if (!byKey[key].FirstIN || firstIn < byKey[key].FirstIN) byKey[key].FirstIN = firstIn;
+              if (!byKey[key].LastOUT || lastOut > byKey[key].LastOUT) byKey[key].LastOUT = lastOut;
+              if (byKey[key].Source !== 'OnDuty') byKey[key].Source = byKey[key].Source || 'BHR';
             }
           });
         }
@@ -1954,22 +1985,19 @@ module.exports = async (req, res) => {
           let allAttendanceResultsForByKey = [];
          
           while (attHasMore) {
-            // Match attendance muster: Don't filter by AttendanceDate in query
-            // Instead, fetch all records and filter by effective date from FirstIn/LastOut
-            // This ensures we get the same data as attendance muster
             let attendanceQueryForByKey = `SELECT EmployeeId, AttendanceDate, FirstIn, LastOut, Status FROM Attendance`;
-           
-            // Apply employee filter if exists (note: Attendance table uses EmployeeId, not EmployeeID)
+            const attDateRangeWhere = `(AttendanceDate >= '${startDate}' AND AttendanceDate <= '${monthlyOtBhrFetchEndExtended}')`;
+            const attWhereParts = [attDateRangeWhere];
             if (employeeFilterConditionsForByKey.length > 0) {
-              // Convert EmployeeID filter to EmployeeId for Attendance table
               const employeeIdConditions = employeeFilterConditionsForByKey.map(cond => {
                 return cond.replace(/EmployeeID/g, 'EmployeeId');
               });
-              attendanceQueryForByKey += ` WHERE ${employeeIdConditions.join(' AND ')}`;
+              attWhereParts.unshift(...employeeIdConditions);
             } else if (employeeId && employeeId !== 'All') {
-              attendanceQueryForByKey += ` WHERE EmployeeId = '${employeeId}'`;
+              attWhereParts.unshift(`EmployeeId = '${employeeId}'`);
             }
-           
+            attendanceQueryForByKey += ` WHERE ${attWhereParts.join(' AND ')}`;
+
             attendanceQueryForByKey += ` ORDER BY EmployeeId, AttendanceDate LIMIT ${attPageSize} OFFSET ${attOffset}`;
            
             console.log(`Building byKey from Attendance (offset ${attOffset}): ${attendanceQueryForByKey.substring(0, 200)}...`);
@@ -1985,13 +2013,6 @@ module.exports = async (req, res) => {
            
             if (attendanceResultsForByKey.length < attPageSize) {
               attHasMore = false;
-            }
-           
-            // Safety guard for very large datasets
-            if (allAttendanceResultsForByKey.length > 20000) {
-              console.log(`Reached safety limit of 20000 Attendance records, stopping pagination`);
-              attHasMore = false;
-              break;
             }
           }
          
@@ -2076,13 +2097,15 @@ module.exports = async (req, res) => {
            
             // Filter rows by the requested date range using the derived date (same as attendance muster)
             if (dateStr < startDate || dateStr > endDateStr) return;
-           
-            const key = `${r.EmployeeId}_${dateStr}`;
-           
+
+            const empNorm = normalizeOtEmployeeCode(r.EmployeeId);
+            const dateNorm = normalizeOtDate(dateStr);
+            const key = `${empNorm}_${dateNorm}`;
+
             if (!byKey[key]) {
               byKey[key] = {
-                EmployeeID: r.EmployeeId,
-                Date: dateStr,
+                EmployeeID: empNorm,
+                Date: dateNorm,
                 FirstIN: normalizedFirst,
                 LastOUT: normalizedLast,
                 Source: 'Attendance',
@@ -2140,13 +2163,6 @@ module.exports = async (req, res) => {
 
           if (ondutyResultsForByKey.length < ondutyPageSize) {
             ondutyHasMore = false;
-          }
-
-          // Safety guard for very large datasets
-          if (allOnDutyResultsForByKey.length > 20000) {
-            console.log(`Reached safety limit of 20000 OnDuty records, stopping pagination`);
-            ondutyHasMore = false;
-            break;
           }
         }
 
@@ -2217,10 +2233,10 @@ module.exports = async (req, res) => {
 
           let normalizedFirst = normalizeTimeForDateOnDuty(dateStr, r.FirstIn);
           let normalizedLast = normalizeTimeForDateOnDuty(dateStr, r.Lastout);
-          if (!normalizedFirst) normalizedFirst = `${dateStr} 08:25:00`;
+          if (!normalizedFirst) normalizedFirst = `${dateStr} 08:30:00`;
           if (!normalizedLast) {
             const nof = String(r.NoofHours || '').trim().toLowerCase();
-            normalizedLast = (nof === 'half day' || nof === 'halfday' || nof === '0.5') ? `${dateStr} 13:00:00` : `${dateStr} 16:55:00`;
+            normalizedLast = (nof === 'half day' || nof === 'halfday' || nof === '0.5') ? `${dateStr} 13:00:00` : `${dateStr} 17:00:00`;
           }
 
           const key = `${empCode}_${dateStr}`;
@@ -2894,13 +2910,13 @@ module.exports = async (req, res) => {
       console.log(`Processing ${finalOvertimeRecords.length} records from finalOvertimeRecords`);
      
       for (const row of finalOvertimeRecords) {
-        const empId = String(row.EmployeeID || '').trim();
+        const empId = normalizeOtEmployeeCode(row.EmployeeID);
         if (!empId) continue;
 
         // Category OT Applicable To (Setup): match Employee.Category OR Designation (same labels often used).
         // Do not exclude when master row is missing or both fields are blank — avoids silent 0 OT from bad master data.
         if (designationApplicableToSet.size > 0) {
-          const detailsForFilter = empDetailsMap[empId];
+          const detailsForFilter = empDetailsMap[empId] ?? empDetailsMap[String(row.EmployeeID || '').trim()];
           const empCategory = detailsForFilter?.category || '';
           const empDesignation = detailsForFilter?.designation || '';
           if (detailsForFilter && (empCategory || empDesignation)) {
@@ -2910,13 +2926,11 @@ module.exports = async (req, res) => {
           }
         }
        
-        // Ensure the record date is within the selected date range
-        const recordDate = row.Date;
-        if (recordDate < startDate || recordDate > endDateStr) {
-          continue; // Skip records outside the selected date range
+        const recordDate = normalizeOtDate(row.Date);
+        if (!recordDate || recordDate < startDate || recordDate > endDateStr) {
+          continue;
         }
        
-        // Ensure this employee is in the map
         if (!empOvertimeMap[empId]) {
           empOvertimeMap[empId] = {
             employeeId: empId,
@@ -2925,25 +2939,39 @@ module.exports = async (req, res) => {
             records: []
           };
         }
-       
-        // Check if we already have this date for this employee (avoid duplicates)
-        const existingRecordIndex = empOvertimeMap[empId].records.findIndex(r => r.date === row.Date);
+
+        const rawOt = parseFloat(row.OvertimeHours) || 0;
+        const displayOt = monthlyOtRoundOffEnabled ? applyOtHoursIntIfRoundOff(rawOt) : rawOt;
+        const existingRecordIndex = empOvertimeMap[empId].records.findIndex(r => r.date === recordDate);
         if (existingRecordIndex === -1) {
-          // Add the record
-          const rawOt = parseFloat(row.OvertimeHours) || 0;
-          const overtimeHours = monthlyOtRoundOffEnabled ? applyOtHoursIntIfRoundOff(rawOt) : rawOt;
-          empOvertimeMap[empId].totalOvertimeHours += overtimeHours;
-          if (overtimeHours > 0) {
+          empOvertimeMap[empId].totalOvertimeHours += displayOt;
+          if (displayOt > 0) {
             empOvertimeMap[empId].overtimeDays += 1;
           }
           empOvertimeMap[empId].records.push({
-            date: row.Date,
+            date: recordDate,
             totalHours: parseFloat(row.TotalHours) || 0,
-            overtimeHours: overtimeHours,
+            overtimeHours: displayOt,
+            rawOvertimeHours: rawOt,
             firstIn: row.FirstIn || '',
             lastOut: row.LastOut || '',
             source: row.Source || ''
           });
+        } else {
+          const existing = empOvertimeMap[empId].records[existingRecordIndex];
+          const existingOt = parseFloat(existing.overtimeHours) || 0;
+          if (displayOt > existingOt) {
+            empOvertimeMap[empId].totalOvertimeHours += displayOt - existingOt;
+            if (existingOt <= 0 && displayOt > 0) {
+              empOvertimeMap[empId].overtimeDays += 1;
+            }
+            existing.overtimeHours = displayOt;
+            existing.rawOvertimeHours = rawOt;
+            existing.totalHours = parseFloat(row.TotalHours) || existing.totalHours;
+            existing.firstIn = row.FirstIn || existing.firstIn;
+            existing.lastOut = row.LastOut || existing.lastOut;
+            existing.source = row.Source || existing.source;
+          }
         }
       }
      
@@ -3023,6 +3051,12 @@ module.exports = async (req, res) => {
           }
         }
        
+        // Sum of per-day displayed OT (must match what user sees in date columns)
+        const totalOvertimeHours = overtimeData.records.reduce(
+          (sum, r) => sum + (parseFloat(r.overtimeHours) || 0),
+          0
+        );
+
         result.push({
           employeeId: empId,
           employeeName: details.employeeName || '',
@@ -3030,10 +3064,10 @@ module.exports = async (req, res) => {
           category: details.category || '',
           designation: details.designation || '',
           contractorName: details.contractorName || '',
-          totalOvertimeHours: overtimeData.totalOvertimeHours.toFixed(2),
+          totalOvertimeHours: totalOvertimeHours.toFixed(2),
           overtimeDays: overtimeData.overtimeDays,
           averageOvertimePerDay: overtimeData.overtimeDays > 0
-            ? (overtimeData.totalOvertimeHours / overtimeData.overtimeDays).toFixed(2)
+            ? (totalOvertimeHours / overtimeData.overtimeDays).toFixed(2)
             : '0.00',
           overtimeRecords: overtimeData.records
         });
@@ -4336,6 +4370,7 @@ module.exports = async (req, res) => {
           return {
             employeeCode: String(e.EmployeeCode || ''),
             employeeName: String(e.EmployeeName || e.Name || ''),
+            employeeStatus: String(e.EmployeeStatus || e.employeeStatus || '').trim(),
             bankName: String(e.BankName || ''),
             bankBranch: String(e.BankBranch || ''),
             accountNumber: String(e.AccountNumber || ''),
@@ -4874,7 +4909,7 @@ module.exports = async (req, res) => {
           const ifsc = String(e.IFSCCode || '').trim();
           const account = String(e.AccountNumber || '').trim();
           const emlName = String(e.EmployeeName || e.Name || '').trim();
-          const bankCity = String(e.BankBranch || e.BankName || '').trim();
+          const bankName = String(e.BankName || e.bankName || '').trim();
 
           return {
             employeeCode: code,
@@ -4885,7 +4920,7 @@ module.exports = async (req, res) => {
             emplAct: account,
             bc: orgBc,
             emlName: emlName.toUpperCase(),
-            bank: bankCity ? bankCity.toUpperCase() : '',
+            bank: bankName ? bankName.toUpperCase() : '',
             sender: senderName,
             mode: 'NEFT',
             neftLine: '',
@@ -5600,8 +5635,8 @@ module.exports = async (req, res) => {
             let normalizedLastOut = normalizeOnDutyTime(dateStr, r.Lastout);
            
             if (!normalizedFirstIn || !normalizedLastOut) {
-              const defaultFirstIn = `${dateStr} 08:25:00`;
-              const defaultLastOut = `${dateStr} 16:55:00`;
+              const defaultFirstIn = `${dateStr} 08:30:00`;
+              const defaultLastOut = `${dateStr} 17:00:00`;
               if (r.NoofHours) {
                 const hours = String(r.NoofHours).trim().toLowerCase();
                 if (hours === 'half day' || hours === 'halfday' || hours === '0.5') {
@@ -5709,8 +5744,8 @@ module.exports = async (req, res) => {
               const workedOnKey = `${employeeCode}_${workedOnDateStr}`;
               if (comboffYes && isWoDate(workedOnDateStr)) compoffWoExcludeFromOT.add(workedOnKey);
               if (otYes) otYesFullHoursKeys.add(workedOnKey);
-              const workedOnFirstIn = `${workedOnDateStr} 08:25:00`;
-              const workedOnLastOut = `${workedOnDateStr} 16:55:00`;
+              const workedOnFirstIn = `${workedOnDateStr} 08:30:00`;
+              const workedOnLastOut = `${workedOnDateStr} 17:00:00`;
              
               if (byKey[workedOnKey]) {
                 const currentSource = byKey[workedOnKey].Source || '';
@@ -5734,8 +5769,8 @@ module.exports = async (req, res) => {
             if (takenDateStr && takenDateStr >= startDateOnly && takenDateStr <= endDateOnly) {
               const takenKey = `${employeeCode}_${takenDateStr}`;
               if (comboffYes) compoffWoExcludeFromOT.add(takenKey);
-              const defaultFirstIn = `${takenDateStr} 08:25:00`;
-              const defaultLastOut = `${takenDateStr} 16:55:00`;
+              const defaultFirstIn = `${takenDateStr} 08:30:00`;
+              const defaultLastOut = `${takenDateStr} 17:00:00`;
              
               if (byKey[takenKey]) {
                 const currentSource = byKey[takenKey].Source || '';
@@ -6746,12 +6781,12 @@ module.exports = async (req, res) => {
           }
           // Default to General shift (most common for OD half-day)
           else {
-            shiftStart = 8 * 60 + 25; // 08:25 = 505 minutes
+            shiftStart = 8 * 60 + 30; // 08:30
             gracePeriodEnd = shiftStart + graceMinutes;
           }
         } else {
           // No NewShiftMap entry, default to General shift
-          shiftStart = 8 * 60 + 25; // 08:25 = 505 minutes
+          shiftStart = 8 * 60 + 30; // 08:30
           gracePeriodEnd = shiftStart + graceMinutes;
         }
        

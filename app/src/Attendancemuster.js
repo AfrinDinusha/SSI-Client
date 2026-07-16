@@ -1264,7 +1264,7 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
                               const odHalfDayAppliedTime = (status === 'OD-0.5' && odAppliedFirstInTime && odAppliedLastOutTime) ? `${odAppliedFirstInTime} - ${odAppliedLastOutTime}` : '';
                               const odHalfDayRealTime = (status === 'OD-0.5' && odHalfDayRealFrom && odHalfDayRealTo) ? `Check-in/out: ${odHalfDayRealFrom} - ${odHalfDayRealTo}` : '';
 
-                              // LOH first-in / last-out (rounded first-in used for LOH; last-out same as original)
+                              // LOH first-in / last-out (rounded per LOH model: first-in up, last-out down to :00/:30)
                               const lohFirstInTime = rowLohFirstIn && rowLohFirstIn[colIdx] ? String(rowLohFirstIn[colIdx]).trim() : '';
                               const lohLastOutTime = rowLohLastOut && rowLohLastOut[colIdx] ? String(rowLohLastOut[colIdx]).trim() : '';
                               const hasLohTimes = lohFirstInTime && lohLastOutTime;

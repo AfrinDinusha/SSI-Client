@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import * as XLSX from 'xlsx-js-style';
 import { Bell, Download, Plus, User, BarChart3, CheckCircle } from 'lucide-react';
 import './BankFormatReport.css';
+import './bankneftreport.css';
 import './Attendancemuster.css';
 import './employeeManagement.css';
 import './Candidateform.css';
@@ -14,14 +15,17 @@ import {
   parsePayrollFormulaeFromApi,
 } from './payrollBankReportNetPay';
 import {
-  resolveBankReportNetPayAmount,
   buildPayrollByEmployeeCode,
+  buildPayrollGridDisplayMapForBankReports,
   buildRunPayrollTableMapFromApi,
+  getPayrollRowForBank,
   mergeBankFormatRowsWithPayroll,
   parsePayrollAmountLoose,
   payrollMonthToFromToDates,
+  resolveBankReportSalaryAmountLikeNeft,
   resolveEarnedGrossForBankMergedRow,
 } from './bankReportPayrollShared';
+import { fetchPayrollRowsAlignedWithPayrollGrid } from './payrollGridAlignForBankReports';
 
 function formatSalaryForBankReport(val) {
   if (val === null || val === undefined || val === '') return '-';
@@ -226,6 +230,7 @@ function BankFormatReport({ userRole = 'App Administrator', userEmail = null }) 
   const [error, setError] = useState('');
   const [payrollNotice, setPayrollNotice] = useState('');
   const [search, setSearch] = useState('');
+  const [employeeStatus, setEmployeeStatus] = useState('Active');
   const [reportMonth, setReportMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [payrollFromDate, setPayrollFromDate] = useState('');
   const [payrollToDate, setPayrollToDate] = useState('');
@@ -301,20 +306,10 @@ function BankFormatReport({ userRole = 'App Administrator', userEmail = null }) 
       if (userRole) bankParams.append('userRole', userRole);
       if (userEmail) bankParams.append('userEmail', userEmail);
 
-      const payrollParams = new URLSearchParams({
-        month: reportMonth,
-        _t: String(Date.now()),
-      });
-      payrollParams.append('fromDate', fromD);
-      payrollParams.append('toDate', toD);
-      if (userRole) payrollParams.append('userRole', userRole);
-      if (userEmail) payrollParams.append('userEmail', userEmail);
-
       const runPayrollTableParams = new URLSearchParams({ month: m });
-      const [bankRes, payrollRes, componentsRes, formulaeRes, payslipRes, runPayrollTableRes] =
+      const [bankRes, componentsRes, formulaeRes, payslipRes, runPayrollTableRes] =
         await Promise.all([
           fetch(`/server/reports_function/bank-format-report?${bankParams.toString()}`),
-          fetch(`/server/payroll_function/payroll?${payrollParams.toString()}`),
           fetch('/server/setupconfig/payroll/components'),
           fetch('/server/setupconfig/payroll/formulae'),
           fetch('/server/payslip_function/getPayslipTemplate'),
@@ -338,15 +333,21 @@ function BankFormatReport({ userRole = 'App Administrator', userEmail = null }) 
       const bankRows = Array.isArray(bankJson?.data) ? bankJson.data : [];
 
       let payrollMap = new Map();
-      const payrollText = await payrollRes.text();
-      let payrollJson = {};
+      let payrollRows = [];
+      let payrollLoadedOk = false;
       try {
-        payrollJson = payrollText ? JSON.parse(payrollText) : {};
-      } catch {
-        payrollJson = {};
+        payrollRows = await fetchPayrollRowsAlignedWithPayrollGrid({
+          month: m,
+          fromDate: fromD,
+          toDate: toD,
+          userEmail,
+          userRole,
+        });
+        payrollLoadedOk = payrollRows.length > 0;
+      } catch (payrollErr) {
+        console.warn('Bank format payroll table fetch:', payrollErr.message);
+        payrollRows = [];
       }
-      const payrollRows = Array.isArray(payrollJson?.data) ? payrollJson.data : [];
-      const payrollLoadedOk = payrollRes.ok && payrollRows.length > 0;
 
       let componentsJson = {};
       let formulaeJson = {};
@@ -398,17 +399,10 @@ function BankFormatReport({ userRole = 'App Administrator', userEmail = null }) 
       if (payrollRows.length > 0) {
         payrollMap = buildPayrollByEmployeeCode(payrollRows);
       }
-      if (!payrollRes.ok || payrollRows.length === 0) {
-        const msg =
-          payrollJson?.error ||
-          (!payrollRes.ok
-            ? `Payroll for ${reportMonth} (${fromD}–${toD}) could not be loaded (HTTP ${payrollRes.status}).`
-            : payrollRows.length === 0
-              ? `No payroll rows for ${reportMonth} (${fromD}–${toD}). Run Payroll on the Payroll screen for this month, then refresh.`
-              : '');
-        if (msg) {
-          setPayrollNotice(`${msg} Salary amount falls back to Run Payroll snapshot or employee master where available.`);
-        }
+      if (!payrollLoadedOk) {
+        setPayrollNotice(
+          `No payroll rows for ${reportMonth} (${fromD}–${toD}). Run Payroll on the Payroll screen for this month, then refresh. May 2026 Salary Amount uses NetPay from the payroll report export.`
+        );
       }
 
       if (!formulaeRes.ok) {
@@ -431,9 +425,35 @@ function BankFormatReport({ userRole = 'App Administrator', userEmail = null }) 
         payrollLoadedOk,
         bankReportPayrollOpts,
         runPayrollTableMap,
+        preferPayrollTableNetPay: false,
+      });
+      const gridDisplayMap = buildPayrollGridDisplayMapForBankReports(
+        payrollRows,
+        bankReportPayrollOpts
+      );
+      const withSalary = merged.map((row) => {
+        const payrollRow = getPayrollRowForBank(payrollMap, row);
+        const status = String(
+          row.employeeStatus ??
+            row.EmployeeStatus ??
+            payrollRow?.employeeStatus ??
+            payrollRow?.EmployeeStatus ??
+            ''
+        ).trim();
+        return {
+          ...row,
+          employeeStatus: status,
+          bankSalaryAmount: resolveBankReportSalaryAmountLikeNeft(
+            row,
+            m,
+            gridDisplayMap,
+            payrollMap,
+            bankReportPayrollOpts
+          ),
+        };
       });
 
-      setRecords(merged);
+      setRecords(withSalary);
     } catch (err) {
       setError(err.message || 'Unable to load bank format report');
       setRecords([]);
@@ -451,6 +471,7 @@ function BankFormatReport({ userRole = 'App Administrator', userEmail = null }) 
       sno: index + 1,
       employeeCode: row.employeeCode || row.EmployeeCode || row.employeeId || '-',
       employeeName: row.employeeName || row.EmployeeName || '-',
+      employeeStatus: row.employeeStatus || '-',
       bankName: row.bankName || row.BankName || '-',
       bankBranch: row.bankBranch || row.BankBranch || '-',
       accountNumber: row.accountNumber || row.AccountNumber || '-',
@@ -476,17 +497,25 @@ function BankFormatReport({ userRole = 'App Administrator', userEmail = null }) 
           return '';
         })()
       ),
-      salaryAmount: formatSalaryForBankReport(resolveBankReportNetPayAmount(row)),
+      salaryAmount: formatSalaryForBankReport(row.bankSalaryAmount),
     }));
   }, [records]);
 
   const filteredRows = useMemo(() => {
+    let list = normalizedRows;
+    if (employeeStatus !== 'All') {
+      list = list.filter((row) => {
+        const status = String(row.employeeStatus || '').trim();
+        return status.toLowerCase() === employeeStatus.toLowerCase();
+      });
+    }
     const term = search.trim().toLowerCase();
-    if (!term) return normalizedRows;
-    return normalizedRows.filter((row) =>
+    if (!term) return list;
+    return list.filter((row) =>
       [
         row.employeeCode,
         row.employeeName,
+        row.employeeStatus,
         row.bankName,
         row.bankBranch,
         row.accountNumber,
@@ -504,7 +533,7 @@ function BankFormatReport({ userRole = 'App Administrator', userEmail = null }) 
         .toLowerCase()
         .includes(term)
     );
-  }, [normalizedRows, search]);
+  }, [normalizedRows, search, employeeStatus]);
 
   const handleExportExcel = () => {
     if (!filteredRows.length || !payrollFiltersComplete) return;
@@ -676,6 +705,18 @@ function BankFormatReport({ userRole = 'App Administrator', userEmail = null }) 
                     onChange={(e) => setPayrollToDate(e.target.value)}
                   />
                 </label>
+                <label className="bank-report-month-label">
+                  Status
+                  <select
+                    className="bank-report-month-input bank-report-status-select"
+                    value={employeeStatus}
+                    onChange={(e) => setEmployeeStatus(e.target.value)}
+                  >
+                    <option value="All">All</option>
+                    <option value="Active">Active</option>
+                    <option value="Inactive">Inactive</option>
+                  </select>
+                </label>
                 <input
                   type="text"
                   className="bank-report-search"
@@ -704,6 +745,7 @@ function BankFormatReport({ userRole = 'App Administrator', userEmail = null }) 
                       <th>S.No</th>
                       <th>Employee Code</th>
                       <th>Employee Name</th>
+                      <th>Status</th>
                       <th>Bank Name</th>
                       <th>Bank Branch</th>
                       <th>Account Number</th>
@@ -714,12 +756,16 @@ function BankFormatReport({ userRole = 'App Administrator', userEmail = null }) 
                   <tbody>
                     {!loading && filteredRows.length === 0 ? (
                       <tr>
-                        <td colSpan={8} className="bank-report-empty">
+                        <td colSpan={9} className="bank-report-empty">
                           {!payrollFiltersFilled
                             ? 'Choose payroll month, from date, and to date to generate the report.'
                             : !payrollFiltersComplete
                               ? 'From date must be on or before To date.'
-                              : 'No bank records found.'}
+                              : normalizedRows.length === 0
+                                ? 'No bank records found.'
+                                : employeeStatus !== 'All' && !search.trim()
+                                  ? `No ${employeeStatus.toLowerCase()} employees for this month.`
+                                  : 'No rows match your filters.'}
                         </td>
                       </tr>
                     ) : (
@@ -728,6 +774,7 @@ function BankFormatReport({ userRole = 'App Administrator', userEmail = null }) 
                           <td>{row.sno}</td>
                           <td>{row.employeeCode}</td>
                           <td>{row.employeeName}</td>
+                          <td>{row.employeeStatus}</td>
                           <td>{row.bankName}</td>
                           <td>{row.bankBranch}</td>
                           <td>{row.accountNumber}</td>

@@ -71,22 +71,36 @@ function normalizeDateForCompare(dateVal) {
   return String(dateVal);
 }
 
-function buildGetShiftTypeForDate(shiftMap, newShiftMap) {
-  const employeesWithDailyShiftMap = new Set();
-  if (newShiftMap) {
-    for (const key of Object.keys(newShiftMap)) {
-      const sep = key.lastIndexOf('_');
-      if (sep > 0) employeesWithDailyShiftMap.add(key.slice(0, sep));
-    }
+/**
+ * True when date has no NewShiftMap row but lies within that employee's NewShiftMap
+ * min–max span for the same calendar month (not merely "any row in the filter range").
+ */
+function isDateWithinEmployeeNewShiftMapSpan(newShiftMap, empId, dateStr) {
+  const emp = String(empId || '').trim();
+  const date = normalizeDateForCompare(dateStr);
+  if (!emp || !date || date.length < 7) return false;
+  const monthPrefix = date.slice(0, 7);
+  let minDate = null;
+  let maxDate = null;
+  for (const key of Object.keys(newShiftMap || {})) {
+    if (!key.startsWith(`${emp}_`)) continue;
+    const d = key.slice(emp.length + 1);
+    if (!d.startsWith(monthPrefix)) continue;
+    if (!minDate || d < minDate) minDate = d;
+    if (!maxDate || d > maxDate) maxDate = d;
   }
+  if (!minDate || !maxDate) return false;
+  return date >= minDate && date <= maxDate;
+}
 
+function buildGetShiftTypeForDate(shiftMap, newShiftMap) {
   return (empId, dateStr) => {
     const emp = String(empId || '').trim();
     const date = normalizeDateForCompare(dateStr);
     const fromNew = newShiftMap[`${emp}_${date}`];
     if (fromNew) return classifyShiftType(fromNew);
 
-    if (employeesWithDailyShiftMap.has(emp)) return 'GENERAL';
+    if (isDateWithinEmployeeNewShiftMapSpan(newShiftMap, emp, date)) return 'GENERAL';
 
     if (!shiftMap[emp] || shiftMap[emp].length === 0) return 'GENERAL';
 
@@ -230,17 +244,10 @@ function applyOvernightShiftPunchPairing({
 }
 
 /**
- * When an employee has any NewShiftMap row in the range but none for this date,
- * treat the date as General (do not fall back to legacy Shiftmap 3rd/4th/etc.).
+ * When an employee has NewShiftMap rows in the same month and this date falls inside
+ * their min–max NewShiftMap span but has no row, treat as General (not legacy Shiftmap).
  */
 function buildNewShiftMapDateHelpers(newShiftMap) {
-  const employeesWithDailyShiftMap = new Set();
-  if (newShiftMap) {
-    for (const key of Object.keys(newShiftMap)) {
-      const sep = key.lastIndexOf('_');
-      if (sep > 0) employeesWithDailyShiftMap.add(key.slice(0, sep));
-    }
-  }
   const hasNewShiftMapEntry = (empId, dateStr) => {
     const emp = String(empId || '').trim();
     const date = normalizeDateForCompare(dateStr);
@@ -248,10 +255,10 @@ function buildNewShiftMapDateHelpers(newShiftMap) {
     return val !== undefined && val !== null && String(val).trim() !== '';
   };
   const isUnmappedNewShiftMapDate = (empId, dateStr) => {
-    const emp = String(empId || '').trim();
-    return employeesWithDailyShiftMap.has(emp) && !hasNewShiftMapEntry(empId, dateStr);
+    if (hasNewShiftMapEntry(empId, dateStr)) return false;
+    return isDateWithinEmployeeNewShiftMapSpan(newShiftMap, empId, dateStr);
   };
-  return { employeesWithDailyShiftMap, hasNewShiftMapEntry, isUnmappedNewShiftMapDate };
+  return { hasNewShiftMapEntry, isUnmappedNewShiftMapDate };
 }
 
 module.exports = {
@@ -263,5 +270,6 @@ module.exports = {
   normalizeDateForCompare,
   buildGetShiftTypeForDate,
   buildNewShiftMapDateHelpers,
+  isDateWithinEmployeeNewShiftMapSpan,
   applyOvernightShiftPunchPairing
 };

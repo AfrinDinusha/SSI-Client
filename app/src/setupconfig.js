@@ -1305,7 +1305,7 @@ function SetupConfig({ userRole, userEmail }) {
                               className="setup-roundoff-detail-input"
                               value={roundOffDetail}
                               onChange={(e) => setRoundOffDetail(e.target.value)}
-                              placeholder="Enter round off details or formula"
+                              placeholder="INT([OT Hours]) + IF((([OT Hours]-INT([OT Hours]))*60)<=25,0,0.5)"
                               aria-label="Round off details"
                               rows={4}
                               spellCheck={false}

@@ -18,36 +18,41 @@ import {
   buildPayrollByEmployeeCode,
   buildPayrollGridDisplayMapForBankReports,
   buildRunPayrollTableMapFromApi,
+  getPayrollRowForBank,
   mergeBankFormatRowsWithPayroll,
   payrollMonthToFromToDates,
-  resolveBankNeftNetPayAmount,
-  resolvePayrollGridDisplayForBankRow,
+  resolveBankReportSalaryAmountLikeNeft,
 } from './bankReportPayrollShared';
 import { fetchPayrollRowsAlignedWithPayrollGrid } from './payrollGridAlignForBankReports';
 
 function mergedBankRowToNeft(row, neftMeta, index, reportMonth, gridDisplayMap, payrollMap, bankReportPayrollOpts) {
-  const lookup = resolvePayrollGridDisplayForBankRow(
+  const amountNum = resolveBankReportSalaryAmountLikeNeft(
     row,
+    reportMonth,
+    gridDisplayMap,
     payrollMap,
-    bankReportPayrollOpts,
-    gridDisplayMap
+    bankReportPayrollOpts
   );
-  const amountRow =
-    lookup?.netPay != null && Number.isFinite(lookup.netPay)
-      ? { ...row, hasPayrollTableRow: true, netPayPayroll: lookup.netPay }
-      : row;
-  const amountNum = resolveBankNeftNetPayAmount(amountRow, reportMonth);
   const employeeId = String(row.employeeCode ?? row.EmployeeCode ?? row.employeeId ?? '').trim();
+  const payrollRow = getPayrollRowForBank(payrollMap, row);
+  const employeeStatus = String(
+    row.employeeStatus ??
+      row.EmployeeStatus ??
+      payrollRow?.employeeStatus ??
+      payrollRow?.EmployeeStatus ??
+      ''
+  ).trim();
   return {
     id: employeeId || row.id || `row-${index}`,
     employeeId,
+    employeeStatus,
     amount: amountNum,
     ourBankAct: neftMeta.ourBankAct,
     emIfscCode: String(row.ifscCode ?? row.IFSCCode ?? '').trim(),
     emplAct: String(row.accountNumber ?? row.AccountNumber ?? '').trim(),
     bc: neftMeta.bc,
     emlName: String(row.employeeName ?? row.EmployeeName ?? '').trim().toUpperCase(),
-    bank: String(row.bankBranch ?? row.bankName ?? row.BankName ?? '').trim().toUpperCase(),
+    bank: String(row.bankName ?? row.BankName ?? '').trim().toUpperCase(),
     sender: neftMeta.sender,
     mode: 'NEFT',
     neftLine: '',
@@ -141,6 +146,7 @@ export default function BankNeftReport({ userRole = 'App Administrator', userEma
   const [info, setInfo] = useState('');
   const [payrollNotice, setPayrollNotice] = useState('');
   const [search, setSearch] = useState('');
+  const [employeeStatus, setEmployeeStatus] = useState('Active');
   const modulesToShow = useMemo(
     () => getSidebarModulesForUser(resolveSidebarUserEmail(userEmail), userRole),
     [userEmail, userRole]
@@ -321,9 +327,16 @@ export default function BankNeftReport({ userRole = 'App Administrator', userEma
     fetchReport();
   }, [fetchReport]);
   const filteredRows = useMemo(() => {
+    let list = rows;
+    if (employeeStatus !== 'All') {
+      list = list.filter((r) => {
+        const status = String(r.employeeStatus || '').trim();
+        return status.toLowerCase() === employeeStatus.toLowerCase();
+      });
+    }
     const term = search.trim().toLowerCase();
-    if (!term) return rows;
-    return rows.filter((r) =>
+    if (!term) return list;
+    return list.filter((r) =>
       [
         r.employeeId,
         r.amount,
@@ -341,7 +354,7 @@ export default function BankNeftReport({ userRole = 'App Administrator', userEma
         .toLowerCase()
         .includes(term)
     );
-  }, [rows, search]);
+  }, [rows, search, employeeStatus]);
   const sumColumn = useCallback((rows, key) => {
     let sum = 0;
     for (const r of rows) {
@@ -505,6 +518,18 @@ export default function BankNeftReport({ userRole = 'App Administrator', userEma
                     onChange={(e) => setPayrollMonth(e.target.value)}
                   />
                 </label>
+                <label className="bank-report-month-label">
+                  Status
+                  <select
+                    className="bank-report-month-input bank-report-status-select"
+                    value={employeeStatus}
+                    onChange={(e) => setEmployeeStatus(e.target.value)}
+                  >
+                    <option value="All">All</option>
+                    <option value="Active">Active</option>
+                    <option value="Inactive">Inactive</option>
+                  </select>
+                </label>
                 <input
                   type="text"
                   className="bank-report-search"
@@ -533,7 +558,11 @@ export default function BankNeftReport({ userRole = 'App Administrator', userEma
                     {!loading && filteredRows.length === 0 ? (
                       <tr>
                         <td colSpan={BANK_NEFT_COLUMNS.length} className="bank-report-empty">
-                          {rows.length === 0 ? 'No employees found for this report.' : 'No rows match your search.'}
+                          {rows.length === 0
+                            ? 'No employees found for this report.'
+                            : employeeStatus !== 'All' && !search.trim()
+                              ? `No ${employeeStatus.toLowerCase()} employees for this month.`
+                              : 'No rows match your filters.'}
                         </td>
                       </tr>
                     ) : (

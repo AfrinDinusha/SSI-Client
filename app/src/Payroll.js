@@ -112,6 +112,51 @@ function stripPayrollGridExcludedColumns(columns) {
     });
 }
 
+/** Normalize Setup / table column label for canonical key lookup. */
+function normPayrollColumnLabel(label) {
+  return String(label || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+/**
+ * Map Setup column / formula variable labels to payroll row keys (daysPresent, actualBasic, …).
+ * Without this, "No. of Days Present" becomes no.ofDaysPresent and formulae never update daysPresent.
+ */
+const PAYROLL_LABEL_TO_CANONICAL_KEY = {
+  'no. of days present': 'daysPresent',
+  'no of days present': 'daysPresent',
+  'days present': 'daysPresent',
+  'no. of days (in month)': 'daysInMonth',
+  'no. of days in month': 'daysInMonth',
+  'no of days in month': 'daysInMonth',
+  'no. of days(in month)': 'daysInMonth',
+  'days in month': 'daysInMonth',
+  'actual basic': 'actualBasic',
+  'actual hra': 'actualHRA',
+  'actual da': 'actualDA',
+  'attendance allowance': 'otherAllowance',
+  'other allowances': 'otherAllowances',
+  'travel chargers': 'travelChargers',
+  'travel charges': 'travelChargers',
+  'special allowance': 'specialAllowance',
+  'ot hours': 'otHours',
+  'loh': 'loh',
+  'lop': 'lop',
+  'revised loh': 'revisedLOH',
+};
+
+function payrollLabelToCanonicalKey(label) {
+  const norm = normPayrollColumnLabel(label);
+  if (PAYROLL_LABEL_TO_CANONICAL_KEY[norm]) return PAYROLL_LABEL_TO_CANONICAL_KEY[norm];
+  const compact = norm.replace(/[^a-z0-9]/g, '');
+  for (const [k, v] of Object.entries(PAYROLL_LABEL_TO_CANONICAL_KEY)) {
+    if (k.replace(/[^a-z0-9]/g, '') === compact) return v;
+  }
+  return null;
+}
+
 /**
  * Payload key for a Setup column / formula variable label (same rules as applyPayrollFormulaeToEmployee).
  * Used so custom columns (e.g. Dummy) map to one editFormData key and persist on save.
@@ -119,12 +164,28 @@ function stripPayrollGridExcludedColumns(columns) {
 function componentLabelToPayloadKey(label) {
   const base = String(label || '').trim();
   if (!base) return '';
+  const canonical = payrollLabelToCanonicalKey(base);
+  if (canonical) return canonical;
   const camel = base
     .toLowerCase()
     .split(/\s+/)
     .map((word, index) => (index === 0 ? word : word.charAt(0).toUpperCase() + word.slice(1)))
     .join('');
   return camel || base.replace(/\s+/g, '') || base.replace(/\s+/g, '_').toLowerCase();
+}
+
+/** Working days in month (excl. Sundays) from YYYY-MM, or null if month invalid. */
+function computeDaysInMonthExcludingSundays(selectedMonth) {
+  const parts = String(selectedMonth || '').split('-').map(Number);
+  const year = parts[0];
+  const month = parts[1];
+  if (!year || !month) return null;
+  const lastDay = new Date(year, month, 0).getDate();
+  let count = 0;
+  for (let d = 1; d <= lastDay; d++) {
+    if (new Date(year, month - 1, d).getDay() !== 0) count++;
+  }
+  return count;
 }
 
 /** Match Data Store / API field names to Setup labels (Price vs price, Foo Bar vs fooBar). */
@@ -1129,16 +1190,35 @@ const Payroll = () => {
 
     const lower = base.toLowerCase();
     if (lower === 'unit') return payrollRowUnitDisplay(employee);
-    if (lower.includes('no. of days present') || lower.includes('days present')) {
+    if (lower.includes('no. of days present') || (lower.includes('days') && lower.includes('present') && !lower.includes('month'))) {
       const dimGp = parseFloat(employee.daysInMonth ?? employee.DaysInMonth ?? 0) || 0;
       if (isManagingPartnerPayrollRow(employee) && dimGp > 0) return dimGp;
-      return employee.daysPresent ?? employee.DaysPresent ?? '';
+      const v = employee.daysPresent ?? employee.DaysPresent;
+      if (v === '' || v === null || v === undefined) return 0;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : v;
     }
     // No. of Days (In Month) - must be after "days present" so that isn't matched
-    if (lower.includes('no. of days') && lower.includes('month')) {
+    if ((lower.includes('no. of days') || lower.includes('no of days') || lower.includes('days in month')) && lower.includes('month') && !lower.includes('present')) {
       const v = employee.daysInMonth ?? employee.DaysInMonth ?? employee.daysInMonthForCalc ?? employee['Days In Month'] ?? '';
       const n = Number(v);
-      return Number.isFinite(n) ? n : (v !== '' && v !== null && v !== undefined ? v : '');
+      if (Number.isFinite(n) && n > 0) return n;
+      return v !== '' && v !== null && v !== undefined ? v : 0;
+    }
+    if (lower === 'actual basic') {
+      const v = employee.actualBasic ?? employee.ActualBasic ?? '';
+      const n = Number(v);
+      return Number.isFinite(n) ? Math.round(n) : (v !== '' && v !== null && v !== undefined ? v : 0);
+    }
+    if (lower === 'actual hra') {
+      const v = employee.actualHRA ?? employee.ActualHRA ?? '';
+      const n = Number(v);
+      return Number.isFinite(n) ? Math.round(n) : (v !== '' && v !== null && v !== undefined ? v : 0);
+    }
+    if (lower === 'actual da') {
+      const v = employee.actualDA ?? employee.ActualDA ?? '';
+      const n = Number(v);
+      return Number.isFinite(n) ? Math.round(n) : (v !== '' && v !== null && v !== undefined ? v : 0);
     }
     if (lower === 'loh' || (lower.includes('loss of hours') && !lower.includes('revised'))) return employee.loh;
     if (lower.includes('revised') && lower.includes('loh')) {
@@ -1538,12 +1618,20 @@ const Payroll = () => {
         earnedDA: Number(updated.earnedDA ?? updated.EarnedDA) || 0,
         earnedSpecialAllowance: Number(updated.earnedSpecialAllowance ?? updated.EarnedSpecialAllowance) || 0,
       };
+      const preservedMaster = {
+        actualBasic: Number(updated.actualBasic ?? updated.ActualBasic) || 0,
+        actualHRA: Number(updated.actualHRA ?? updated.ActualHRA) || 0,
+        actualDA: Number(updated.actualDA ?? updated.ActualDA) || 0,
+        daysPresent: Number(updated.daysPresent ?? updated.DaysPresent),
+        daysInMonth: Number(updated.daysInMonth ?? updated.DaysInMonth),
+      };
 
       formulae.forEach(({ variable, expression }) => {
       const base = String(variable).trim();
       if (!base) return;
 
       const key = componentLabelToPayloadKey(base);
+      const canonicalKey = payrollLabelToCanonicalKey(base);
 
       // When ESI Status is No, do not apply ESI formulae (keep ESI and Employer ESI 0)
       const baseLower = base.toLowerCase();
@@ -1621,6 +1709,20 @@ const Payroll = () => {
           if (Number.isFinite(nn)) applyCanonicalFieldFromFormulaVariable(updated, base, nn);
         }
       }
+      // Mirror formula result onto canonical row key (e.g. daysPresent, actualBasic) for table display
+      if (canonicalKey && canonicalKey !== key && updated[key] !== undefined && updated[key] !== null && updated[key] !== '') {
+        updated[canonicalKey] = updated[key];
+        const pascal =
+          canonicalKey === 'actualHRA' ? 'ActualHRA'
+          : canonicalKey === 'actualDA' ? 'ActualDA'
+          : canonicalKey === 'actualBasic' ? 'ActualBasic'
+          : canonicalKey === 'daysPresent' ? 'DaysPresent'
+          : canonicalKey === 'daysInMonth' ? 'DaysInMonth'
+          : canonicalKey === 'otHours' ? 'OTHours'
+          : canonicalKey === 'revisedLOH' ? 'RevisedLOH'
+          : canonicalKey.charAt(0).toUpperCase() + canonicalKey.slice(1);
+        updated[pascal] = updated[key];
+      }
       });
 
       const restoreEarnedIfFormulaZeroed = (camelKey, pascalKey) => {
@@ -1636,6 +1738,32 @@ const Payroll = () => {
       restoreEarnedIfFormulaZeroed('earnedHRA', 'EarnedHRA');
       restoreEarnedIfFormulaZeroed('earnedDA', 'EarnedDA');
       restoreEarnedIfFormulaZeroed('earnedSpecialAllowance', 'EarnedSpecialAllowance');
+
+      const restoreMasterIfFormulaZeroed = (camelKey, pascalKey, prev) => {
+        if (!Number.isFinite(prev) || prev <= 0) return;
+        const cur = Number(updated[camelKey] ?? updated[pascalKey]);
+        if (!Number.isFinite(cur) || cur <= 0) {
+          updated[camelKey] = prev;
+          updated[pascalKey] = prev;
+        }
+      };
+      restoreMasterIfFormulaZeroed('actualBasic', 'ActualBasic', preservedMaster.actualBasic);
+      restoreMasterIfFormulaZeroed('actualHRA', 'ActualHRA', preservedMaster.actualHRA);
+      restoreMasterIfFormulaZeroed('actualDA', 'ActualDA', preservedMaster.actualDA);
+      if (Number.isFinite(preservedMaster.daysPresent) && preservedMaster.daysPresent >= 0) {
+        const curDp = Number(updated.daysPresent ?? updated.DaysPresent);
+        if (!Number.isFinite(curDp)) {
+          updated.daysPresent = preservedMaster.daysPresent;
+          updated.DaysPresent = preservedMaster.daysPresent;
+        }
+      }
+      if (Number.isFinite(preservedMaster.daysInMonth) && preservedMaster.daysInMonth > 0) {
+        const curDim = Number(updated.daysInMonth ?? updated.DaysInMonth);
+        if (!Number.isFinite(curDim) || curDim <= 0) {
+          updated.daysInMonth = preservedMaster.daysInMonth;
+          updated.DaysInMonth = preservedMaster.daysInMonth;
+        }
+      }
 
       syncWashingAllowanceFromAttendance(updated);
       syncOtAmountFromOtHours(updated);
@@ -1705,7 +1833,7 @@ const Payroll = () => {
   };
 
   // Function to fetch payroll data
-  const fetchPayrollData = useCallback(async (overrideFromDate = null, overrideToDate = null) => {
+  const fetchPayrollData = useCallback(async (overrideFromDate = null, overrideToDate = null, overrideDepartment = null) => {
     try {
       console.log('=== FETCH PAYROLL DATA DEBUG START ===');
       setLoading(true);
@@ -1714,10 +1842,11 @@ const Payroll = () => {
       // Use override dates if provided, otherwise use state values
       const effectiveFromDate = overrideFromDate !== null ? overrideFromDate : fromDate;
       const effectiveToDate = overrideToDate !== null ? overrideToDate : toDate;
+      const effectiveDepartment = overrideDepartment !== null ? overrideDepartment : department;
      
       let url = `/server/payroll_function/payroll?month=${selectedMonth}&_t=${Date.now()}`;
       if (contractor !== 'All') url += `&contractor=${encodeURIComponent(contractor)}`;
-      if (department !== 'All') url += `&department=${encodeURIComponent(department)}`;
+      if (effectiveDepartment !== 'All') url += `&department=${encodeURIComponent(effectiveDepartment)}`;
       if (employeeId !== 'All') url += `&employeeId=${encodeURIComponent(employeeId)}`;
       if (employeeStatus !== 'All') url += `&employeeStatus=${encodeURIComponent(employeeStatus)}`;
       if (effectiveFromDate) url += `&fromDate=${encodeURIComponent(effectiveFromDate)}`;
@@ -2332,7 +2461,7 @@ const Payroll = () => {
       // Fetch payroll data (Days Present and LOH hours are auto-fetched from BHR table and LOH report)
       // For restricted users, pull from saved payroll report to avoid missing recompute data on past months
       setLoading(true);
-      const basePath = forcedContractor ? '/server/payroll_function/report' : '/server/payroll_function/payroll';
+      const basePath = '/server/payroll_function/payroll';
       let url = `${basePath}?month=${selectedMonth}&_t=${Date.now()}`;
       // Include contractor explicitly when restricted
       const contractorForQuery = forcedContractor || (contractor !== 'All' ? contractor : null);
@@ -3761,8 +3890,9 @@ const Payroll = () => {
             };
           }
         }
-        // LOH edit only: keep Earned Basic / Special / OT / Incentive as before — ESI = (Basic+OT+Incentive)×0.75% must not move.
-        if (field === 'loh') {
+        // LOH / uniform-days edits: keep Earned Basic + OT + Incentive fixed — ESI = (Basic+OT+Incentive)×0.75% must not move.
+        const editFieldsPreserveEsiBase = new Set(['loh', 'noOfDaysWithoutUniforms', 'noofdayswithoutuniforms']);
+        if (editFieldsPreserveEsiBase.has(field)) {
           const eb = parseFloat(prev.earnedBasic ?? prev.EarnedBasic) || 0;
           const ehra = parseFloat(prev.earnedHRA ?? prev.EarnedHRA) || 0;
           const eda = parseFloat(prev.earnedDA ?? prev.EarnedDA) || 0;
@@ -4340,6 +4470,107 @@ const Payroll = () => {
   // ERPF 12% + Admin 0.5% + EDLI 0.5% (stored as erpf13 for DB; 0 for Yashaswi)
   const getErpf13DisplayValue = (emp) => (isYashaswiContractor(emp) ? 0 : (parseFloat(emp?.erpf13 ?? emp?.ERPF13 ?? 0) || 0));
 
+  const PAYROLL_EXPORT_FIXED_HEADERS = [
+    'S.No',
+    'Employee Code',
+    'Employee Name',
+    'Designation',
+    'Department',
+    'Category',
+    'Unit',
+    'Date of Joining',
+  ];
+
+  /** Match visible payroll grid columns (same source as Excel export). */
+  const getPayrollExportLayout = () => {
+    const renderedHeaderColumns = Array.from(
+      document.querySelectorAll('.payroll-table thead tr.table-header th.light-green-header')
+    )
+      .map((th) => String(th.textContent || '').trim())
+      .filter(Boolean);
+    const exportColumns = renderedHeaderColumns.length > 0
+      ? renderedHeaderColumns
+      : [...tablePayrollComponents];
+    const exportSheetKeys = exportColumns.map((compName, idx) => {
+      const sameBefore = exportColumns.slice(0, idx).filter((c) => c === compName).length;
+      return sameBefore === 0 ? compName : `${compName} (${sameBefore + 1})`;
+    });
+    const mpExportRows = [];
+    const otherExportRows = [];
+    payrollData.forEach((emp) => {
+      if (isManagingPartnerPayrollRow(emp)) mpExportRows.push(emp);
+      else otherExportRows.push(emp);
+    });
+    const showMpGapExport = mpExportRows.length > 0 && otherExportRows.length > 0;
+    return { exportColumns, exportSheetKeys, mpExportRows, otherExportRows, showMpGapExport };
+  };
+
+  const buildPayrollExportDataRow = (employee, serialNo, exportColumns, exportSheetKeys) => {
+    const row = {
+      'S.No': serialNo,
+      'Employee Code': employee.employeeCode || '',
+      'Employee Name': employee.employeeName || '',
+      Designation: employee.designation ?? employee.Designation ?? '',
+      Department: employee.department || '',
+      Category: employee.category ?? employee.Category ?? '',
+      Unit: payrollRowUnitDisplay(employee),
+      'Date of Joining': employee.dateOfJoining
+        ? new Date(employee.dateOfJoining).toLocaleDateString('en-GB')
+        : '',
+    };
+    exportColumns.forEach((compName, idx) => {
+      row[exportSheetKeys[idx]] = getComponentDisplayValue(employee, compName);
+    });
+    return row;
+  };
+
+  const buildPayrollExportTotalsRow = (exportColumns, exportSheetKeys) => {
+    const totalsRow = {
+      'S.No': 'Total',
+      'Employee Code': '',
+      'Employee Name': '',
+      Designation: '',
+      Department: '',
+      Category: '',
+      Unit: '',
+      'Date of Joining': '',
+    };
+    exportColumns.forEach((compName, idx) => {
+      const sheetKey = exportSheetKeys[idx];
+      const firstVal = payrollData.length ? getComponentDisplayValue(payrollData[0], compName) : 0;
+      const isNumeric = typeof firstVal === 'number' && !Number.isNaN(firstVal);
+      totalsRow[sheetKey] = isNumeric
+        ? payrollData.reduce((sum, emp) => sum + (Number(getComponentDisplayValue(emp, compName)) || 0), 0)
+        : '';
+    });
+    return totalsRow;
+  };
+
+  const escapePayrollExportHtml = (value) => String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
+  const formatPayrollPdfCell = (compName, val) => {
+    if (val === '' || val === null || val === undefined) return '';
+    const lowerName = String(compName || '').toLowerCase();
+    const isHoursColumn =
+      lowerName === 'ot hours' ||
+      lowerName.includes('ot hours') ||
+      lowerName === 'loh' ||
+      (lowerName.includes('loss of hours') && !lowerName.includes('revised')) ||
+      (lowerName.includes('revised') && lowerName.includes('loh')) ||
+      lowerName === 'lop' ||
+      lowerName.includes('loss of pay') ||
+      (lowerName.includes('no. of days present') || lowerName.includes('days present')) ||
+      (lowerName.includes('no. of days') && lowerName.includes('month'));
+    if (isHoursColumn) return escapePayrollExportHtml(val);
+    const num = parseFloat(val);
+    if (Number.isFinite(num)) return `₹${Number(num).toLocaleString()}`;
+    return escapePayrollExportHtml(val);
+  };
+
   const exportToExcel = () => {
     try {
       console.log('Exporting payroll data to Excel...');
@@ -4350,59 +4581,23 @@ const Payroll = () => {
       }
 
       // Export columns must exactly match visible front-table component columns (actual rendered order).
-      const renderedHeaderColumns = Array.from(
-        document.querySelectorAll('.payroll-table thead tr.table-header th.light-green-header')
-      )
-        .map((th) => String(th.textContent || '').trim())
-        .filter(Boolean);
-      const exportColumns = renderedHeaderColumns.length > 0
-        ? renderedHeaderColumns
-        : [...tablePayrollComponents];
-
-      const exportSheetKeys = exportColumns.map((compName, idx) => {
-        const sameBefore = exportColumns.slice(0, idx).filter((c) => c === compName).length;
-        return sameBefore === 0 ? compName : `${compName} (${sameBefore + 1})`;
-      });
-
-      const mpExportRows = [];
-      const otherExportRows = [];
-      payrollData.forEach((emp) => {
-        if (isManagingPartnerPayrollRow(emp)) mpExportRows.push(emp);
-        else otherExportRows.push(emp);
-      });
-      const showMpGapExport = mpExportRows.length > 0 && otherExportRows.length > 0;
-
-      const buildExportDataRow = (employee, serialNo) => {
-        const row = {
-          'S.No': serialNo,
-          'Employee Code': employee.employeeCode || '',
-          'Employee Name': employee.employeeName || '',
-          'Designation': employee.designation ?? employee.Designation ?? '',
-          'Department': employee.department || '',
-          'Category': employee.category ?? employee.Category ?? '',
-          Unit: payrollRowUnitDisplay(employee),
-          'Date of Joining': employee.dateOfJoining ? new Date(employee.dateOfJoining).toLocaleDateString('en-GB') : ''
-        };
-        exportColumns.forEach((compName, idx) => {
-          row[exportSheetKeys[idx]] = getComponentDisplayValue(employee, compName);
-        });
-        return row;
-      };
+      const { exportColumns, exportSheetKeys, mpExportRows, otherExportRows, showMpGapExport } =
+        getPayrollExportLayout();
 
       const exportData = [];
       mpExportRows.forEach((employee, i) => {
-        exportData.push(buildExportDataRow(employee, i + 1));
+        exportData.push(buildPayrollExportDataRow(employee, i + 1, exportColumns, exportSheetKeys));
       });
       if (showMpGapExport) {
         const gapRow = {
           'S.No': '',
           'Employee Code': '',
           'Employee Name': '',
-          'Designation': '',
-          'Department': '',
-          'Category': '',
+          Designation: '',
+          Department: '',
+          Category: '',
           Unit: '',
-          'Date of Joining': ''
+          'Date of Joining': '',
         };
         exportSheetKeys.forEach((sk) => {
           gapRow[sk] = '';
@@ -4410,28 +4605,10 @@ const Payroll = () => {
         exportData.push(gapRow);
       }
       otherExportRows.forEach((employee, i) => {
-        exportData.push(buildExportDataRow(employee, i + 1));
+        exportData.push(buildPayrollExportDataRow(employee, i + 1, exportColumns, exportSheetKeys));
       });
 
-      // Totals row: fixed columns empty/total label, then sum for each numeric table column
-      const totalsRow = {
-        'S.No': 'Total',
-        'Employee Code': '',
-        'Employee Name': '',
-        'Designation': '',
-        'Department': '',
-        'Category': '',
-        Unit: '',
-        'Date of Joining': '',
-      };
-      exportColumns.forEach((compName, idx) => {
-        const sheetKey = exportSheetKeys[idx];
-        const firstVal = payrollData.length ? getComponentDisplayValue(payrollData[0], compName) : 0;
-        const isNumeric = typeof firstVal === 'number' && !Number.isNaN(firstVal);
-        totalsRow[sheetKey] = isNumeric
-          ? payrollData.reduce((sum, emp) => sum + (Number(getComponentDisplayValue(emp, compName)) || 0), 0)
-          : '';
-      });
+      const totalsRow = buildPayrollExportTotalsRow(exportColumns, exportSheetKeys);
 
       // Add totals row to export data
       exportData.push(totalsRow);
@@ -4488,174 +4665,116 @@ const Payroll = () => {
   const exportToPDF = () => {
     try {
       console.log('Exporting payroll data to PDF...');
-     
+
       if (!payrollData || payrollData.length === 0) {
         alert('No payroll data available to export. Please run payroll first.');
         return;
       }
 
-      // Create a simple HTML table for PDF conversion
-      let htmlContent = `
+      const { exportColumns, exportSheetKeys, mpExportRows, otherExportRows, showMpGapExport } =
+        getPayrollExportLayout();
+      const allHeaders = [...PAYROLL_EXPORT_FIXED_HEADERS, ...exportSheetKeys];
+
+      const formatPdfRowCells = (rowObj) => {
+        const fixedCells = PAYROLL_EXPORT_FIXED_HEADERS.map((header) => {
+          const raw = rowObj[header];
+          if (header === 'S.No' && raw === 'Total') return 'Total';
+          return escapePayrollExportHtml(raw);
+        });
+        const componentCells = exportColumns.map((compName, idx) =>
+          formatPayrollPdfCell(compName, rowObj[exportSheetKeys[idx]])
+        );
+        return [...fixedCells, ...componentCells];
+      };
+
+      const bodyRows = [];
+      mpExportRows.forEach((employee, i) => {
+        bodyRows.push(buildPayrollExportDataRow(employee, i + 1, exportColumns, exportSheetKeys));
+      });
+      if (showMpGapExport) {
+        const gapRow = {
+          'S.No': '',
+          'Employee Code': '',
+          'Employee Name': '',
+          Designation: '',
+          Department: '',
+          Category: '',
+          Unit: '',
+          'Date of Joining': '',
+        };
+        exportSheetKeys.forEach((sk) => {
+          gapRow[sk] = '';
+        });
+        bodyRows.push(gapRow);
+      }
+      otherExportRows.forEach((employee, i) => {
+        bodyRows.push(buildPayrollExportDataRow(employee, i + 1, exportColumns, exportSheetKeys));
+      });
+      bodyRows.push(buildPayrollExportTotalsRow(exportColumns, exportSheetKeys));
+
+      const headerRowHtml = allHeaders
+        .map((h) => `<th>${escapePayrollExportHtml(h)}</th>`)
+        .join('');
+      const bodyRowsHtml = bodyRows
+        .map((rowObj) => {
+          const cells = formatPdfRowCells(rowObj);
+          const rowClass = rowObj['S.No'] === 'Total' ? ' class="total-row"' : '';
+          return `<tr${rowClass}>${cells.map((c) => `<td>${c}</td>`).join('')}</tr>`;
+        })
+        .join('');
+
+      const netPayKey = exportSheetKeys.find((k, i) => {
+        const lower = String(exportColumns[i] || '').toLowerCase();
+        return lower === 'net pay' || lower.includes('net pay');
+      });
+      const totalNetPay = netPayKey
+        ? bodyRows[bodyRows.length - 1][netPayKey]
+        : payrollData.reduce(
+            (sum, emp) => sum + (Number(getComponentDisplayValue(emp, 'Net Pay')) || 0),
+            0
+          );
+
+      const htmlContent = `
         <html>
           <head>
-            <title>Payroll Report - ${selectedMonth}</title>
+            <title>Payroll Report - ${escapePayrollExportHtml(selectedMonth)}</title>
             <style>
-              body { font-family: Arial, sans-serif; margin: 20px; }
-              h1 { text-align: center; color: #333; margin-bottom: 30px; }
-              h2 { color: #666; margin-bottom: 20px; }
-              table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-              th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-              th { background-color: #f2f2f2; font-weight: bold; }
+              body { font-family: Arial, sans-serif; margin: 16px; }
+              h1 { text-align: center; color: #333; margin-bottom: 8px; font-size: 18px; }
+              .meta { text-align: center; color: #666; margin-bottom: 20px; font-size: 12px; }
+              table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 10px; }
+              th, td { border: 1px solid #ddd; padding: 4px 6px; text-align: left; vertical-align: top; }
+              th { background-color: #d4edda; font-weight: bold; }
               .total-row { background-color: #e6f3ff; font-weight: bold; }
-              .summary { margin-top: 30px; }
-              .summary-item { margin: 10px 0; }
+              .summary { margin-top: 24px; font-size: 12px; }
+              .summary-item { margin: 6px 0; }
+              @media print {
+                table { page-break-inside: auto; }
+                tr { page-break-inside: avoid; page-break-after: auto; }
+                thead { display: table-header-group; }
+              }
             </style>
           </head>
           <body>
-            <h1>Payroll Report - ${selectedMonth}</h1>
-            <h2>Employee Details</h2>
+            <h1>Payroll Report — ${escapePayrollExportHtml(selectedMonth)}</h1>
+            <div class="meta">Columns match current payroll grid · Generated ${new Date().toLocaleString('en-GB')}</div>
             <table>
               <thead>
-                <tr>
-                  <th>S.No</th>
-                  <th>Employee Code</th>
-                  <th>Employee Name</th>
-                  <th>Designation</th>
-                  <th>Department</th>
-                  <th>Contractor</th>
-                  <th>Date of Joining</th>
-                  <th>Days Present</th>
-                  <th>OT Hours</th>
-                  <th>Actual Basic</th>
-                  <th>Actual DA</th>
-                  <th>Actual HRA</th>
-                  <th>Other Allowances</th>
-                  <th>Actual Total Salary</th>
-                  <th>Earned Basic</th>
-                  <th>Earned DA</th>
-                  <th>Earned HRA</th>
-                  <th>PF Arrear</th>
-                  <th>LOP</th>
-                  <th>PF 12%</th>
-                  <th>ESI 0.75%</th>
-                  <th>Other Deduction</th>
-                  <th>Total Deduction</th>
-                  <th>Net Pay</th>
-                  <th>ERPF 12%</th>
-                  <th>Admin 0.5%</th>
-                  <th>EDLI 0.5%</th>
-                  <th>Employer ESI 3.25%</th>
-                  <th>ESIContribution</th>
-                  <th>Service Charge 9%</th>
-                  <th>Total</th>
-                  <th>GST 18%</th>
-                  <th>Net Total</th>
-                </tr>
+                <tr>${headerRowHtml}</tr>
               </thead>
               <tbody>
-      `;
-
-      // Add employee rows
-      payrollData.forEach((employee, index) => {
-        htmlContent += `
-          <tr>
-            <td>${index + 1}</td>
-            <td>${employee.employeeCode || ''}</td>
-            <td>${employee.employeeName || ''}</td>
-            <td>${employee.designation ?? employee.Designation ?? ''}</td>
-            <td>${employee.department || ''}</td>
-            <td>${employee.contractor || ''}</td>
-            <td>${employee.dateOfJoining ? new Date(employee.dateOfJoining).toLocaleDateString('en-GB') : '-'}</td>
-            <td>${employee.daysPresent || 0}</td>
-            <td>${employee.otHours || 0}</td>
-            <td>₹${(parseFloat(employee.actualBasic) || 0).toLocaleString()}</td>
-            <td>₹${(parseFloat(employee.actualDA) || 0).toLocaleString()}</td>
-            <td>₹${(parseFloat(employee.actualHRA) || 0).toLocaleString()}</td>
-            <td>₹${(parseFloat(employee.otherAllowances ?? employee.otherAllowance) || 0).toLocaleString()}</td>
-            <td>₹${(parseFloat(employee.actualTotalSalary) || 0).toLocaleString()}</td>
-            <td>₹${(parseFloat(employee.earnedBasic) || 0).toLocaleString()}</td>
-            <td>₹${(parseFloat(employee.earnedDA) || 0).toLocaleString()}</td>
-            <td>₹${(parseFloat(employee.earnedHRA) || 0).toLocaleString()}</td>
-            <td>₹${(parseFloat(employee.arrear) || 0).toLocaleString()}</td>
-            <td>${(parseFloat(employee.lop) || 0).toLocaleString()}</td>
-            <td>₹${(Number(getPfDisplayValue(employee)) || 0).toLocaleString()}</td>
-            <td>₹${getEsiValue(employee).toLocaleString()}</td>
-            <td>₹${(parseFloat(employee.otherDeduction) || 0).toLocaleString()}</td>
-            <td>₹${getDisplayTotalDeduction(employee).toLocaleString()}</td>
-            <td>₹${(Number(getComponentDisplayValue(employee, 'Net Pay')) || 0).toLocaleString()}</td>
-            <td>${getErpfDisplayText(employee)}</td>
-            <td>₹${getAdminDisplayValue(employee).toLocaleString()}</td>
-            <td>₹${getEdliDisplayValue(employee).toLocaleString()}</td>
-            <td>₹${(parseFloat(employee.employerEsi) || 0).toLocaleString()}</td>
-            <td>₹${(parseFloat(employee.esiContribution ?? employee.ESIContribution) || 0).toLocaleString()}</td>
-            <td>₹${(parseFloat(employee.serviceCharge) || 0).toLocaleString()}</td>
-            <td>₹${(parseFloat(employee.total) || 0).toLocaleString()}</td>
-            <td>₹${(parseFloat(employee.gst) || 0).toLocaleString()}</td>
-            <td>₹${(parseFloat(employee.netTotal) || 0).toLocaleString()}</td>
-          </tr>
-        `;
-      });
-
-      // Add totals row
-      htmlContent += `
-        <tr class="total-row">
-          <td>Total</td>
-          <td></td>
-          <td></td>
-          <td></td>
-          <td></td>
-          <td></td>
-          <td></td>
-          <td>${payrollData.reduce((sum, emp) => sum + (parseFloat(emp.daysPresent) || 0), 0)}</td>
-          <td>${payrollData.reduce((sum, emp) => sum + (parseFloat(emp.otHours) || 0), 0).toFixed(1)}</td>
-          <td>₹${payrollData.reduce((sum, emp) => sum + (parseFloat(emp.actualBasic) || 0), 0).toLocaleString()}</td>
-          <td>₹${payrollData.reduce((sum, emp) => sum + (parseFloat(emp.actualDA) || 0), 0).toLocaleString()}</td>
-          <td>₹${payrollData.reduce((sum, emp) => sum + (parseFloat(emp.actualHRA) || 0), 0).toLocaleString()}</td>
-          <td>₹${payrollData.reduce((sum, emp) => sum + (parseFloat(emp.actualTotalSalary) || 0), 0).toLocaleString()}</td>
-          <td>₹${payrollData.reduce((sum, emp) => sum + (parseFloat(emp.earnedBasic) || 0), 0).toLocaleString()}</td>
-          <td>₹${payrollData.reduce((sum, emp) => sum + (parseFloat(emp.earnedDA) || 0), 0).toLocaleString()}</td>
-          <td>₹${payrollData.reduce((sum, emp) => sum + (parseFloat(emp.earnedHRA) || 0), 0).toLocaleString()}</td>
-          <td>₹${payrollData.reduce((sum, emp) => sum + (parseFloat(emp.arrear) || 0), 0).toLocaleString()}</td>
-          <td>${payrollData.reduce((sum, emp) => sum + (parseFloat(emp.lop) || 0), 0).toLocaleString()}</td>
-          <td>₹${payrollData.reduce((sum, emp) => sum + (Number(getPfDisplayValue(emp)) || 0), 0).toLocaleString()}</td>
-          <td>₹${payrollData.reduce((sum, emp) => sum + getEsiValue(emp), 0).toLocaleString()}</td>
-          <td>₹${payrollData.reduce((sum, emp) => sum + (parseFloat(emp.otherDeduction) || 0), 0).toLocaleString()}</td>
-          <td>₹${payrollData.reduce((sum, emp) => sum + getDisplayTotalDeduction(emp), 0).toLocaleString()}</td>
-          <td>₹${payrollData.reduce((sum, emp) => sum + (Number(getComponentDisplayValue(emp, 'Net Pay')) || 0), 0).toLocaleString()}</td>
-          <td>₹${payrollData.reduce((sum, emp) => sum + getErpfDisplayValue(emp), 0).toLocaleString()}</td>
-          <td>₹${payrollData.reduce((sum, emp) => sum + getAdminDisplayValue(emp), 0).toLocaleString()}</td>
-          <td>₹${payrollData.reduce((sum, emp) => sum + getEdliDisplayValue(emp), 0).toLocaleString()}</td>
-          <td>₹${payrollData.reduce((sum, emp) => sum + (parseFloat(emp.employerEsi) || 0), 0).toLocaleString()}</td>
-          <td>₹${payrollData.reduce((sum, emp) => sum + (parseFloat(emp.esiContribution ?? emp.ESIContribution) || 0), 0).toLocaleString()}</td>
-          <td>₹${payrollData.reduce((sum, emp) => sum + (parseFloat(emp.serviceCharge) || 0), 0).toLocaleString()}</td>
-          <td>₹${payrollData.reduce((sum, emp) => sum + (parseFloat(emp.total) || 0), 0).toLocaleString()}</td>
-          <td>₹${payrollData.reduce((sum, emp) => sum + (parseFloat(emp.gst) || 0), 0).toLocaleString()}</td>
-          <td>₹${payrollData.reduce((sum, emp) => sum + (parseFloat(emp.netTotal) || 0), 0).toLocaleString()}</td>
-        </tr>
-      `;
-
-      htmlContent += `
+                ${bodyRowsHtml}
               </tbody>
             </table>
-           
             <div class="summary">
-              <h2>Summary</h2>
+              <h2 style="font-size:14px;">Summary</h2>
               <div class="summary-item"><strong>Total Employees:</strong> ${payrollData.length}</div>
-              <div class="summary-item"><strong>Total OT Hours:</strong> ${payrollData.reduce((sum, emp) => sum + (parseFloat(emp.otHours) || 0), 0).toFixed(1)} hrs</div>
-              <div class="summary-item"><strong>Total Actual Salary:</strong> ₹${payrollData.reduce((sum, emp) => sum + (parseFloat(emp.actualTotalSalary) || 0), 0).toLocaleString()}</div>
-              <div class="summary-item"><strong>Total Earned Salary:</strong> ₹${payrollData.reduce((sum, emp) => sum + (parseFloat(emp.earnedSalaryCross) || 0), 0).toLocaleString()}</div>
-              <div class="summary-item"><strong>Total Deductions:</strong> ₹${payrollData.reduce((sum, emp) => sum + getDisplayTotalDeduction(emp), 0).toLocaleString()}</div>
-              <div class="summary-item"><strong>Total Net Pay:</strong> ₹${payrollData.reduce((sum, emp) => sum + (Number(getComponentDisplayValue(emp, 'Net Pay')) || 0), 0).toLocaleString()}</div>
-            </div>
-           
-            <div style="margin-top: 50px; text-align: center; color: #666;">
-              <p>Generated on: ${new Date().toLocaleDateString()}</p>
+              <div class="summary-item"><strong>Total Net Pay:</strong> ${formatPayrollPdfCell('Net Pay', totalNetPay)}</div>
             </div>
           </body>
         </html>
       `;
 
-      // Open in new window for printing/saving as PDF
       const printWindow = window.open('', '_blank');
       printWindow.document.write(htmlContent);
       printWindow.document.close();
@@ -5419,39 +5538,7 @@ EMP001,MUKESH,SALES,Unit-A,No,31,22.5,0.00,0,10000,5000,0,0,0,0,0,0,15000,7258.0
                       setDepartment(newDepartment);
                       // Automatically fetch and display data when department changes (if payroll has been run)
                       if (payrollRun) {
-                        const fetchWithNewDepartment = async () => {
-                          try {
-                            setLoading(true);
-                            setError(null);
-                           
-                            let url = `/server/payroll_function/payroll?month=${selectedMonth}&_t=${Date.now()}`;
-                            if (contractor !== 'All') url += `&contractor=${encodeURIComponent(contractor)}`;
-                            if (newDepartment !== 'All') url += `&department=${encodeURIComponent(newDepartment)}`;
-                            if (employeeId !== 'All') url += `&employeeId=${encodeURIComponent(employeeId)}`;
-                            if (fromDate) url += `&fromDate=${encodeURIComponent(fromDate)}`;
-                            if (toDate) url += `&toDate=${encodeURIComponent(toDate)}`;
-                            if (userEmail) url += `&userEmail=${encodeURIComponent(userEmail)}`;
-                           
-                            const res = await fetch(url);
-                            if (!res.ok) {
-                              const errorText = await res.text();
-                              throw new Error(`Failed to fetch payroll data: ${res.status} ${errorText}`);
-                            }
-                           
-                            const result = await res.json();
-                            const newPayrollData = result.data ? [...result.data] : [];
-                            setPayrollData(
-                              sortPayrollManagingPartnerFirst(newPayrollData.map(applyPayrollFormulaeToEmployee))
-                            );
-                          } catch (err) {
-                            console.error('Error fetching payroll data:', err);
-                            setError(err.message);
-                            setPayrollData([]);
-                          } finally {
-                            setLoading(false);
-                          }
-                        };
-                        fetchWithNewDepartment();
+                        fetchPayrollData(fromDate, toDate, newDepartment);
                       }
                     }}
                     className="filter-select"
@@ -5773,23 +5860,31 @@ EMP001,MUKESH,SALES,Unit-A,No,31,22.5,0.00,0,10000,5000,0,0,0,0,0,0,15000,7258.0
                           <td>{employee.dateOfJoining ? new Date(employee.dateOfJoining).toLocaleDateString('en-GB') : '-'}</td>
                           {tablePayrollComponents.map((name, colIdx) => {
                             const lowerName = String(name || '').toLowerCase();
-                            // Special handling for 'No. of Days in Month' component (exclude Sundays)
-                            if (lowerName.includes('no. of days') && lowerName.includes('month')) {
-                              const [year, month] = selectedMonth.split('-').map(Number);
-                              let days = '';
-                              if (year && month) {
-                                const lastDay = new Date(year, month, 0).getDate();
-                                let count = 0;
-                                for (let d = 1; d <= lastDay; d++) {
-                                  if (new Date(year, month - 1, d).getDay() !== 0) count++;
-                                }
-                                days = count;
-                              }
-                              return <td key={`payroll-col-${colIdx}`}>{days}</td>;
+                            // No. of Days Present — before month check (present must not match month handler)
+                            if (
+                              (lowerName.includes('no. of days present') || lowerName.includes('no of days present'))
+                              || (lowerName.includes('days') && lowerName.includes('present') && !lowerName.includes('month'))
+                            ) {
+                              const dpVal = getComponentDisplayValue(employee, name);
+                              return (
+                                <td key={`payroll-col-${colIdx}`}>
+                                  {dpVal !== '' && dpVal !== null && dpVal !== undefined ? dpVal : 0}
+                                </td>
+                              );
                             }
-                            // Fetch from attendance_muster_function
-                            if (lowerName.includes('no. of days present')) {
-                              return <td key={`payroll-col-${colIdx}`}>{employee.daysPresent != null ? employee.daysPresent : ''}</td>;
+                            // No. of Days in Month — prefer API value, else working days (excl. Sundays)
+                            if (
+                              (lowerName.includes('no. of days') || lowerName.includes('no of days') || lowerName.includes('days in month'))
+                              && lowerName.includes('month')
+                              && !lowerName.includes('present')
+                            ) {
+                              const fromApi = getComponentDisplayValue(employee, name);
+                              const apiNum = Number(fromApi);
+                              const days =
+                                Number.isFinite(apiNum) && apiNum > 0
+                                  ? apiNum
+                                  : (computeDaysInMonthExcludingSundays(selectedMonth) ?? 0);
+                              return <td key={`payroll-col-${colIdx}`}>{days}</td>;
                             }
                             if (lowerName.includes('revised') && lowerName.includes('loh')) {
                               const revKey = manualRevisedLohEmployeeKey(employee.employeeCode);

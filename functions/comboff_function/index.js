@@ -58,8 +58,8 @@ async function addAttendanceForCompOff(catalyst, employeeCode, takenDate) {
             EmployeeId: employeeCode.trim(),
             AttendanceDate: formattedDate.trim(),
             Status: 'Present',
-            FirstIn: '08:25:00', // Default time for comp off
-            LastOut: '16:55:00'  // Default time for comp off
+            FirstIn: '08:30:00', // Default time for comp off
+            LastOut: '17:00:00'  // Default time for comp off
         };
 
         await attendanceTable.insertRow(attendanceData);
@@ -413,14 +413,19 @@ app.delete('/comboff/:id', async (req, res) => {
                 if (attendanceRecords && attendanceRecords.length > 0) {
                     const attendanceRowId = attendanceRecords[0].Attendance.ROWID;
                     
-                    // Check if this attendance record was created from comp off (has default times 08:25:00 and 16:55:00)
+                    // Check if this attendance record was created from comp off (default General shift times)
                     const attendanceRow = await attendanceTable.getRow(attendanceRowId);
                     const firstIn = attendanceRow.FirstIn || '';
                     const lastOut = attendanceRow.LastOut || '';
                     
                     // Only delete if it matches comp off default times (to avoid deleting manually created attendance)
-                    if ((firstIn.includes('08:25') || firstIn === '08:25:00') && 
-                        (lastOut.includes('16:55') || lastOut === '16:55:00')) {
+                    const isCompOffDefaultIn =
+                      firstIn.includes('08:30') || firstIn === '08:30:00' ||
+                      firstIn.includes('08:25') || firstIn === '08:25:00';
+                    const isCompOffDefaultOut =
+                      lastOut.includes('17:00') || lastOut === '17:00:00' ||
+                      lastOut.includes('16:55') || lastOut === '16:55:00';
+                    if (isCompOffDefaultIn && isCompOffDefaultOut) {
                         await attendanceTable.deleteRow(attendanceRowId);
                         console.log(`Deleted corresponding attendance record (ID: ${attendanceRowId}) for employee ${compoffRow.EmployeeCode} on ${formattedDate}`);
                     } else {

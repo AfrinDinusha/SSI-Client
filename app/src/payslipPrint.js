@@ -297,6 +297,11 @@ const isNetPayField = (key, label) => {
   return nl === 'net pay' || nl === 'netpay';
 };
 
+const isAttendanceDeductionField = (key, label) => {
+  const nl = normalizeLabelForMatch(String(label || key || '').trim().toLowerCase());
+  return nl.includes('attend') && nl.includes('deduction');
+};
+
 const getPayslipValue = (employee, key, label, getDisplayValueOverride) => {
   if (!employee) return '';
   const hasMeaningfulValue = (val) => {
@@ -304,11 +309,11 @@ const getPayslipValue = (employee, key, label, getDisplayValueOverride) => {
     if (typeof val === 'string') return val.trim() !== '';
     return true;
   };
-  // Total Deduction / Net Pay: must use live display logic (formulae + template) when provided —
-  // raw employee.totalDeduction is often stale vs line items (PF + …).
+  // Total Deduction / Net Pay / Attendance Deduction: use live display logic when provided —
+  // raw employee fields are often 0 before Run Payroll save while the grid shows computed values.
   if (
     getDisplayValueOverride &&
-    (isTotalDeductionField(key, label) || isNetPayField(key, label))
+    (isTotalDeductionField(key, label) || isNetPayField(key, label) || isAttendanceDeductionField(key, label))
   ) {
     const resolve = getDisplayValueOverride;
     const byLabel = label ? resolve(employee, label) : '';
@@ -434,7 +439,7 @@ const monthLabel = (yyyyMm) => {
   return dt.toLocaleString(undefined, { month: 'long', year: 'numeric' }).toUpperCase();
 };
 
-/** Attendance Deduction fallback: same eligibility rule used by Attendance Bonus. */
+/** Attendance Deduction fallback: same eligibility rule as Payroll.js getAttendanceBonusNumericForRow. */
 const getAttendanceDeductionFallback = (emp, selectedMonth) => {
   if (!emp) return 0;
   if (
@@ -444,16 +449,6 @@ const getAttendanceDeductionFallback = (emp, selectedMonth) => {
   ) {
     return 1200;
   }
-  const directRaw =
-    emp.attendanceDeduction ??
-    emp.AttendanceDeduction ??
-    emp['Attendance Deduction'] ??
-    emp['attendance deduction'] ??
-    emp.attendance_deduction;
-  const direct = Number(directRaw);
-  if (Number.isFinite(direct)) return Math.round(direct);
-  const fromBonus = Number(emp.attendanceBonus ?? emp.AttendanceBonus);
-  if (Number.isFinite(fromBonus)) return Math.round(fromBonus);
 
   const daysInMonth = Number(emp.daysInMonth ?? emp.DaysInMonth ?? 0);
   const daysPresent = Number(emp.daysPresent ?? emp.DaysPresent ?? 0);
@@ -463,16 +458,31 @@ const getAttendanceDeductionFallback = (emp, selectedMonth) => {
     emp.DateOfJoining ??
     emp.date_of_joining ??
     '';
-  if (!dojRaw || !selectedMonth || !(daysInMonth > 0)) return 0;
-  if (Number(daysPresent) === Number(daysInMonth)) return 0;
-  const doj = new Date(dojRaw);
-  if (isNaN(doj.getTime())) return 0;
-  const parts = String(selectedMonth).split('-').map(Number);
-  if (parts.length < 2 || !Number.isFinite(parts[0]) || !Number.isFinite(parts[1])) return 0;
-  const lastDayOfMonth = new Date(parts[0], parts[1], 0);
-  const oneYearBefore = new Date(lastDayOfMonth);
-  oneYearBefore.setFullYear(oneYearBefore.getFullYear() - 1);
-  return doj <= oneYearBefore ? 1200 : 800;
+  if (dojRaw && selectedMonth && daysInMonth > 0) {
+    if (Number(daysPresent) === Number(daysInMonth)) return 0;
+    const doj = new Date(dojRaw);
+    if (!isNaN(doj.getTime())) {
+      const parts = String(selectedMonth).split('-').map(Number);
+      if (parts.length >= 2 && Number.isFinite(parts[0]) && Number.isFinite(parts[1])) {
+        const lastDayOfMonth = new Date(parts[0], parts[1], 0);
+        const oneYearBefore = new Date(lastDayOfMonth);
+        oneYearBefore.setFullYear(oneYearBefore.getFullYear() - 1);
+        return doj <= oneYearBefore ? 1200 : 800;
+      }
+    }
+  }
+
+  const directRaw =
+    emp.attendanceDeduction ??
+    emp.AttendanceDeduction ??
+    emp['Attendance Deduction'] ??
+    emp['attendance deduction'] ??
+    emp.attendance_deduction;
+  const direct = Number(directRaw);
+  if (Number.isFinite(direct) && direct > 0) return Math.round(direct);
+  const fromBonus = Number(emp.attendanceBonus ?? emp.AttendanceBonus);
+  if (Number.isFinite(fromBonus) && fromBonus > 0) return Math.round(fromBonus);
+  return 0;
 };
 
 /** html2pdf.js can leave overlay/container on body; drop stray payslip capture divs after errors. */

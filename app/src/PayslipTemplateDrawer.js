@@ -205,17 +205,6 @@ const getAttendanceDeductionFallback = (emp, selectedMonth) => {
   ) {
     return 1200;
   }
-  const directRaw =
-    emp.attendanceDeduction ??
-    emp.AttendanceDeduction ??
-    emp['Attendance Deduction'] ??
-    emp['attendance deduction'] ??
-    emp.attendance_deduction;
-  const direct = Number(directRaw);
-  if (Number.isFinite(direct)) return Math.round(direct);
-
-  const fromBonus = Number(emp.attendanceBonus ?? emp.AttendanceBonus);
-  if (Number.isFinite(fromBonus)) return Math.round(fromBonus);
 
   const daysInMonth = Number(emp.daysInMonth ?? emp.DaysInMonth ?? 0);
   const daysPresent = Number(emp.daysPresent ?? emp.DaysPresent ?? 0);
@@ -225,16 +214,31 @@ const getAttendanceDeductionFallback = (emp, selectedMonth) => {
     emp.DateOfJoining ??
     emp.date_of_joining ??
     '';
-  if (!dojRaw || !selectedMonth || !(daysInMonth > 0)) return 0;
-  if (Number(daysPresent) === Number(daysInMonth)) return 0;
-  const doj = new Date(dojRaw);
-  if (isNaN(doj.getTime())) return 0;
-  const parts = String(selectedMonth).split('-').map(Number);
-  if (parts.length < 2 || !Number.isFinite(parts[0]) || !Number.isFinite(parts[1])) return 0;
-  const lastDayOfMonth = new Date(parts[0], parts[1], 0);
-  const oneYearBefore = new Date(lastDayOfMonth);
-  oneYearBefore.setFullYear(oneYearBefore.getFullYear() - 1);
-  return doj <= oneYearBefore ? 1200 : 800;
+  if (dojRaw && selectedMonth && daysInMonth > 0) {
+    if (Number(daysPresent) === Number(daysInMonth)) return 0;
+    const doj = new Date(dojRaw);
+    if (!isNaN(doj.getTime())) {
+      const parts = String(selectedMonth).split('-').map(Number);
+      if (parts.length >= 2 && Number.isFinite(parts[0]) && Number.isFinite(parts[1])) {
+        const lastDayOfMonth = new Date(parts[0], parts[1], 0);
+        const oneYearBefore = new Date(lastDayOfMonth);
+        oneYearBefore.setFullYear(oneYearBefore.getFullYear() - 1);
+        return doj <= oneYearBefore ? 1200 : 800;
+      }
+    }
+  }
+
+  const directRaw =
+    emp.attendanceDeduction ??
+    emp.AttendanceDeduction ??
+    emp['Attendance Deduction'] ??
+    emp['attendance deduction'] ??
+    emp.attendance_deduction;
+  const direct = Number(directRaw);
+  if (Number.isFinite(direct) && direct > 0) return Math.round(direct);
+  const fromBonus = Number(emp.attendanceBonus ?? emp.AttendanceBonus);
+  if (Number.isFinite(fromBonus) && fromBonus > 0) return Math.round(fromBonus);
+  return 0;
 };
 
 const formatPayslipHoursSuffix = (raw) => {

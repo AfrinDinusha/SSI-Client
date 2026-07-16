@@ -305,6 +305,27 @@ export function resolveBankNeftNetPayAmount(row, reportMonth) {
   return resolveBankReportNetPayAmount(row);
 }
 
+/** Salary Amount for Bank Format + Bank NEFT — grid-aligned Net Pay when available, then NEFT resolver. */
+export function resolveBankReportSalaryAmountLikeNeft(
+  row,
+  reportMonth,
+  gridDisplayMap,
+  payrollMap,
+  bankReportPayrollOpts
+) {
+  const lookup = resolvePayrollGridDisplayForBankRow(
+    row,
+    payrollMap,
+    bankReportPayrollOpts,
+    gridDisplayMap
+  );
+  const amountRow =
+    lookup?.netPay != null && Number.isFinite(lookup.netPay)
+      ? { ...row, hasPayrollTableRow: true, netPayPayroll: lookup.netPay }
+      : row;
+  return resolveBankNeftNetPayAmount(amountRow, reportMonth);
+}
+
 export function resolveBankReportNetPayAmount(row) {
   const payrollGridNet = parsePayrollAmountLoose(row?.netPayPayroll);
   if (row?.hasPayrollTableRow === true) {
