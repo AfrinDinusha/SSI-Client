@@ -2951,76 +2951,44 @@ async function calculateOTHoursFromMuster(catalystApp, month, contractor, depart
       return isNaN(d.getTime()) ? null : d;
     };
 
-    const calculateOvertimeForGeneralShift = (lastOutTimeStr, dateStr) => {
-      if (!lastOutTimeStr || !dateStr) return 0;
+    // Round checkout DOWN to :00/:30; OT = rounded - shiftEnd (aligned with Monthly OT report).
+    const roundLastOutDownToHalfHour = (lastOutDate) => {
+      if (!lastOutDate || isNaN(lastOutDate.getTime())) return null;
+      const d = new Date(lastOutDate.getTime());
+      d.setMinutes(Math.floor(d.getMinutes() / 30) * 30, 0, 0);
+      return d;
+    };
+
+    const calculateOvertimeAgainstShiftEnd = (lastOutTimeStr, dateStr, shiftEndHms) => {
+      if (!lastOutTimeStr || !dateStr || !shiftEndHms) return 0;
       try {
-        const timePart = parseTimeFromString(lastOutTimeStr);
-        if (!timePart) return 0;
         const lastOutTime = lastOutInstantFromStr(lastOutTimeStr, dateStr);
         if (!lastOutTime) return 0;
-        // Keep aligned with Monthly OT report: no OT if checkout <= 18:00
-        const cutoffTime = new Date(`${dateStr} 18:00:00`.replace(' ', 'T'));
-        const baseTime = new Date(`${dateStr} 17:00:00`.replace(' ', 'T'));
-        if (isNaN(lastOutTime.getTime()) || isNaN(cutoffTime.getTime()) || isNaN(baseTime.getTime())) {
-          return 0;
-        }
-        if (lastOutTime > cutoffTime) {
-          const diffMs = lastOutTime - baseTime;
-          const overtimeHours = diffMs / (1000 * 60 * 60);
+        const roundedLastOut = roundLastOutDownToHalfHour(lastOutTime);
+        if (!roundedLastOut) return 0;
+        const baseTime = new Date(`${dateStr} ${shiftEndHms}`.replace(' ', 'T'));
+        if (isNaN(roundedLastOut.getTime()) || isNaN(baseTime.getTime())) return 0;
+        if (roundedLastOut > baseTime) {
+          const overtimeHours = (roundedLastOut - baseTime) / (1000 * 60 * 60);
           return Math.max(0, parseFloat(overtimeHours.toFixed(3)));
         }
         return 0;
       } catch (error) {
         return 0;
       }
+    };
+
+    const calculateOvertimeForGeneralShift = (lastOutTimeStr, dateStr) => {
+      return calculateOvertimeAgainstShiftEnd(lastOutTimeStr, dateStr, '17:00:00');
     };
 
     const calculateOvertimeForFirstShift = (lastOutTimeStr, dateStr) => {
-      if (!lastOutTimeStr || !dateStr) return 0;
-      try {
-        const timePart = parseTimeFromString(lastOutTimeStr);
-        if (!timePart) return 0;
-        const lastOutTime = lastOutInstantFromStr(lastOutTimeStr, dateStr);
-        if (!lastOutTime) return 0;
-        // Keep aligned with Monthly OT report: no OT if checkout <= 15:00
-        const cutoffTime = new Date(`${dateStr} 15:00:00`.replace(' ', 'T'));
-        const baseTime = new Date(`${dateStr} 14:00:00`.replace(' ', 'T'));
-        if (isNaN(lastOutTime.getTime()) || isNaN(cutoffTime.getTime()) || isNaN(baseTime.getTime())) {
-          return 0;
-        }
-        if (lastOutTime > cutoffTime) {
-          const diffMs = lastOutTime - baseTime;
-          const overtimeHours = diffMs / (1000 * 60 * 60);
-          return Math.max(0, parseFloat(overtimeHours.toFixed(3)));
-        }
-        return 0;
-      } catch (error) {
-        return 0;
-      }
+      return calculateOvertimeAgainstShiftEnd(lastOutTimeStr, dateStr, '14:30:00');
     };
 
     const calculateOvertimeForSecondShift = (lastOutTimeStr, dateStr) => {
-      if (!lastOutTimeStr || !dateStr) return 0;
-      try {
-        const timePart = parseTimeFromString(lastOutTimeStr);
-        if (!timePart) return 0;
-        const lastOutTime = lastOutInstantFromStr(lastOutTimeStr, dateStr);
-        if (!lastOutTime) return 0;
-        // Keep aligned with Monthly OT report: no OT if checkout <= 23:00
-        const cutoffTime = new Date(`${dateStr} 23:00:00`.replace(' ', 'T'));
-        const baseTime = new Date(`${dateStr} 22:00:00`.replace(' ', 'T'));
-        if (isNaN(lastOutTime.getTime()) || isNaN(cutoffTime.getTime()) || isNaN(baseTime.getTime())) {
-          return 0;
-        }
-        if (lastOutTime > cutoffTime) {
-          const diffMs = lastOutTime - baseTime;
-          const overtimeHours = diffMs / (1000 * 60 * 60);
-          return Math.max(0, parseFloat(overtimeHours.toFixed(3)));
-        }
-        return 0;
-      } catch (error) {
-        return 0;
-      }
+      // Shift master 2ND: 08:00-16:30
+      return calculateOvertimeAgainstShiftEnd(lastOutTimeStr, dateStr, '16:30:00');
     };
 
     // Build byKey structure (same as attendance_muster_function)
@@ -3404,76 +3372,44 @@ async function fetchOTHours(catalystApp, month, contractor, department, employee
       return isNaN(d.getTime()) ? null : d;
     };
 
-    const calculateOvertimeForGeneralShift = (lastOutTimeStr, dateStr) => {
-      if (!lastOutTimeStr || !dateStr) return 0;
+    // Round checkout DOWN to :00/:30; OT = rounded - shiftEnd (aligned with Monthly OT report).
+    const roundLastOutDownToHalfHour = (lastOutDate) => {
+      if (!lastOutDate || isNaN(lastOutDate.getTime())) return null;
+      const d = new Date(lastOutDate.getTime());
+      d.setMinutes(Math.floor(d.getMinutes() / 30) * 30, 0, 0);
+      return d;
+    };
+
+    const calculateOvertimeAgainstShiftEnd = (lastOutTimeStr, dateStr, shiftEndHms) => {
+      if (!lastOutTimeStr || !dateStr || !shiftEndHms) return 0;
       try {
-        const timePart = parseTimeFromString(lastOutTimeStr);
-        if (!timePart) return 0;
         const lastOutTime = lastOutInstantFromStr(lastOutTimeStr, dateStr);
         if (!lastOutTime) return 0;
-        // Keep aligned with Monthly OT report: no OT if checkout <= 18:00
-        const cutoffTime = new Date(`${dateStr} 18:00:00`.replace(' ', 'T'));
-        const baseTime = new Date(`${dateStr} 17:00:00`.replace(' ', 'T'));
-        if (isNaN(lastOutTime.getTime()) || isNaN(cutoffTime.getTime()) || isNaN(baseTime.getTime())) {
-          return 0;
-        }
-        if (lastOutTime > cutoffTime) {
-          const diffMs = lastOutTime - baseTime;
-          const overtimeHours = diffMs / (1000 * 60 * 60);
+        const roundedLastOut = roundLastOutDownToHalfHour(lastOutTime);
+        if (!roundedLastOut) return 0;
+        const baseTime = new Date(`${dateStr} ${shiftEndHms}`.replace(' ', 'T'));
+        if (isNaN(roundedLastOut.getTime()) || isNaN(baseTime.getTime())) return 0;
+        if (roundedLastOut > baseTime) {
+          const overtimeHours = (roundedLastOut - baseTime) / (1000 * 60 * 60);
           return Math.max(0, parseFloat(overtimeHours.toFixed(3)));
         }
         return 0;
       } catch (error) {
         return 0;
       }
+    };
+
+    const calculateOvertimeForGeneralShift = (lastOutTimeStr, dateStr) => {
+      return calculateOvertimeAgainstShiftEnd(lastOutTimeStr, dateStr, '17:00:00');
     };
 
     const calculateOvertimeForFirstShift = (lastOutTimeStr, dateStr) => {
-      if (!lastOutTimeStr || !dateStr) return 0;
-      try {
-        const timePart = parseTimeFromString(lastOutTimeStr);
-        if (!timePart) return 0;
-        const lastOutTime = lastOutInstantFromStr(lastOutTimeStr, dateStr);
-        if (!lastOutTime) return 0;
-        // Keep aligned with Monthly OT report: no OT if checkout <= 15:00
-        const cutoffTime = new Date(`${dateStr} 15:00:00`.replace(' ', 'T'));
-        const baseTime = new Date(`${dateStr} 14:00:00`.replace(' ', 'T'));
-        if (isNaN(lastOutTime.getTime()) || isNaN(cutoffTime.getTime()) || isNaN(baseTime.getTime())) {
-          return 0;
-        }
-        if (lastOutTime > cutoffTime) {
-          const diffMs = lastOutTime - baseTime;
-          const overtimeHours = diffMs / (1000 * 60 * 60);
-          return Math.max(0, parseFloat(overtimeHours.toFixed(3)));
-        }
-        return 0;
-      } catch (error) {
-        return 0;
-      }
+      return calculateOvertimeAgainstShiftEnd(lastOutTimeStr, dateStr, '14:30:00');
     };
 
     const calculateOvertimeForSecondShift = (lastOutTimeStr, dateStr) => {
-      if (!lastOutTimeStr || !dateStr) return 0;
-      try {
-        const timePart = parseTimeFromString(lastOutTimeStr);
-        if (!timePart) return 0;
-        const lastOutTime = lastOutInstantFromStr(lastOutTimeStr, dateStr);
-        if (!lastOutTime) return 0;
-        // Keep aligned with Monthly OT report: no OT if checkout <= 23:00
-        const cutoffTime = new Date(`${dateStr} 23:00:00`.replace(' ', 'T'));
-        const baseTime = new Date(`${dateStr} 22:00:00`.replace(' ', 'T'));
-        if (isNaN(lastOutTime.getTime()) || isNaN(cutoffTime.getTime()) || isNaN(baseTime.getTime())) {
-          return 0;
-        }
-        if (lastOutTime > cutoffTime) {
-          const diffMs = lastOutTime - baseTime;
-          const overtimeHours = diffMs / (1000 * 60 * 60);
-          return Math.max(0, parseFloat(overtimeHours.toFixed(3)));
-        }
-        return 0;
-      } catch (error) {
-        return 0;
-      }
+      // Shift master 2ND: 08:00-16:30
+      return calculateOvertimeAgainstShiftEnd(lastOutTimeStr, dateStr, '16:30:00');
     };
 
     const calculateHoursFromTimestamps = (firstIn, lastOut) => {
@@ -9051,6 +8987,10 @@ module.exports = async (req, res) => {
     const userEmail = query.userEmail;
     const fromDate = query.fromDate; // Custom from date (YYYY-MM-DD)
     const toDate = query.toDate; // Custom to date (YYYY-MM-DD)
+    // When client overlays Attendance Muster (days/OT/LOH), skip heavy server attendance work.
+    const clientAttendance =
+      String(query.clientAttendance || '') === '1' ||
+      String(query.clientAttendance || '').toLowerCase() === 'true';
 
   const normalizeName = (s) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
  
@@ -9162,16 +9102,8 @@ module.exports = async (req, res) => {
 
       const empQuery = buildEmpQuery(true, true);
       console.log('Employee query:', empQuery);
-
-      // Also try to get all columns to see what's available
-      const allColumnsQuery = `SELECT * FROM Employee WHERE EmployeeCode IS NOT NULL LIMIT 1`;
-      try {
-        const allColumnsResult = await catalystApp.zcql().executeZCQLQuery(allColumnsQuery);
-        if (allColumnsResult.length > 0) {
-          console.log('Available Employee table columns:', Object.keys(allColumnsResult[0].Employee || {}));
-        }
-      } catch (err) {
-        console.log('Error getting column info:', err.message);
+      if (clientAttendance) {
+        console.log('GET /payroll: clientAttendance=1 — will skip BHR/OnDuty/CompOff/muster server calc');
       }
 
       let empRecords;
@@ -9245,6 +9177,9 @@ module.exports = async (req, res) => {
       // Get attendance data - try BHR table first (ESSL server), then Attendance table (importattendance)
       let attendanceData = [];
       let dataSource = 'none';
+      let musterPresentDaysMap = {};
+      let lohMap = {};
+      let otHoursMap = {};
  
       // Get employee codes that match the filters to optimize attendance queries
       let filteredEmployeeCodes = [];
@@ -9258,7 +9193,7 @@ module.exports = async (req, res) => {
         if (filteredEmployeeCodes.length > 0) {
           console.log('Sample employee codes:', filteredEmployeeCodes.slice(0, 10));
         }
-      } else {
+      } else if (!clientAttendance) {
         // When contractor is 'All', get all employee codes (optionally filter by department)
         try {
           let empCodesQuery = `SELECT EmployeeCode FROM Employee WHERE EmployeeCode IS NOT NULL`;
@@ -9281,6 +9216,10 @@ module.exports = async (req, res) => {
           filteredEmployeeCodes = []; // Empty means fetch all
         }
       }
+
+      if (clientAttendance) {
+        console.log('GET /payroll: skipped server attendance pipeline (clientAttendance=1)');
+      } else {
  
       // First, try to get data from BHR table (ESSL server data)
       try {
@@ -9924,9 +9863,9 @@ module.exports = async (req, res) => {
       // Calculate present days and fetch LOH+OT in parallel (single attendance_muster call) to avoid execution time exceeded
       console.log('=== CALCULATING PRESENT DAYS FROM ATTENDANCE MUSTER LOGIC ===');
       const lohOtPromise = fetchLOHAndOTFromMuster(catalystApp, month, contractor, department, employeeId, fromDate, toDate, userEmail, null);
-      const musterPresentDaysMap = await calculatePresentDaysFromMuster(catalystApp, month, contractor, department, employeeId, fromDate, toDate);
+      musterPresentDaysMap = await calculatePresentDaysFromMuster(catalystApp, month, contractor, department, employeeId, fromDate, toDate);
       console.log(`Muster present days calculated for ${Object.keys(musterPresentDaysMap).length} employees`);
-      const { lohMap, otHoursMap } = await lohOtPromise;
+      ({ lohMap, otHoursMap } = await lohOtPromise);
       console.log(`=== LOH+OT from single fetch ===`);
       console.log(`OT hours map contains ${Object.keys(otHoursMap).length} employee IDs`);
       if (Object.keys(otHoursMap).length > 0) {
@@ -10022,6 +9961,8 @@ module.exports = async (req, res) => {
       } else {
         console.log('⚠️ WARNING: lohMap is empty - no LOH data from attendance_muster_function');
       }
+
+      } // end !clientAttendance attendance pipeline
 
       const samplePayrollOverrides = await fetchLatestSamplePayrollOverrideMaps(catalystApp, month);
 
@@ -10229,21 +10170,70 @@ module.exports = async (req, res) => {
         const designationMap = {};
         const categoryMap = {};
         const unitMap = {};
+        const employeeNameMap = {};
+        const departmentMap = {};
         const uanNoMap = {};
         const esicNoMap = {};
         const employeeOtherAllowancesMapForImport = {};
         const travelChargersMap = {};
+        // Employee master salary — used when Payroll row has 0 (stale save / never filled).
+        const employeeActualBasicMapForImport = {};
+        const employeeActualHRAMapForImport = {};
+        const employeeActualDAMapForImport = {};
+        const employeeSpecialAllowanceMapForImport = {};
+        const employeeTotalSalaryMapForImport = {};
+        const employeeAttendanceAllowanceMapForImport = {};
+        const putKeyedStringMap = (map, code, value) => {
+          if (!code || value === undefined || value === null) return;
+          const v = String(value).trim();
+          if (!v) return;
+          map[code] = v;
+          map[normalizeEmployeeCode(code)] = v;
+          if (/^\d+$/.test(code)) map[String(parseInt(code, 10))] = v;
+        };
+        const putImportSalaryMaps = (code, basic, hra, da, special, totalSalary, attAllowance) => {
+          if (!code) return;
+          employeeActualBasicMapForImport[code] = basic;
+          employeeActualHRAMapForImport[code] = hra;
+          employeeActualDAMapForImport[code] = da;
+          employeeSpecialAllowanceMapForImport[code] = special;
+          employeeTotalSalaryMapForImport[code] = totalSalary;
+          employeeAttendanceAllowanceMapForImport[code] = attAllowance;
+        };
+        const seedImportSalaryFromEmp = (emp) => {
+          if (!emp || !emp.EmployeeCode) return;
+          const ec = String(emp.EmployeeCode);
+          const basic = getEmployeeNum(emp, 'ActualBasic', 'actualBasic', 'Actual Basic');
+          const hra = getEmployeeNum(emp, 'ActualHRA', 'actualHRA', 'Actual HRA');
+          const da = getEmployeeNum(emp, 'ActualDA', 'actualDA', 'Actual DA');
+          const special = getEmployeeNum(emp, 'ActualSpecialAllowance', 'actualSpecialAllowance', 'SpecialAllowance', 'specialAllowance', 'Special Allowance');
+          const totalSalary = getEmployeeNum(emp, 'TotalSalary', 'totalSalary', 'Total Salary', 'Total Salary (Auto-calculated)');
+          const attAllowance = getEmployeeNum(emp, 'AttendanceAllowance', 'attendanceAllowance', 'Attendance Allowance');
+          putImportSalaryMaps(ec, basic, hra, da, special, totalSalary, attAllowance);
+          putImportSalaryMaps(normalizeEmployeeCode(ec), basic, hra, da, special, totalSalary, attAllowance);
+          if (/^\d+$/.test(ec)) putImportSalaryMaps(String(parseInt(ec, 10)), basic, hra, da, special, totalSalary, attAllowance);
+          putKeyedStringMap(employeeNameMap, ec, emp.EmployeeName ?? emp.employeeName ?? emp.Name ?? emp.name);
+          putKeyedStringMap(departmentMap, ec, emp.Department ?? emp.department);
+          putKeyedStringMap(designationMap, ec, emp.Designation ?? emp.designation);
+          putKeyedStringMap(categoryMap, ec, emp.Category ?? emp.category);
+          putKeyedStringMap(unitMap, ec, emp.RelevantExperience ?? emp.relevantExperience);
+        };
+        // Prefer already-loaded Employee rows (includes ActualBasic / ActualHRA / TotalSalary).
+        for (const row of empRecords || []) {
+          seedImportSalaryFromEmp(row?.Employee);
+        }
         if (payrollRecords.length > 0) {
           try {
             const employeeCodes = payrollRecords.map(r => r.Payroll.EmployeeCode).filter(Boolean);
             if (employeeCodes.length > 0) {
               const empCodesList = employeeCodes.map(code => `'${String(code).replace(/'/g, "''")}'`).join(',');
-              const statusQuery = `SELECT EmployeeCode, PFStatus, ESIStatus, employeeStatus, DateofJoining, Designation, Category, RelevantExperience, AttendanceAllowance, OtherAllowance, RevisedOtherAllowance, TravelChargers, UANNo, ESICNo FROM Employee WHERE EmployeeCode IN (${empCodesList})`;
+              const statusQuery = `SELECT EmployeeCode, EmployeeName, Department, PFStatus, ESIStatus, employeeStatus, DateofJoining, Designation, Category, RelevantExperience, AttendanceAllowance, OtherAllowance, RevisedOtherAllowance, TravelChargers, UANNo, ESICNo, ActualBasic, ActualHRA, ActualDA, SpecialAllowance, ActualSpecialAllowance, TotalSalary FROM Employee WHERE EmployeeCode IN (${empCodesList})`;
               const statusRecords = await catalystApp.zcql().executeZCQLQuery(statusQuery);
               for (const row of statusRecords) {
                 const emp = row.Employee;
                 if (emp.EmployeeCode) {
                   const ec = String(emp.EmployeeCode);
+                  seedImportSalaryFromEmp(emp);
                   pfStatusMap[ec] = String(emp.PFStatus || '').trim().toLowerCase();
                   esiStatusMap[ec] = String(emp.ESIStatus || '').trim().toLowerCase();
                   const statusVal = String(emp.EmployeeStatus || emp.employeeStatus || emp.Employee_Status || '').trim();
@@ -10285,6 +10275,8 @@ module.exports = async (req, res) => {
                   unitMap[ec] = unitVal;
                   unitMap[normalizeEmployeeCode(ec)] = unitVal;
                   if (/^\d+$/.test(ec)) unitMap[String(parseInt(ec))] = unitVal;
+                  putKeyedStringMap(employeeNameMap, ec, emp.EmployeeName ?? emp.employeeName ?? emp.Name ?? emp.name);
+                  putKeyedStringMap(departmentMap, ec, emp.Department ?? emp.department);
                   const uanVal = String(emp.UANNo ?? emp.uanNo ?? emp.UAN ?? '').trim();
                   const esicVal = String(emp.ESICNo ?? emp.esicNo ?? emp.ESIC ?? '').trim();
                   uanNoMap[ec] = uanVal;
@@ -10316,12 +10308,13 @@ module.exports = async (req, res) => {
               const employeeCodes = payrollRecords.map(r => r.Payroll.EmployeeCode).filter(Boolean);
               if (employeeCodes.length > 0) {
                 const empCodesList = employeeCodes.map(code => `'${String(code).replace(/'/g, "''")}'`).join(',');
-                const fallbackQuery = `SELECT EmployeeCode, DateofJoining, Designation, Category, RelevantExperience, AttendanceAllowance, OtherAllowance, TravelChargers, UANNo, ESICNo FROM Employee WHERE EmployeeCode IN (${empCodesList})`;
+                const fallbackQuery = `SELECT EmployeeCode, EmployeeName, Department, DateofJoining, Designation, Category, RelevantExperience, AttendanceAllowance, OtherAllowance, TravelChargers, UANNo, ESICNo, ActualBasic, ActualHRA, ActualDA, SpecialAllowance, ActualSpecialAllowance, TotalSalary FROM Employee WHERE EmployeeCode IN (${empCodesList})`;
                 const fallbackRecords = await catalystApp.zcql().executeZCQLQuery(fallbackQuery);
                 for (const row of fallbackRecords) {
                   const emp = row.Employee;
                   if (emp && emp.EmployeeCode) {
                     const ec = String(emp.EmployeeCode);
+                    seedImportSalaryFromEmp(emp);
                     let doj = '';
                     const dojRaw = emp.DateofJoining ?? emp.dateofjoining ?? emp.DateOfJoining;
                     if (dojRaw) {
@@ -10343,6 +10336,8 @@ module.exports = async (req, res) => {
                     unitMap[ec] = unitFb;
                     unitMap[normalizeEmployeeCode(ec)] = unitFb;
                     if (/^\d+$/.test(ec)) unitMap[String(parseInt(ec))] = unitFb;
+                    putKeyedStringMap(employeeNameMap, ec, emp.EmployeeName ?? emp.employeeName ?? emp.Name ?? emp.name);
+                    putKeyedStringMap(departmentMap, ec, emp.Department ?? emp.department);
                     const uanVal = String(emp.UANNo ?? emp.uanNo ?? emp.UAN ?? '').trim();
                     const esicVal = String(emp.ESICNo ?? emp.esicNo ?? emp.ESIC ?? '').trim();
                     uanNoMap[ec] = uanVal;
@@ -10397,6 +10392,18 @@ module.exports = async (req, res) => {
             }
             return 0;
           };
+          // Prefer non-zero Payroll value; otherwise use Employee master (fixes stale Payroll ActualBasic/HRA = 0).
+          const empKeysForImport = (ec) =>
+            [ec, normalizeEmployeeCode(ec), /^\d+$/.test(String(ec || '')) ? String(parseInt(ec, 10)) : null].filter(Boolean);
+          const fromEmployeeOrPayrollImport = (payrollVal, empMap, ec) => {
+            const payNum = Number(payrollVal);
+            if (Number.isFinite(payNum) && payNum > 0) return payNum;
+            for (const k of empKeysForImport(ec)) {
+              const v = empMap[k];
+              if (v !== undefined && v !== null && Number(v) > 0) return Number(v);
+            }
+            return Number.isFinite(payNum) && payNum >= 0 ? payNum : 0;
+          };
           const importFormulae = await getPayrollFormulae(catalystApp);
           // Use imported payroll data
           for (const row of payrollRecords) {
@@ -10419,7 +10426,7 @@ module.exports = async (req, res) => {
             // Use let so we can recompute from formula (including Other Allowances) after otherAllowancesImported is set
             let actualTotalSalary = parseFloat(payroll.ActualTotalSalary) || 0;
             const daysInMonth = parseFloat(payroll.DaysInMonth) || 0;
-            const calculatedOTWages = daysInMonth > 0 ? actualTotalSalary / daysInMonth / 8 : 0;
+            let calculatedOTWages = daysInMonth > 0 ? actualTotalSalary / daysInMonth / 8 : 0;
        
             // Always prioritize saved DaysPresent from Payroll table (user edits should be preserved)
             // Only use attendance/muster data if saved value is not available (null, undefined, or empty)
@@ -10613,14 +10620,92 @@ module.exports = async (req, res) => {
                 importDaysInMonth = Number(spDim);
               }
             }
-            let importActualBasic = parseFloat(payroll.ActualBasic) || 0;
+            const payrollEmpCodeForSalary = String(payroll.EmployeeCode || '');
+            let importActualBasic = fromEmployeeOrPayrollImport(
+              payroll.ActualBasic,
+              employeeActualBasicMapForImport,
+              payrollEmpCodeForSalary
+            );
+            let importActualHRA = fromEmployeeOrPayrollImport(
+              payroll.ActualHRA,
+              employeeActualHRAMapForImport,
+              payrollEmpCodeForSalary
+            );
+            let importActualDA = fromEmployeeOrPayrollImport(
+              payroll.ActualDA,
+              employeeActualDAMapForImport,
+              payrollEmpCodeForSalary
+            );
+            let importSpecialAllowance = fromEmployeeOrPayrollImport(
+              getPayrollNum(payroll, 'SpecialAllowance', 'specialAllowance'),
+              employeeSpecialAllowanceMapForImport,
+              payrollEmpCodeForSalary
+            );
             if (samplePayrollOverrides.manualMode) {
               const spAb = pickEmployeeKeyedMapValue(samplePayrollOverrides.actualBasic, payroll.EmployeeCode);
               if (spAb !== undefined && !Number.isNaN(Number(spAb)) && Number(spAb) > 0) {
                 importActualBasic = Number(spAb);
               }
             }
-            const importActualHRA = parseFloat(payroll.ActualHRA) || 0;
+            // Apply Setup formulae for Actual Basic / HRA / DA / Special Allowance when defined (same as computePayrollData).
+            if (importFormulae.length > 0) {
+              let empTotalForFormula = 0;
+              for (const k of empKeysForImport(payrollEmpCodeForSalary)) {
+                const v = employeeTotalSalaryMapForImport[k];
+                if (v !== undefined && v !== null && Number(v) > 0) {
+                  empTotalForFormula = Number(v);
+                  break;
+                }
+              }
+              const payrollTotal = parseFloat(payroll.ActualTotalSalary) || 0;
+              const computedFormTotal = computedEmployeeFormActualTotalSalary(
+                importActualBasic,
+                importActualHRA,
+                importActualDA,
+                importSpecialAllowance
+              );
+              const actualTotalForFormula =
+                empTotalForFormula > 0 ? empTotalForFormula : payrollTotal > 0 ? payrollTotal : computedFormTotal;
+              const pfContextImport = {
+                'Actual Total Salary': actualTotalForFormula,
+                'Actual Total Gross': actualTotalForFormula,
+                'Actual HRA': importActualHRA,
+                'Actual DA': importActualDA,
+                'Attendance Allowance': 0,
+                'Other Allowances': 0,
+                TravelChargers: 0,
+                'Travel Charges': 0
+              };
+              const {
+                actualBasic: abFromFormula,
+                actualHRA: ahFromFormula,
+                actualDA: adFromFormula,
+                specialAllowance: saFromFormula
+              } = getActualBasicAndSpecialAllowanceFromFormulae(importFormulae, pfContextImport);
+              if (abFromFormula !== null) importActualBasic = abFromFormula;
+              if (ahFromFormula !== null) importActualHRA = ahFromFormula;
+              if (adFromFormula !== null) importActualDA = adFromFormula;
+              if (saFromFormula !== null) importSpecialAllowance = saFromFormula;
+            }
+            if (!(actualTotalSalary > 0)) {
+              let empTotalForAts = 0;
+              for (const k of empKeysForImport(payrollEmpCodeForSalary)) {
+                const v = employeeTotalSalaryMapForImport[k];
+                if (v !== undefined && v !== null && Number(v) > 0) {
+                  empTotalForAts = Number(v);
+                  break;
+                }
+              }
+              actualTotalSalary =
+                empTotalForAts > 0
+                  ? empTotalForAts
+                  : computedEmployeeFormActualTotalSalary(
+                      importActualBasic,
+                      importActualHRA,
+                      importActualDA,
+                      importSpecialAllowance
+                    );
+            }
             // Non-zero saved LOH from Payroll wins; zero uses muster (same as computePayrollData / OT Hours).
             // EXCEPTION: For January, only use real-time data (not saved data)
             let importLOH = 0;
@@ -10718,6 +10803,16 @@ module.exports = async (req, res) => {
               payroll.OtherAllowance !== undefined &&
               String(payroll.OtherAllowance).trim() !== '';
             let importAttendanceAllowance = parseNum(payroll.OtherAllowance) || 0;
+            if (!hasPayrollOtherAllowanceExplicit || importAttendanceAllowance <= 0) {
+              const empAA = fromEmployeeOrPayrollImport(
+                0,
+                employeeAttendanceAllowanceMapForImport,
+                payrollEmpCodeForSalary
+              );
+              if (empAA > 0 && importAttendanceAllowance <= 0) {
+                importAttendanceAllowance = empAA;
+              }
+            }
             if (samplePayrollOverrides.manualMode && !hasPayrollOtherAllowanceExplicit) {
               const spOaImp = pickEmployeeKeyedMapValue(
                 samplePayrollOverrides.otherAllowance,
@@ -10749,10 +10844,9 @@ module.exports = async (req, res) => {
             // Earned HRA = (Actual HRA / No. of Days(In month) * No. of Days Present) - ((Actual HRA / No. of Days(In month)) / 8 * LOH)
             const dailyHRARateImported = importDaysInMonth > 0 ? importActualHRA / importDaysInMonth : 0;
             let earnedHRAImported = (dailyHRARateImported * actualDaysPresent) - ((dailyHRARateImported / 8) * importLOH);
-            const importActualDA = parseFloat(payroll.ActualDA) || 0;
             const dailyDARateImported = importDaysInMonth > 0 ? importActualDA / importDaysInMonth : 0;
             let earnedDAImported = (dailyDARateImported * actualDaysPresent) - ((dailyDARateImported / 8) * importLOH);
-            const specialAllowanceForEarned = parseNum(payroll.SpecialAllowance) || 0;
+            const specialAllowanceForEarned = importSpecialAllowance;
             // Earned Special Allowance = (Special Allowance / No. of Days(In month) * No. of Days Present)
             const dailySpecialRateImported = importDaysInMonth > 0 ? specialAllowanceForEarned / importDaysInMonth : 0;
             let earnedSpecialAllowanceImported = Math.max(0, dailySpecialRateImported * actualDaysPresent);
@@ -10821,7 +10915,7 @@ module.exports = async (req, res) => {
             const dailyOtherAllowancesRateImported = importDaysInMonth > 0 ? otherAllowancesForEarnedImported / importDaysInMonth : 0;
             const earnedOtherAllowancesImported = (dailyOtherAllowancesRateImported * actualDaysPresent) - ((dailyOtherAllowancesRateImported / 8) * importLOH);
             const incentiveImported = parseNum(payroll.Incentive) || 0;
-            const specialAllowanceImported = getPayrollNum(payroll, 'SpecialAllowance', 'specialAllowance');
+            const specialAllowanceImported = importSpecialAllowance;
             const otArrearAmountImported = parseNum(payroll.OTArrearAmount) || 0;
             const arrearForPFImported = parseNum(payroll.ArrearForPF) || 0;
             const rawTcPay = payroll.TravelChargers ?? payroll.travelChargers;
@@ -10846,25 +10940,26 @@ module.exports = async (req, res) => {
             }
             // Actual Total Gross = Actual Basic + Actual HRA + Actual DA + Other Allowance + Other Allowances + Travel Charges + Special Allowance
             actualTotalSalary =
-              (parseNum(payroll.ActualBasic) || 0) +
-              (parseNum(payroll.ActualHRA) || 0) +
-              (parseNum(payroll.ActualDA) || 0) +
+              (importActualBasic || 0) +
+              (importActualHRA || 0) +
+              (importActualDA || 0) +
               importAttendanceAllowance +
               otherAllowancesImported +
               travelChargersForTotal +
-              (parseNum(payroll.SpecialAllowance) || 0);
+              (importSpecialAllowance || 0);
+            calculatedOTWages = importDaysInMonth > 0 ? actualTotalSalary / importDaysInMonth / 8 : 0;
             const baseEarnedGrossImported = earnedBasicImported + earnedHRAImported + earnedDAImported + earnedAttendanceAllowanceImported + earnedOtherAllowancesImported + arrearImported + arrearForPFImported + incentiveImported + otArrearAmountImported;
             const defaultOtAmountImported = computeDefaultOtAmountFromEarnedAndActual({
               earnedBasic: earnedBasicImported,
-              actualBasic: parseNum(payroll.ActualBasic),
+              actualBasic: importActualBasic,
               daysInMonth: importDaysInMonth,
               daysPresent: actualDaysPresent,
               otHours: totalOvertimeHours
             });
             const otImportedBaseCtx = {
-              'Actual Basic': parseNum(payroll.ActualBasic),
-              'Actual HRA': parseNum(payroll.ActualHRA),
-              'Actual DA': parseNum(payroll.ActualDA),
+              'Actual Basic': importActualBasic,
+              'Actual HRA': importActualHRA,
+              'Actual DA': importActualDA,
               'Special Allowance': specialAllowanceForEarned,
               'Travel Charges': travelChargersForTotal,
               'TravelChargers': travelChargersForTotal,
@@ -11068,13 +11163,22 @@ module.exports = async (req, res) => {
               (/^\d+$/.test(empCodeStr) ? unitMap[String(parseInt(empCodeStr))] : undefined) ??
               String(payroll.Unit ?? payroll.unit ?? '').trim();
             const travelChargersImported = parseNum(payroll.TravelChargers ?? payroll.travelChargers) ?? travelChargersMap[empCodeStr] ?? travelChargersMap[normalizeEmployeeCode(empCodeStr)] ?? travelChargersMap[String(parseInt(empCodeStr))] ?? 0;
+            // Prefer Payroll values; fall back to Employee master (saved payroll often has blank name/dept)
+            const employeeNameImported =
+              String(payroll.EmployeeName ?? payroll.employeeName ?? '').trim() ||
+              pickEmployeeKeyedMapValue(employeeNameMap, empCodeStr) ||
+              '';
+            const departmentImported =
+              String(payroll.Department ?? payroll.department ?? '').trim() ||
+              pickEmployeeKeyedMapValue(departmentMap, empCodeStr) ||
+              '';
          
             const importedRow = {
               employeeCode: String(payroll.EmployeeCode || ''),
-              employeeName: String(payroll.EmployeeName || ''),
+              employeeName: employeeNameImported,
               designation: designationImported,
               unit: unitImported,
-              department: String(payroll.Department || ''),
+              department: departmentImported,
               category: (() => {
                 const fromPayroll = String(payroll.Category ?? payroll.category ?? '').trim();
                 if (fromPayroll) return fromPayroll;
@@ -11097,12 +11201,12 @@ module.exports = async (req, res) => {
                 importLOH,
                 latestSavedRevisedLOHByEmp
               ),
-              actualBasic: parseNum(payroll.ActualBasic),
-              actualHRA: parseNum(payroll.ActualHRA),
-              actualDA: parseNum(payroll.ActualDA),
+              actualBasic: importActualBasic,
+              actualHRA: importActualHRA,
+              actualDA: importActualDA,
               otherAllowance: importAttendanceAllowance,
               travelChargers: travelChargersImported,
-              specialAllowance: parseNum(payroll.SpecialAllowance),
+              specialAllowance: importSpecialAllowance,
               incentive: parseNum(payroll.Incentive),
               foodAllowance: parseNum(payroll.FoodAllowance ?? payroll.foodAllowance) ?? 0,
               uniformAllowance: 0,
@@ -12842,6 +12946,8 @@ module.exports = async (req, res) => {
       const dateOfJoiningMap = {};
       const designationMap = {};
       const categoryMap = {};
+      const employeeNameMap = {};
+      const departmentMap = {};
       const employeeOtherAllowancesMap = {};
       const employeeActualHRAMap = {};
       const employeeActualDAMap = {};
@@ -12852,11 +12958,19 @@ module.exports = async (req, res) => {
       const pfStatusMap = {};
       const uanNoMap = {};
       const esicNoMap = {};
+      const putReportKeyedStringMap = (map, code, value) => {
+        if (!code || value === undefined || value === null) return;
+        const v = String(value).trim();
+        if (!v) return;
+        map[code] = v;
+        map[normalizeEmployeeCode(code)] = v;
+        if (/^\d+$/.test(code)) map[String(parseInt(code, 10))] = v;
+      };
       try {
         const employeeCodes = records.map(r => r.EmployeeCode).filter(Boolean);
         if (employeeCodes.length > 0) {
           const empCodesList = employeeCodes.map(code => `'${String(code).replace(/'/g, "''")}'`).join(',');
-          const dateQuery = `SELECT EmployeeCode, DateofJoining, Designation, Category, AttendanceAllowance, OtherAllowance, RevisedOtherAllowance, ActualBasic, ActualHRA, ActualDA, SpecialAllowance, ActualSpecialAllowance, TotalSalary, PFStatus, UANNo, ESICNo FROM Employee WHERE EmployeeCode IN (${empCodesList})`;
+          const dateQuery = `SELECT EmployeeCode, EmployeeName, Department, DateofJoining, Designation, Category, AttendanceAllowance, OtherAllowance, RevisedOtherAllowance, ActualBasic, ActualHRA, ActualDA, SpecialAllowance, ActualSpecialAllowance, TotalSalary, PFStatus, UANNo, ESICNo FROM Employee WHERE EmployeeCode IN (${empCodesList})`;
           const dateRecords = await catalystApp.zcql().executeZCQLQuery(dateQuery);
           for (const row of dateRecords) {
             const emp = row.Employee;
@@ -12892,6 +13006,8 @@ module.exports = async (req, res) => {
               categoryMap[empCode] = catRow;
               categoryMap[normalizeEmployeeCode(empCode)] = catRow;
               if (/^\d+$/.test(empCode)) categoryMap[String(parseInt(empCode))] = catRow;
+              putReportKeyedStringMap(employeeNameMap, empCode, emp.EmployeeName ?? emp.employeeName ?? emp.Name ?? emp.name);
+              putReportKeyedStringMap(departmentMap, empCode, emp.Department ?? emp.department);
               const empOA = emp.OtherAllowances ?? emp.otherAllowances ?? emp.OtherAllowance ?? emp.otherAllowance ?? emp.RevisedOtherAllowance ?? 0;
               const oaVal = Number(empOA) || 0;
               employeeOtherAllowancesMap[empCode] = oaVal;
@@ -12935,7 +13051,7 @@ module.exports = async (req, res) => {
           const employeeCodes = records.map(r => r.EmployeeCode).filter(Boolean);
           if (employeeCodes.length > 0) {
             const empCodesList = employeeCodes.map(code => `'${String(code).replace(/'/g, "''")}'`).join(',');
-            const fallbackQuery = `SELECT EmployeeCode, DateofJoining, Designation, Category, AttendanceAllowance, OtherAllowance, RevisedOtherAllowance, ActualBasic, ActualHRA, ActualDA, SpecialAllowance, ActualSpecialAllowance, TotalSalary, PFStatus, UANNo, ESICNo FROM Employee WHERE EmployeeCode IN (${empCodesList})`;
+            const fallbackQuery = `SELECT EmployeeCode, EmployeeName, Department, DateofJoining, Designation, Category, AttendanceAllowance, OtherAllowance, RevisedOtherAllowance, ActualBasic, ActualHRA, ActualDA, SpecialAllowance, ActualSpecialAllowance, TotalSalary, PFStatus, UANNo, ESICNo FROM Employee WHERE EmployeeCode IN (${empCodesList})`;
             const fallbackRecords = await catalystApp.zcql().executeZCQLQuery(fallbackQuery);
             for (const row of fallbackRecords) {
               const emp = row.Employee;
@@ -12958,6 +13074,8 @@ module.exports = async (req, res) => {
                 categoryMap[empCode] = catFb;
                 categoryMap[normalizeEmployeeCode(empCode)] = catFb;
                 if (/^\d+$/.test(empCode)) categoryMap[String(parseInt(empCode))] = catFb;
+                putReportKeyedStringMap(employeeNameMap, empCode, emp.EmployeeName ?? emp.employeeName ?? emp.Name ?? emp.name);
+                putReportKeyedStringMap(departmentMap, empCode, emp.Department ?? emp.department);
                 const empOA = emp.OtherAllowances ?? emp.otherAllowances ?? emp.OtherAllowance ?? emp.otherAllowance ?? 0;
                 const oaVal = Number(empOA) || 0;
                 employeeOtherAllowancesMap[empCode] = oaVal;
@@ -13051,11 +13169,19 @@ module.exports = async (req, res) => {
         const savedLopRow = Number(p.LOP) || 0;
         const lopRow = isManagingPartnerDesignation({ Designation: desRow }) && dimRow > 0 ? 0 : savedLopRow;
         const statutoryIdsReport = lookupEmployeeStatutoryMaps({ uanNoMap, esicNoMap }, ec);
+        const employeeNameReport =
+          String(p.EmployeeName ?? p.employeeName ?? '').trim() ||
+          pickEmployeeKeyedMapValue(employeeNameMap, ec) ||
+          '';
+        const departmentReport =
+          String(p.Department ?? p.department ?? '').trim() ||
+          pickEmployeeKeyedMapValue(departmentMap, ec) ||
+          '';
         const mappedRow = {
         employeeCode: p.EmployeeCode,
-        employeeName: p.EmployeeName || '',
+        employeeName: employeeNameReport,
         designation: desRow,
-        department: p.Department || '',
+        department: departmentReport,
         category: (() => {
           const fromPayroll = String(p.Category ?? p.category ?? '').trim();
           if (fromPayroll) return fromPayroll;

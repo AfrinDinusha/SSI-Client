@@ -692,7 +692,7 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
         totalLOH = parseFloat(data.monthlyLOHPreferred[rowIdx]) || 0;
       } else {
         totalLOH = rowLOH.reduce((sum, lohValue) => {
-          if (lohValue && lohValue !== '' && !isNaN(lohValue)) {
+          if (lohValue !== '' && lohValue !== null && lohValue !== undefined && !isNaN(lohValue)) {
             return sum + parseFloat(lohValue);
           }
           return sum;
@@ -1140,13 +1140,13 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
                         const formattedTotalHours = totalHoursSum > 0 ? totalHoursSum.toFixed(2) : '-';
                         // Calculate total LOH for the period. Always use LOH report total hours (same calculation as LOH report)
                         let totalLOH = 0;
-                        // Prefer monthlyLOHPreferred (which sums calculated daily LOH values - same as LOH report)
+                        // Prefer monthlyLOHPreferred (LOH Report Total Hours for same date range)
                         if (data.monthlyLOHPreferred && data.monthlyLOHPreferred[rowIdx] !== undefined && data.monthlyLOHPreferred[rowIdx] !== null) {
-                          totalLOH = parseFloat(data.monthlyLOHPreferred[rowIdx]);
+                          totalLOH = parseFloat(data.monthlyLOHPreferred[rowIdx]) || 0;
                         } else {
-                          // Fallback: sum daily LOH values (same calculation as LOH report)
+                          // Fallback: sum daily LOH values (include 0.00 like LOH report)
                           totalLOH = (rowLOH && Array.isArray(rowLOH)) ? rowLOH.reduce((sum, lohValue) => {
-                            if (lohValue && lohValue !== '' && !isNaN(lohValue)) {
+                            if (lohValue !== '' && lohValue !== null && lohValue !== undefined && !isNaN(lohValue)) {
                               return sum + parseFloat(lohValue);
                             }
                             return sum;

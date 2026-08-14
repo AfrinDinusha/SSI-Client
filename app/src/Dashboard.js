@@ -1189,26 +1189,53 @@ function Dashboard({ userRole, userEmail }) {
   const fetchPresentEmployeesData = async () => {
     try {
       console.log('Fetching present employees data...');
-     
+
       const today = new Date().toISOString().split('T')[0];
-      const presentEmployeeDetails = [];
       const employeesWithFirstIN = new Set();
-     
-      // Fetch attendance data for today from API
+      // normalized employee id -> earliest FirstIN / latest LastOUT details
+      const attendanceDetailsById = {};
+
+      const upsertAttendanceDetail = (rawId, firstIn, lastOut, hours) => {
+        const normalizedId = normalizeEmployeeId(rawId);
+        if (!normalizedId) return;
+        const trimmedFirstIn = String(firstIn || '').trim();
+        if (!trimmedFirstIn) return;
+
+        employeesWithFirstIN.add(String(rawId));
+        const existing = attendanceDetailsById[normalizedId];
+        if (!existing) {
+          attendanceDetailsById[normalizedId] = {
+            firstIn: trimmedFirstIn,
+            lastOut: String(lastOut || '').trim() || 'Still Present',
+            hours: hours || 'N/A'
+          };
+          return;
+        }
+        if (!existing.firstIn || trimmedFirstIn < existing.firstIn) {
+          existing.firstIn = trimmedFirstIn;
+        }
+        const trimmedLastOut = String(lastOut || '').trim();
+        if (trimmedLastOut && (!existing.lastOut || existing.lastOut === 'Still Present' || trimmedLastOut > existing.lastOut)) {
+          existing.lastOut = trimmedLastOut;
+        }
+        if (hours && hours !== 'N/A') existing.hours = hours;
+      };
+
+      // 1) BHR / GetAttendanceList (same source as Present Today KPI)
       try {
         const attendanceResponse = await fetch(`/server/GetAttendanceList?startDate=${today}&endDate=${today}&summary=true`);
         const attendanceData = await attendanceResponse.json();
-       
+
         if (attendanceData && attendanceData.data && attendanceData.data.length > 0) {
-          attendanceData.data.forEach(record => {
-            if (record.FirstIN && record.FirstIN.trim() !== '') {
-              employeesWithFirstIN.add(record.EmployeeID);
-              presentEmployeeDetails.push({
-                employeeId: record.EmployeeID,
-                firstIn: record.FirstIN,
-                lastOut: record.LastOUT || 'Still Present',
-                hours: record.Hours || 'N/A'
-              });
+          attendanceData.data.forEach((record) => {
+            const firstIn = record.FirstIN || record.FirstIn || record.firstIn || '';
+            if (String(firstIn).trim()) {
+              upsertAttendanceDetail(
+                record.EmployeeID || record.EmployeeId || record.employeeId || record.EmployeeCode,
+                firstIn,
+                record.LastOUT || record.LastOut || record.lastOut || '',
+                record.Hours || record.hours || 'N/A'
+              );
             }
           });
         }
@@ -1216,185 +1243,118 @@ function Dashboard({ userRole, userEmail }) {
         console.warn('Failed to fetch API attendance data:', apiError);
       }
 
-      // Fetch Attendance table data for today as well
+      // 2) Attendance table (imported Excel on server)
       try {
         const importResponse = await fetch(`/server/importattendance_function/attendance?startDate=${today}&endDate=${today}&perPage=1000`);
         const importData = importResponse.ok ? await importResponse.json() : {};
         const importRecords = getAttendanceRecords(importData);
-        if (importRecords.length > 0) {
-          importRecords.forEach((record) => {
-            const employeeId = String(getAttendanceRecordEmployeeId(record));
-            const firstIn = getAttendanceRecordFirstIn(record);
-            if (employeeId && firstIn && String(firstIn).trim() !== '') {
-              employeesWithFirstIN.add(employeeId);
-              presentEmployeeDetails.push({
-                employeeId,
-                firstIn,
-                lastOut: record.lastOut || record.LastOUT || record.LastOut || 'Still Present',
-                hours: record.hours || record.Hours || record.TotalHours || 'N/A'
-              });
-            }
-          });
-        }
+        importRecords.forEach((record) => {
+          const employeeId = getAttendanceRecordEmployeeId(record);
+          const firstIn = getAttendanceRecordFirstIn(record);
+          if (employeeId && String(firstIn).trim()) {
+            upsertAttendanceDetail(
+              employeeId,
+              firstIn,
+              record.lastOut || record.LastOUT || record.LastOut || '',
+              record.hours || record.Hours || record.TotalHours || 'N/A'
+            );
+          }
+        });
       } catch (apiError) {
         console.warn('Failed to fetch Attendance table data for present employees:', apiError);
       }
 
-      // Process imported Excel data from localStorage for today
+      // 3) localStorage fallback (same as KPI — include records with FirstIN)
       try {
         const importedDataStr = localStorage.getItem('importedAttendanceData');
         if (importedDataStr) {
           const importedData = JSON.parse(importedDataStr) || [];
-          console.log('Found imported data:', importedData.length, 'records');
-         
           const toYMD = (s) => {
             if (!s) return '';
-            // Expect DD-MM-YYYY from import; convert to YYYY-MM-DD
             const m = String(s).match(/^(\d{2})-(\d{2})-(\d{4})$/);
             if (m) return `${m[3]}-${m[2]}-${m[1]}`;
             if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
             const d = new Date(s);
-            return isNaN(d) ? '' : d.toISOString().slice(0,10);
+            return isNaN(d) ? '' : d.toISOString().slice(0, 10);
           };
-         
-          const todaysImported = importedData.filter(r => toYMD(r.Date) === today);
-          console.log('Today\'s imported records:', todaysImported.length);
-         
-          if (todaysImported.length > 0) {
-            const mergedByEmp = {};
-           
-            // Seed with existing API data
-            presentEmployeeDetails.forEach(p => {
-              mergedByEmp[p.employeeId] = { ...p };
-            });
-           
-            // Merge imported data
-            todaysImported.forEach(r => {
-              const empId = r.EmployeeID || r.EmployeeId || r.employeeId;
-              if (!empId) return;
-             
-              const firstIn = r.FirstIN || '';
-              const lastOut = r.LastOUT || '';
-             
-              if (firstIn && firstIn.trim() !== '') {
-                employeesWithFirstIN.add(String(empId));
-               
-                const existing = mergedByEmp[empId];
-                if (!existing) {
-                  mergedByEmp[empId] = {
-                    employeeId: String(empId),
-                    firstIn: firstIn || '',
-                    lastOut: lastOut || (firstIn ? 'Still Present' : ''),
-                    hours: r.TotalHours || 'N/A'
-                  };
-                } else {
-                  // Prefer earliest firstIn and latest lastOut
-                  if (firstIn && (!existing.firstIn || firstIn < existing.firstIn)) existing.firstIn = firstIn;
-                  if (lastOut && (!existing.lastOut || lastOut > existing.lastOut)) existing.lastOut = lastOut;
-                }
-              }
-            });
-           
-            // Replace list with merged data
-            const mergedList = Object.values(mergedByEmp);
-            presentEmployeeDetails.length = 0;
-            mergedList.forEach(x => presentEmployeeDetails.push(x));
-           
-            console.log('Merged present employee details:', presentEmployeeDetails.length);
-          }
+
+          importedData.forEach((r) => {
+            const empId = r.EmployeeID || r.EmployeeId || r.employeeId;
+            const firstIn = r.FirstIN || r.FirstIn || r.firstIn || '';
+            if (!empId || !String(firstIn).trim()) return;
+            // Prefer today's rows when Date is present; otherwise keep (matches KPI fallback)
+            const rowDate = toYMD(r.Date);
+            if (rowDate && rowDate !== today) return;
+            upsertAttendanceDetail(empId, firstIn, r.LastOUT || r.LastOut || r.lastOut || '', r.TotalHours || r.Hours || 'N/A');
+          });
         }
       } catch (e) {
         console.warn('Failed to process imported Excel data:', e);
       }
-     
-      // If we have any present employees (from API or imported data), process them
-      if (presentEmployeeDetails.length > 0) {
-        // Fetch employee details to get names
-        const employeeResponse = await fetch(`/server/cms_function/employees?userRole=${encodeURIComponent(userRole || '')}&userEmail=${encodeURIComponent(userEmail || '')}`);
-        const employeeData = await employeeResponse.json();
-       
-        if (employeeData.status === 'success' && employeeData.data && employeeData.data.employees) {
-          const allEmployees = employeeData.data.employees;
-         
-          // Match present employees with their details
-          console.log('DEBUG: Matching present employees with employee details');
-          console.log('Present employee IDs:', presentEmployeeDetails.map(p => p.employeeId));
-          console.log('Available employee codes:', allEmployees.slice(0, 5).map(emp => ({
-            employeeCode: emp.employeeCode,
-            EmployeeCode: emp.EmployeeCode,
-            id: emp.id
-          })));
-         
-          const presentEmployees = presentEmployeeDetails.map(presentEmp => {
-            const normalizedPresentId = normalizeEmployeeId(presentEmp.employeeId);
-            const employeeDetails = allEmployees.find(emp =>
-              getEmployeeIdVariants(emp).includes(normalizedPresentId)
-            );
-           
-            if (!employeeDetails) {
-              console.log(`DEBUG: No employee details found for ID: ${presentEmp.employeeId}`);
-            } else {
-              console.log(`DEBUG: Found employee details for ID: ${presentEmp.employeeId} -> ${employeeDetails.employeeName}`);
-            }
-           
-            return {
-              employeeCode: presentEmp.employeeId || employeeDetails?.employeeCode || employeeDetails?.EmployeeCode || employeeDetails?.id || 'N/A',
-              employeeName: employeeDetails ? (employeeDetails.employeeName || employeeDetails.EmployeeName || employeeDetails.name || 'N/A') : 'N/A',
-              firstIn: presentEmp.firstIn,
-              lastOut: presentEmp.lastOut,
-              hours: presentEmp.hours,
-              contractor: employeeDetails ? (employeeDetails.contractor || employeeDetails.contractorName || 'Unknown') : 'Unknown'
-            };
-          });
-         
-          console.log('Present employees data:', presentEmployees);
-          // Exclude Unknown contractors from tooltip list and counts
-          const filteredPresentEmployees = presentEmployees.filter(emp => {
-            const name = (emp.contractor || '').trim().toLowerCase();
-            return name && name !== 'unknown' && name !== 'unknown contractor';
-          });
-          setPresentEmployeesData(filteredPresentEmployees);
-          // Also update main Present Today count to exclude Unknown contractors
-          const filteredPresentCount = filteredPresentEmployees.length;
-          setTodayAttendance(prev => ({
-            present: filteredPresentCount,
-            total: prev.total,
-            absent: prev.total ? Math.max(0, prev.total - filteredPresentCount) : prev.absent
-          }));
-         
-          // Group employees by contractor (excluding Unknown)
-          const contractorGroups = {};
-          filteredPresentEmployees.forEach(emp => {
-            const contractor = emp.contractor;
-            if (!contractorGroups[contractor]) {
-              contractorGroups[contractor] = [];
-            }
-            contractorGroups[contractor].push(emp);
-          });
-         
-          // Create contractor count data
-          const contractorCounts = Object.entries(contractorGroups).map(([contractorName, employees]) => ({
-            contractorName,
-            employeeCount: employees.length,
-            employees: employees
-          }));
-         
-          setContractorEmployeeCounts(contractorCounts);
-          console.log('Contractor employee counts:', contractorCounts);
-         
-          return presentEmployees;
-        } else {
-          console.log('No employee details found');
-          setPresentEmployeesData([]);
-          setContractorEmployeeCounts([]);
-          return [];
-        }
-      } else {
-        console.log('No present employees found for today');
+
+      console.log('Total present attendance IDs found:', employeesWithFirstIN.size);
+
+      // Same employee source as Absent tooltip / Present KPI matching
+      const employeeResponse = await fetch(
+        `/server/cms_function/employees?returnAll=true&userRole=${encodeURIComponent(userRole || '')}&userEmail=${encodeURIComponent(userEmail || '')}`
+      );
+      const employeeData = await employeeResponse.json();
+
+      if (!(employeeData.status === 'success' && employeeData.data && employeeData.data.employees)) {
+        console.log('No employee details found');
         setPresentEmployeesData([]);
         setContractorEmployeeCounts([]);
         return [];
       }
+
+      const normalizedPresentIds = new Set(
+        Array.from(employeesWithFirstIN).map(normalizeEmployeeId).filter(Boolean)
+      );
+
+      // Active employees only (same base as Total Employees card)
+      const activeEmployees = employeeData.data.employees.filter(
+        (emp) => emp.employeeStatus === 'Active' || emp.EmployeeStatus === 'Active'
+      );
+
+      // Match from active employee master → attendance
+      const presentEmployees = activeEmployees.reduce((list, emp) => {
+        const variants = getEmployeeIdVariants(emp);
+        const matchedId = variants.find((id) => normalizedPresentIds.has(id));
+        if (!matchedId) return list;
+
+        // Keep Unknown so tooltip is not empty; UI labels Unknown as "Employees"
+        const contractorName = emp.contractor || emp.contractorName || 'Unknown';
+        const details = attendanceDetailsById[matchedId] || {};
+        list.push({
+          employeeCode: emp.employeeCode || emp.EmployeeCode || emp.id || 'N/A',
+          employeeName: emp.employeeName || emp.EmployeeName || emp.name || 'N/A',
+          firstIn: details.firstIn || '',
+          lastOut: details.lastOut || 'Still Present',
+          hours: details.hours || 'N/A',
+          contractor: contractorName
+        });
+        return list;
+      }, []);
+
+      console.log('Present employees data:', presentEmployees.length);
+      setPresentEmployeesData(presentEmployees);
+
+      const contractorGroups = {};
+      presentEmployees.forEach((emp) => {
+        const contractor = emp.contractor || 'Unknown';
+        if (!contractorGroups[contractor]) contractorGroups[contractor] = [];
+        contractorGroups[contractor].push(emp);
+      });
+
+      const contractorCounts = Object.entries(contractorGroups).map(([contractorName, employees]) => ({
+        contractorName,
+        employeeCount: employees.length,
+        employees
+      }));
+
+      setContractorEmployeeCounts(contractorCounts);
+      console.log('Contractor employee counts:', contractorCounts);
+      return presentEmployees;
     } catch (error) {
       console.error('Error fetching present employees data:', error);
       setPresentEmployeesData([]);
@@ -1502,21 +1462,24 @@ function Dashboard({ userRole, userEmail }) {
       const employeeData = await employeeResponse.json();
      
       if (employeeData.status === 'success' && employeeData.data && employeeData.data.employees) {
-        const allEmployees = employeeData.data.employees;
-        console.log('Total employees in system:', allEmployees.length);
+        // Active employees only (same base as Total Employees / Present Today)
+        const activeEmployees = employeeData.data.employees.filter(
+          (emp) => emp.employeeStatus === 'Active' || emp.EmployeeStatus === 'Active'
+        );
+        console.log('Active employees in system:', activeEmployees.length, 'of', employeeData.data.employees.length);
         console.log('DEBUG: Present employee IDs in set:', Array.from(employeesWithFirstIN));
-        console.log('DEBUG: Sample employee data for matching:', allEmployees.slice(0, 3).map(emp => ({
+        console.log('DEBUG: Sample employee data for matching:', activeEmployees.slice(0, 3).map(emp => ({
           employeeCode: emp.employeeCode,
           EmployeeCode: emp.EmployeeCode,
           id: emp.id,
           employeeName: emp.employeeName
         })));
        
-        // Find absent employees (employees not in the present list)
+        // Find absent among Active employees only (not in the present list)
         const normalizedPresentIds = new Set(
           Array.from(employeesWithFirstIN).map(normalizeEmployeeId).filter(Boolean)
         );
-        const absentEmployees = allEmployees.filter(emp => {
+        const absentEmployees = activeEmployees.filter(emp => {
           const isPresent = getEmployeeIdVariants(emp).some((empId) => normalizedPresentIds.has(empId));
           if (!isPresent) {
             console.log('Absent employee found:', emp.employeeCode || emp.EmployeeCode || emp.id, emp.employeeName);
@@ -1758,16 +1721,15 @@ function Dashboard({ userRole, userEmail }) {
               const activeEmployees = employees.filter(emp =>
                 emp.employeeStatus === 'Active' || emp.EmployeeStatus === 'Active'
               );
-              const filteredPresentCount = countMatchedPresentEmployees(activeEmployees, employeesWithFirstIN, {
-                requireKnownContractor: true
-              });
-              const totalEmployees = activeEmployees.length;
-              const actualAbsentCount = totalEmployees - filteredPresentCount;
+              // Active only; include all contractors so Present + Absent = Total Active
+              const filteredPresentCount = countMatchedPresentEmployees(activeEmployees, employeesWithFirstIN);
+              const totalActive = activeEmployees.length;
+              const actualAbsentCount = totalActive - filteredPresentCount;
      
               setTodayAttendance({
                 present: filteredPresentCount,
                 absent: Math.max(0, actualAbsentCount), // Ensure non-negative
-                total: totalEmployees
+                total: totalActive
               });
             } else {
               setTodayAttendance({
@@ -1883,17 +1845,17 @@ function Dashboard({ userRole, userEmail }) {
               .then(res => res.json())
               .then(empData => {
                 if (empData.status === 'success' && empData.data && empData.data.employees) {
-                  const employees = empData.data.employees;
-                  const filteredPresentCount = countMatchedPresentEmployees(employees, employeesWithFirstIN, {
-                    requireKnownContractor: true
-                  });
-                  const totalEmployees = employees.length;
-                  const actualAbsentCount = totalEmployees - filteredPresentCount;
+                  const activeEmployees = empData.data.employees.filter(emp =>
+                    emp.employeeStatus === 'Active' || emp.EmployeeStatus === 'Active'
+                  );
+                  const filteredPresentCount = countMatchedPresentEmployees(activeEmployees, employeesWithFirstIN);
+                  const totalActive = activeEmployees.length;
+                  const actualAbsentCount = totalActive - filteredPresentCount;
          
                   setTodayAttendance({
                     present: filteredPresentCount,
                     absent: Math.max(0, actualAbsentCount),
-                    total: totalEmployees
+                    total: totalActive
                   });
                 } else {
                   setTodayAttendance({
@@ -2011,17 +1973,17 @@ function Dashboard({ userRole, userEmail }) {
           .then(res => res.json())
           .then(empData => {
             if (empData.status === 'success' && empData.data && empData.data.employees) {
-              const employees = empData.data.employees;
-              const filteredPresentCount = countMatchedPresentEmployees(employees, employeesWithFirstIN, {
-                requireKnownContractor: true
-              });
-              const totalEmployees = employees.length;
-              const actualAbsentCount = totalEmployees - filteredPresentCount;
+              const activeEmployees = empData.data.employees.filter(emp =>
+                emp.employeeStatus === 'Active' || emp.EmployeeStatus === 'Active'
+              );
+              const filteredPresentCount = countMatchedPresentEmployees(activeEmployees, employeesWithFirstIN);
+              const totalActive = activeEmployees.length;
+              const actualAbsentCount = totalActive - filteredPresentCount;
      
               setTodayAttendance({
                 present: filteredPresentCount,
                 absent: Math.max(0, actualAbsentCount),
-                total: totalEmployees
+                total: totalActive
               });
             } else {
               setTodayAttendance({
@@ -2138,17 +2100,17 @@ function Dashboard({ userRole, userEmail }) {
             .then(res => res.json())
             .then(empData => {
               if (empData.status === 'success' && empData.data && empData.data.employees) {
-                const employees = empData.data.employees;
-                const filteredPresentCount = countMatchedPresentEmployees(employees, employeesWithFirstIN, {
-                  requireKnownContractor: true
-                });
-                const totalEmployees = employees.length;
-                const actualAbsentCount = totalEmployees - filteredPresentCount;
+                const activeEmployees = empData.data.employees.filter(emp =>
+                  emp.employeeStatus === 'Active' || emp.EmployeeStatus === 'Active'
+                );
+                const filteredPresentCount = countMatchedPresentEmployees(activeEmployees, employeesWithFirstIN);
+                const totalActive = activeEmployees.length;
+                const actualAbsentCount = totalActive - filteredPresentCount;
        
                 setTodayAttendance({
                   present: filteredPresentCount,
                   absent: Math.max(0, actualAbsentCount),
-                  total: totalEmployees
+                  total: totalActive
                 });
               } else {
                 setTodayAttendance({

@@ -1844,7 +1844,8 @@ const Payroll = () => {
       const effectiveToDate = overrideToDate !== null ? overrideToDate : toDate;
       const effectiveDepartment = overrideDepartment !== null ? overrideDepartment : department;
      
-      let url = `/server/payroll_function/payroll?month=${selectedMonth}&_t=${Date.now()}`;
+      // clientAttendance=1 skips duplicate server BHR/muster work (client overlays muster)
+      let url = `/server/payroll_function/payroll?month=${selectedMonth}&clientAttendance=1&_t=${Date.now()}`;
       if (contractor !== 'All') url += `&contractor=${encodeURIComponent(contractor)}`;
       if (effectiveDepartment !== 'All') url += `&department=${encodeURIComponent(effectiveDepartment)}`;
       if (employeeId !== 'All') url += `&employeeId=${encodeURIComponent(employeeId)}`;
@@ -1852,78 +1853,80 @@ const Payroll = () => {
       if (effectiveFromDate) url += `&fromDate=${encodeURIComponent(effectiveFromDate)}`;
       if (effectiveToDate) url += `&toDate=${encodeURIComponent(effectiveToDate)}`;
       if (userEmail) url += `&userEmail=${encodeURIComponent(userEmail)}`;
-     
+
+      const contractorForQuery = forcedContractor || (contractor !== 'All' ? contractor : null);
+      const assumeManualFetch = automaticSelections.has('Manual');
+      let musterUrl = null;
+      if (!assumeManualFetch && effectiveFromDate && effectiveToDate) {
+        musterUrl = `/server/attendance_muster_function/?startDate=${encodeURIComponent(effectiveFromDate)}&endDate=${encodeURIComponent(effectiveToDate)}&source=both&userEmail=${encodeURIComponent(userEmail || '')}`;
+        if (contractorForQuery) musterUrl += `&contractor=${encodeURIComponent(contractorForQuery)}`;
+        if (department !== 'All') musterUrl += `&department=${encodeURIComponent(department)}`;
+      }
+      const modeUrl = `/server/payroll_function/automatic-selection/latest?month=${encodeURIComponent(selectedMonth)}&_t=${Date.now()}`;
+
       console.log('Fetching payroll data from:', url);
       console.log('Current filters:', { selectedMonth, contractor, department, employeeId });
-     
-      const res = await fetch(url);
+
+      const [res, modeRes, musterRes, lohRowsEarly] = await Promise.all([
+        fetch(url),
+        assumeManualFetch ? Promise.resolve(null) : fetch(modeUrl).catch(() => null),
+        musterUrl ? fetch(musterUrl).catch(() => null) : Promise.resolve(null),
+        musterUrl
+          ? fetchLohRowsForMusterOverlay({
+              startDate: effectiveFromDate,
+              endDate: effectiveToDate,
+              contractor: contractorForQuery || undefined,
+              department: department !== 'All' ? department : undefined,
+              userEmail,
+              userRole
+            }).catch(() => [])
+          : Promise.resolve([])
+      ]);
       console.log('Response status:', res.status);
       console.log('Response ok:', res.ok);
-     
+
       if (!res.ok) {
         const errorText = await res.text();
         console.error('Response error:', errorText);
         throw new Error(`Failed to fetch payroll data: ${res.status} ${errorText}`);
       }
-     
+
       const result = await res.json();
       console.log('Payroll data received:', result);
       console.log('Data array length:', result.data ? result.data.length : 0);
 
       // Align No. of Days Present with Attendance Muster when NOT in Manual mode (same as Run Payroll path).
-      // Manual mode keeps DaysPresent/OT/LOH from saved payroll / SamplePayroll — muster merge was incorrectly always applied on refresh.
-      let manualModeActiveFetch = automaticSelections.has('Manual');
-      if (!manualModeActiveFetch) {
+      let manualModeActiveFetch = assumeManualFetch;
+      if (!manualModeActiveFetch && modeRes && modeRes.ok) {
         try {
-          const modeRes = await fetch(
-            `/server/payroll_function/automatic-selection/latest?month=${encodeURIComponent(selectedMonth)}&_t=${Date.now()}`
-          );
-          if (modeRes.ok) {
-            const modeJson = await modeRes.json().catch(() => ({}));
-            manualModeActiveFetch = !!modeJson.manual;
-          }
+          const modeJson = await modeRes.json().catch(() => ({}));
+          manualModeActiveFetch = !!modeJson.manual;
         } catch (modeErr) {
           console.warn('Could not verify payroll mode for fetch; may merge muster:', modeErr);
         }
       }
       if (!manualModeActiveFetch && effectiveFromDate && effectiveToDate && result.data && result.data.length > 0) {
         try {
-          console.log('Fetching accurate attendance data from Attendance Muster...');
-          let musterUrl = `/server/attendance_muster_function/?startDate=${encodeURIComponent(effectiveFromDate)}&endDate=${encodeURIComponent(effectiveToDate)}&source=both&userEmail=${encodeURIComponent(userEmail || '')}`;
-         
-          // Add contractor filter if applicable
-          const contractorForQuery = forcedContractor || (contractor !== 'All' ? contractor : null);
-          if (contractorForQuery) {
-            musterUrl += `&contractor=${encodeURIComponent(contractorForQuery)}`;
+          console.log('Applying Attendance Muster overlay (fetched in parallel)...');
+          let musterData = null;
+          if (musterRes && musterRes.ok) {
+            musterData = await musterRes.json();
+          } else if (musterRes) {
+            console.error('Failed to fetch attendance muster data:', musterRes.status);
           }
-          if (department !== 'All') {
-            musterUrl += `&department=${encodeURIComponent(department)}`;
-          }
-
-          const musterRes = await fetch(musterUrl);
-         
-          if (musterRes.ok) {
-            let musterData = await musterRes.json();
-            if (musterData && musterData.employees && musterData.muster) {
-              try {
-                const lohRows = await fetchLohRowsForMusterOverlay({
-                  startDate: effectiveFromDate,
-                  endDate: effectiveToDate,
-                  contractor: contractorForQuery || undefined,
-                  department: department !== 'All' ? department : undefined,
-                  userEmail,
-                  userRole
-                });
-                if (lohRows.length > 0) {
-                  musterData = applyReportsLohToMusterData(musterData, lohRows);
-                  console.log(
-                    `Payroll fetch: LOH merged from LOH Report (${lohRows.length} row(s)) — matches Attendance Muster`
-                  );
-                }
-              } catch (lohMergeErr) {
-                console.warn('Payroll fetch: LOH merge skipped:', lohMergeErr?.message || lohMergeErr);
+          if (musterData && musterData.employees && musterData.muster) {
+            try {
+              const lohRows = Array.isArray(lohRowsEarly) ? lohRowsEarly : [];
+              if (lohRows.length > 0) {
+                musterData = applyReportsLohToMusterData(musterData, lohRows);
+                console.log(
+                  `Payroll fetch: LOH merged from LOH Report (${lohRows.length} row(s)) — matches Attendance Muster`
+                );
               }
+            } catch (lohMergeErr) {
+              console.warn('Payroll fetch: LOH merge skipped:', lohMergeErr?.message || lohMergeErr);
             }
+          }
            
             if (musterData && musterData.employees && musterData.muster) {
               console.log(`Received attendance data for ${musterData.employees.length} employees`);
@@ -2024,9 +2027,6 @@ const Payroll = () => {
               console.log(`Attendance map keys (sample):`, Object.keys(attendanceMap).slice(0, 5));
               console.log(`Payroll employee codes (sample):`, result.data.slice(0, 5).map(emp => String(emp.employeeCode)));
             }
-          } else {
-            console.error('Failed to fetch attendance muster data:', musterRes.status);
-          }
         } catch (err) {
           console.error('Error fetching/processing attendance muster data:', err);
         }
@@ -2454,28 +2454,44 @@ const Payroll = () => {
     try {
       // Show initial message
       setImportSuccess('Fetching attendance data and running payroll...');
-     
-      // Simulate payroll processing time (includes fetching attendance and OT data)
-      await new Promise(resolve => setTimeout(resolve, 2000));
-     
-      // Fetch payroll data (Days Present and LOH hours are auto-fetched from BHR table and LOH report)
-      // For restricted users, pull from saved payroll report to avoid missing recompute data on past months
       setLoading(true);
-      const basePath = '/server/payroll_function/payroll';
-      let url = `${basePath}?month=${selectedMonth}&_t=${Date.now()}`;
-      // Include contractor explicitly when restricted
+
       const contractorForQuery = forcedContractor || (contractor !== 'All' ? contractor : null);
+      const basePath = '/server/payroll_function/payroll';
+      // clientAttendance=1: backend skips BHR/muster (frontend overlays Attendance Muster once)
+      let url = `${basePath}?month=${selectedMonth}&clientAttendance=1&_t=${Date.now()}`;
       if (contractorForQuery) url += `&contractor=${encodeURIComponent(contractorForQuery)}`;
-      // Include from/to date range if provided so payroll respects the selected window
       if (fromDate) url += `&fromDate=${encodeURIComponent(fromDate)}`;
       if (toDate) url += `&toDate=${encodeURIComponent(toDate)}`;
-      // Include userEmail for backend filtering
       if (userEmail) url += `&userEmail=${encodeURIComponent(userEmail)}`;
-      // Don't apply frontend filters - fetch data for the requested date range (backend will filter by contractor if needed)
-     
-      console.log('Running payroll - fetching data with date range:', { url, fromDate, toDate });
-      const res = await fetch(url);
-     
+
+      let musterUrl = `/server/attendance_muster_function/?startDate=${encodeURIComponent(fromDate)}&endDate=${encodeURIComponent(toDate)}&source=both`;
+      if (userEmail) musterUrl += `&userEmail=${encodeURIComponent(userEmail)}`;
+      if (contractorForQuery) musterUrl += `&contractor=${encodeURIComponent(contractorForQuery)}`;
+      if (department !== 'All') musterUrl += `&department=${encodeURIComponent(department)}`;
+
+      const modeUrl = `/server/payroll_function/automatic-selection/latest?month=${encodeURIComponent(selectedMonth)}&_t=${Date.now()}`;
+
+      console.log('Running payroll - parallel fetch:', { url, fromDate, toDate });
+
+      // Fetch payroll, mode, and muster in parallel (was sequential + fake 2s delay)
+      const assumeManual = automaticSelections.has('Manual');
+      const [res, modeRes, musterRes, lohRowsEarly] = await Promise.all([
+        fetch(url),
+        assumeManual ? Promise.resolve(null) : fetch(modeUrl).catch(() => null),
+        assumeManual ? Promise.resolve(null) : fetch(musterUrl).catch(() => null),
+        assumeManual
+          ? Promise.resolve([])
+          : fetchLohRowsForMusterOverlay({
+              startDate: fromDate,
+              endDate: toDate,
+              contractor: contractorForQuery || undefined,
+              department: department !== 'All' ? department : undefined,
+              userEmail,
+              userRole
+            }).catch(() => [])
+      ]);
+
       if (!res.ok) {
         let errorText = '';
         try {
@@ -2487,81 +2503,52 @@ const Payroll = () => {
         console.error('Payroll API error response:', { status: res.status, statusText: res.statusText, error: errorText });
         throw new Error(`Server error (${res.status}): ${errorText || res.statusText}`);
       }
-     
+
       const result = await res.json();
-     
-      // Check if result has an error property
+
       if (result.error) {
         console.error('Payroll API returned error:', result.error);
         throw new Error(result.error);
       }
       console.log('Payroll data received:', result);
-      // Normalize ESI so table displays value (handle both esi and ESI from API)
       if (result.data && Array.isArray(result.data)) {
         result.data = result.data.map(row => ({
           ...row,
           esi: Number(row.esi ?? row.ESI ?? 0) || 0
         }));
       }
-     
-      // Fix for Sunday count when date range is selected:
-      // We fetch data from Attendance Muster function to get accurate daily status counts.
-      // IMPORTANT: In Manual mode we must keep values from SamplePayroll/import and NOT overwrite
-      // daysPresent/OT/LOH from attendance muster.
-      let manualModeActive = automaticSelections.has('Manual');
-      if (!manualModeActive) {
+
+      let manualModeActive = assumeManual;
+      if (!manualModeActive && modeRes && modeRes.ok) {
         try {
-          const modeRes = await fetch(
-            `/server/payroll_function/automatic-selection/latest?month=${encodeURIComponent(selectedMonth)}&_t=${Date.now()}`
-          );
-          if (modeRes.ok) {
-            const modeJson = await modeRes.json().catch(() => ({}));
-            manualModeActive = !!modeJson.manual;
-          }
+          const modeJson = await modeRes.json().catch(() => ({}));
+          manualModeActive = !!modeJson.manual;
         } catch (modeErr) {
           console.warn('Could not verify payroll mode; defaulting to current selection state:', modeErr);
         }
       }
       if (!manualModeActive && fromDate && toDate && result.data && result.data.length > 0) {
         try {
-          console.log('Fetching accurate attendance data from Attendance Muster...');
-          let musterUrl = `/server/attendance_muster_function/?startDate=${encodeURIComponent(fromDate)}&endDate=${encodeURIComponent(toDate)}&source=both`;
-         
-          if (userEmail) musterUrl += `&userEmail=${encodeURIComponent(userEmail)}`;
-         
-          // Add contractor filter if applicable
-          const contractorForQuery = forcedContractor || (contractor !== 'All' ? contractor : null);
-          if (contractorForQuery) {
-            musterUrl += `&contractor=${encodeURIComponent(contractorForQuery)}`;
+          console.log('Applying Attendance Muster overlay (fetched in parallel)...');
+          let musterData = null;
+          if (musterRes && musterRes.ok) {
+            musterData = await musterRes.json();
+          } else if (musterRes) {
+            console.error('Failed to fetch attendance muster data:', musterRes.status);
           }
-          if (department !== 'All') {
-            musterUrl += `&department=${encodeURIComponent(department)}`;
-          }
-
-          const musterRes = await fetch(musterUrl);
-         
-          if (musterRes.ok) {
-            let musterData = await musterRes.json();
-            if (musterData && musterData.employees && musterData.muster) {
-              try {
-                const lohRows = await fetchLohRowsForMusterOverlay({
-                  startDate: fromDate,
-                  endDate: toDate,
-                  contractor: contractorForQuery || undefined,
-                  department: department !== 'All' ? department : undefined,
-                  userEmail,
-                  userRole
-                });
-                if (lohRows.length > 0) {
-                  musterData = applyReportsLohToMusterData(musterData, lohRows);
-                  console.log(
-                    `Run payroll: LOH merged from LOH Report (${lohRows.length} row(s)) — matches Attendance Muster`
-                  );
-                }
-              } catch (lohMergeErr) {
-                console.warn('Run payroll: LOH merge skipped:', lohMergeErr?.message || lohMergeErr);
+          if (musterData && musterData.employees && musterData.muster) {
+            try {
+              const lohRows = Array.isArray(lohRowsEarly) ? lohRowsEarly : [];
+              if (lohRows.length > 0) {
+                musterData = applyReportsLohToMusterData(musterData, lohRows);
+                console.log(
+                  `Run payroll: LOH merged from LOH Report (${lohRows.length} row(s)) — matches Attendance Muster`
+                );
               }
+            } catch (lohMergeErr) {
+              console.warn('Run payroll: LOH merge skipped:', lohMergeErr?.message || lohMergeErr);
             }
+          }
            
             if (musterData && musterData.employees && musterData.muster) {
               console.log(`Received attendance data for ${musterData.employees.length} employees`);
@@ -2653,9 +2640,6 @@ const Payroll = () => {
               console.log(`Attendance map keys (sample):`, Object.keys(attendanceMap).slice(0, 5));
               console.log(`Payroll employee codes (sample):`, result.data.slice(0, 5).map(emp => String(emp.employeeCode)));
             }
-          } else {
-            console.error('Failed to fetch attendance muster data:', musterRes.status);
-          }
         } catch (err) {
           console.error('Error fetching/processing attendance muster data:', err);
         }
@@ -2744,10 +2728,20 @@ const Payroll = () => {
          
           setPayrollData(filteredData);
           setPayrollRun(true);
-         
-          // Enable local filtering for this data
           shouldUseLocalFilter.current = true;
-         
+          // Show grid immediately — do not wait for backend save
+          setLoading(false);
+          setRunningPayroll(false);
+          setImportSuccess(
+            `Payroll loaded for ${selectedMonth} (${filteredData.length} employees). Saving in background...`
+          );
+
+          if (!forcedContractor) {
+            setContractor('All');
+            setDepartment('All');
+            setEmployeeId('All');
+          }
+
           const syncRunPayrollSnapshot = async () => {
             try {
               const slimPayload = payrollPayloadForSave.map(slimPayrollRowForRunPayrollSync);
@@ -2803,13 +2797,13 @@ const Payroll = () => {
 
           const cleanupRunPayrollDuplicates = async () => {
             try {
-              const res = await fetch('/server/payroll_function/cleanup-run-payroll', {
+              const cleanupRes = await fetch('/server/payroll_function/cleanup-run-payroll', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ month: selectedMonth })
               });
-              if (!res.ok) return null;
-              const json = await res.json();
+              if (!cleanupRes.ok) return null;
+              const json = await cleanupRes.json();
               if (Number(json.removed) > 0) {
                 console.log(
                   `RunPayroll cleanup for ${selectedMonth}: removed ${json.removed} duplicate row(s) (${json.countBefore} → ${json.countAfter})`
@@ -2822,114 +2816,76 @@ const Payroll = () => {
             }
           };
 
-          // Save calculated payroll data to backend so it persists
-          console.log('=== SAVING CALCULATED PAYROLL DATA TO BACKEND ===');
-          console.log('Data to save:', payrollPayloadForSave.length, 'records');
-          console.log('Sample record:', payrollPayloadForSave[0]);
-          let runPayrollSyncResult = { ok: false };
-          // RunPayroll sync runs once inside payroll import (avoids duplicate snapshot rows)
-          try {
-            const saveResponse = await fetch('/server/payroll_function/import', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                month: selectedMonth,
-                payrollData: payrollPayloadForSave,
-                userEmail
-              }),
-            });
-           
-            console.log('Save response status:', saveResponse.status);
-            console.log('Save response headers:', Object.fromEntries(saveResponse.headers.entries()));
-           
-            let saveResult;
+          // Persist in background so the UI is not blocked
+          (async () => {
+            console.log('=== SAVING CALCULATED PAYROLL DATA TO BACKEND (background) ===');
+            console.log('Data to save:', payrollPayloadForSave.length, 'records');
+            let runPayrollSyncResult = { ok: false };
             try {
-              const responseText = await saveResponse.text();
-              console.log('Save response text:', responseText);
-              saveResult = JSON.parse(responseText);
-            } catch (parseErr) {
-              console.error('Error parsing save response:', parseErr);
-              throw new Error(`Failed to parse server response: ${parseErr.message}`);
-            }
-            console.log('Save result:', saveResult);
-
-            if (saveResponse.ok && saveResult.status === 'success') {
-              console.log('✅ Payroll data saved to backend:', saveResult.successCount || payrollPayloadForSave.length, 'records');
-              const rp = saveResult.runPayroll;
-              if (rp?.inserted > 0 && rp.ok !== false && !(rp.failed > 0)) {
-                console.log('✅ RunPayroll snapshot from import:', rp.inserted, 'row(s)');
-                runPayrollSyncResult = { ok: true, inserted: rp.inserted };
+              const saveResponse = await fetch('/server/payroll_function/import', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  month: selectedMonth,
+                  payrollData: payrollPayloadForSave,
+                  userEmail
+                }),
+              });
+              let saveResult;
+              try {
+                saveResult = JSON.parse(await saveResponse.text());
+              } catch (parseErr) {
+                console.error('Error parsing save response:', parseErr);
+                saveResult = { status: 'error', error: parseErr.message };
               }
-              // Verify the data was saved by fetching it back
-              setTimeout(async () => {
-                try {
-                  let verifyUrl = `/server/payroll_function/payroll?month=${selectedMonth}&_t=${Date.now()}`;
-                  if (fromDate) verifyUrl += `&fromDate=${encodeURIComponent(fromDate)}`;
-                  if (toDate) verifyUrl += `&toDate=${encodeURIComponent(toDate)}`;
-                  if (userEmail) verifyUrl += `&userEmail=${encodeURIComponent(userEmail)}`;
-                  const verifyRes = await fetch(verifyUrl);
-                  if (verifyRes.ok) {
-                    const verifyResult = await verifyRes.json();
-                    console.log('✅ Verification: Found', verifyResult.data?.length || 0, 'records in backend after save');
+              if (saveResponse.ok && saveResult.status === 'success') {
+                console.log('✅ Payroll data saved to backend:', saveResult.successCount || payrollPayloadForSave.length, 'records');
+                const rp = saveResult.runPayroll;
+                if (rp?.inserted > 0 && rp.ok !== false && !(rp.failed > 0)) {
+                  runPayrollSyncResult = { ok: true, inserted: rp.inserted };
+                }
+              } else {
+                console.error('⚠️ Failed to save payroll data to backend:', saveResult.error || saveResult.message);
+              }
+            } catch (saveErr) {
+              console.error('Error saving payroll data to backend:', saveErr);
+            } finally {
+              if (!runPayrollSyncResult.ok) {
+                runPayrollSyncResult = await syncRunPayrollSnapshot();
+              }
+              try {
+                const countRes = await fetch(
+                  `/server/payroll_function/run-payroll-count?month=${encodeURIComponent(selectedMonth)}&_t=${Date.now()}`
+                );
+                if (countRes.ok) {
+                  const countJson = await countRes.json();
+                  if (Number(countJson.count) > 0) {
+                    runPayrollSyncResult = { ok: true, inserted: countJson.count };
                   }
-                } catch (verifyErr) {
-                  console.error('Error verifying saved data:', verifyErr);
                 }
-              }, 1000);
-            } else {
-              const errorMsg = saveResult.error || saveResult.message || 'Unknown error';
-              console.error('⚠️ Failed to save payroll data to backend:', errorMsg);
-              console.error('Full save result:', saveResult);
-            }
-          } catch (saveErr) {
-            console.error('Error saving payroll data to backend:', saveErr);
-          } finally {
-            if (!runPayrollSyncResult.ok) {
-              runPayrollSyncResult = await syncRunPayrollSnapshot();
-            }
-            try {
-              const countRes = await fetch(
-                `/server/payroll_function/run-payroll-count?month=${encodeURIComponent(selectedMonth)}&_t=${Date.now()}`
-              );
-              if (countRes.ok) {
-                const countJson = await countRes.json();
-                console.log('RunPayroll rows in DB for month:', countJson);
-                if (Number(countJson.count) > 0) {
-                  runPayrollSyncResult = { ok: true, inserted: countJson.count };
-                }
+              } catch (countErr) {
+                console.warn('RunPayroll count check skipped:', countErr);
               }
-            } catch (countErr) {
-              console.warn('RunPayroll count check skipped:', countErr);
+              await cleanupRunPayrollDuplicates();
+              if (!runPayrollSyncResult.ok) {
+                const n = payrollPayloadForSave.length;
+                const ins = runPayrollSyncResult.inserted ?? 0;
+                const detail = runPayrollSyncResult.error ? ` ${runPayrollSyncResult.error}` : '';
+                setError(
+                  `Payroll calculated for ${selectedMonth}, but RunPayroll was not updated (${ins}/${n} rows).${detail} Deploy payroll_function, then Run Payroll again.`
+                );
+                setImportSuccess('');
+              } else {
+                setError(null);
+                setImportSuccess(
+                  `Payroll completed for ${selectedMonth}. ${runPayrollSyncResult.inserted ?? payrollPayloadForSave.length} row(s) saved to RunPayroll table.`
+                );
+                setTimeout(() => setImportSuccess(''), 5000);
+              }
             }
-            await cleanupRunPayrollDuplicates();
-            if (!runPayrollSyncResult.ok) {
-              const n = payrollPayloadForSave.length;
-              const ins = runPayrollSyncResult.inserted ?? 0;
-              const detail = runPayrollSyncResult.error ? ` ${runPayrollSyncResult.error}` : '';
-              setError(
-                `Payroll calculated for ${selectedMonth}, but RunPayroll was not updated (${ins}/${n} rows).${detail} Deploy payroll_function, then Run Payroll again.`
-              );
-              setImportSuccess('');
-            }
-          }
-         
-          // Reset filters for unrestricted users only
-          if (!forcedContractor) {
-          setContractor('All');
-          setDepartment('All');
-          setEmployeeId('All');
-          }
-         
-          console.log('✅ Payroll completed -', result.data.length, 'records loaded and saved');
-          if (runPayrollSyncResult.ok) {
-            setError(null);
-            setImportSuccess(
-              `Payroll completed for ${selectedMonth}. ${runPayrollSyncResult.inserted ?? payrollPayloadForSave.length} row(s) saved to RunPayroll table.`
-            );
-          }
-          setTimeout(() => setImportSuccess(''), 5000);
+          })();
+
+          console.log('✅ Payroll UI ready -', result.data.length, 'records (save continues in background)');
         } else {
           console.log('No payroll data returned');
           setPayrollRun(false);

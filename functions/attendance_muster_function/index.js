@@ -1608,9 +1608,10 @@ module.exports = async (req, res) => {
               if (!currentSource.includes('OnDuty')) {
                 // Update existing record with Present status
                 byKey[workedOnKey].ProvidedStatus = workedOnStatus;
-                byKey[workedOnKey].Source = currentSource === 'Both' || currentSource === 'Attendance'
-                  ? 'Both+CompOffWorkedOn'
-                  : (currentSource || 'CompOffWorkedOn');
+                // Always keep CompOffWorkedOn in Source so WO/H muster shows P (not stuck on WO)
+                byKey[workedOnKey].Source = currentSource.includes('CompOffWorkedOn')
+                  ? currentSource
+                  : (currentSource ? `${currentSource}+CompOffWorkedOn` : 'CompOffWorkedOn');
                 // Set default times if not already set from other sources
                 if (!byKey[workedOnKey].FirstIN) {
                   byKey[workedOnKey].FirstIN = workedOnFirstIn;
@@ -2044,15 +2045,15 @@ module.exports = async (req, res) => {
          
           const regularizationStatus = regularizationStatusFromHours(firstInDateTime, lastOutDateTime);
 
-          // Regularization takes precedence over BHR/Attendance/BioMax but not over OnDuty/CompOff
+          // Regularization takes precedence over BHR/Attendance/BioMax but not over OnDuty/CompOff Taken (CO).
+          // CompOffWorkedOn (WO work day) still accepts regularization check-in/out times.
           if (byKey[key]) {
-            // Only update if source is not OnDuty or CompOff (they take highest precedence)
             const currentSource = byKey[key].Source || '';
             if (!currentSource.includes('OnDuty') && !sourceHasCompOffTakenSegment(currentSource)) {
               byKey[key].ProvidedStatus = regularizationStatus;
-              byKey[key].Source = currentSource === 'BHR' || currentSource === 'Attendance' || currentSource === 'Both' || currentSource.includes('BioMax')
-                ? (currentSource + '+Regularization')
-                : (currentSource || 'Regularization');
+              byKey[key].Source = currentSource.includes('Regularization')
+                ? currentSource
+                : (currentSource ? `${currentSource}+Regularization` : 'Regularization');
              
               // Use FirstIn from Regularization if available
               if (firstInDateTime) {
@@ -2064,7 +2065,7 @@ module.exports = async (req, res) => {
                 byKey[key].LastOUT = lastOutDateTime;
               }
             } else {
-              // OnDuty/CompOff already exists, so we keep their status but mark source as including Regularization
+              // OnDuty/CompOff Taken: keep their status; do not overwrite OnDuty applied times
               byKey[key].Source = currentSource.includes('Regularization') ? currentSource : currentSource + '+Regularization';
             }
           } else {
@@ -2598,6 +2599,10 @@ module.exports = async (req, res) => {
           if (rec && (rec.Source === 'CompOffWorkedOn' || rec.Source?.includes('CompOffWorkedOn'))) {
             return 'Present'; // WorkedOn date should show as Present even on holiday
           }
+          // CompOff Taken / Regularization on holiday — use calculated status (CO / Present)
+          if (rec && (sourceHasCompOffTakenSegment(rec.Source) || rec.Source?.includes('Regularization'))) {
+            return getStatus(rec.FirstIN, rec.LastOUT, rec.ProvidedStatus, rec.Source);
+          }
           // If date is before date of joining, don't count as Holiday - show as Absent
           if (dateOfJoining && isDateBefore(date, dateOfJoining)) {
             return 'Absent'; // Before date of joining, don't count H
@@ -2620,6 +2625,10 @@ module.exports = async (req, res) => {
           if (rec && (rec.Source === 'CompOffWorkedOn' || rec.Source?.includes('CompOffWorkedOn'))) {
             return 'Present'; // WorkedOn date should show as Present even on Sunday
           }
+          // CompOff Taken (CO) or Regularization on WO — do not force WO (show CO / Present)
+          if (rec && (sourceHasCompOffTakenSegment(rec.Source) || rec.Source?.includes('Regularization'))) {
+            return getStatus(rec.FirstIN, rec.LastOUT, rec.ProvidedStatus, rec.Source);
+          }
           // If date is before date of joining, don't count as Week Off - show as Absent
           if (dateOfJoining && isDateBefore(date, dateOfJoining)) {
             return 'Absent'; // Before date of joining, don't count WO
@@ -2636,9 +2645,10 @@ module.exports = async (req, res) => {
       });
     });
 
-    // Employee-date exclusions: no OT and no First In/Last Out display for these combinations.
-    // Format: "employeeId_YYYY-MM-DD". Used for firstIn, lastOut, and OT calculation.
-    // Include WO days with Comboff=Yes so those working hours are not added to OT.
+    // Employee-date exclusions for OT calculation.
+    // Format: "employeeId_YYYY-MM-DD".
+    // Include WO WorkedOn + Comboff=Yes (and CO Taken days) so those hours are not added to OT.
+    // CompOff Taken (CO) days also hide First In/Last Out; WO WorkedOn / Regularization still show punches.
     const OT_EXCLUSIONS = new Set([
       '36150_2026-01-04', '60102_2026-01-04', '50059_2025-12-28', '50059_2025-12-14',
       '60060_2026-01-04', '36114_2026-01-04', '50028_2026-01-04', '60112_2026-01-04',
@@ -2646,12 +2656,23 @@ module.exports = async (req, res) => {
     ]);
     compoffWoExcludeFromOT.forEach(k => OT_EXCLUSIONS.add(k));
 
+    /** Hide muster punches for CO Taken days (and other OT exclusions that are not WorkedOn/Regularization). */
+    function shouldHideMusterPunchTimes(key, rec) {
+      if (!OT_EXCLUSIONS.has(key)) return false;
+      const src = rec?.Source || '';
+      // CO day: do not show default/punch times
+      if (sourceHasCompOffTakenSegment(src)) return true;
+      // WO WorkedOn (Comp Off earned) or Regularization: show check-in/out even when OT is excluded
+      if (src.includes('CompOffWorkedOn') || src.includes('Regularization')) return false;
+      return true;
+    }
+
     // Generate firstIn and lastOut arrays for each employee and date
     const firstIn = employees.map(empId =>
       dates.map(date => {
         const key = `${empId}_${date}`;
         const rec = byKey[key];
-        if (OT_EXCLUSIONS.has(key)) return '';
+        if (shouldHideMusterPunchTimes(key, rec)) return '';
         if (!rec || !rec.FirstIN) {
           // Debug logging for OnDuty records without FirstIN
           if (rec && rec.Source && rec.Source.includes('OnDuty')) {
@@ -2717,7 +2738,7 @@ module.exports = async (req, res) => {
       dates.map(date => {
         const key = `${empId}_${date}`;
         const rec = byKey[key];
-        if (OT_EXCLUSIONS.has(key)) return '';
+        if (shouldHideMusterPunchTimes(key, rec)) return '';
         if (!rec || !rec.LastOUT) {
           // Debug logging for OnDuty records without LastOUT
           if (rec && rec.Source && rec.Source.includes('OnDuty')) {
@@ -3211,6 +3232,41 @@ module.exports = async (req, res) => {
 
     // LOH data must be fetched from reports_function only (same as LOH Report page)
     const lohReportMap = {}; // Map: employeeId_date -> LOH hours
+
+    // Load grace + category filter once (same as LOH Report setup) before HTTP call
+    let lohGraceParam = String(url.searchParams.get('grace') || '').trim() || '10';
+    let lohDesignationApplicableTo = String(url.searchParams.get('designationApplicableTo') || '').trim();
+    try {
+      const lohApplicableTable = catalystApp.datastore().table('399000000051588');
+      const savedRows = await lohApplicableTable.getAllRows();
+      if (savedRows && savedRows.length > 0) {
+        const latest = savedRows
+          .slice()
+          .sort((a, b) => {
+            const aTime = new Date(a.MODIFIEDTIME || a.CREATEDTIME || 0).getTime();
+            const bTime = new Date(b.MODIFIEDTIME || b.CREATEDTIME || 0).getTime();
+            return bTime - aTime;
+          })[0];
+        const savedGrace = String(latest.Grace ?? latest.grace ?? '').trim();
+        if (savedGrace && /^\d+$/.test(savedGrace)) lohGraceParam = savedGrace;
+        if (!lohDesignationApplicableTo) {
+          const dynamicDesignationKey = Object.keys(latest).find((key) =>
+            String(key || '').toLowerCase().startsWith('designationapplic')
+          );
+          const savedDes = String(
+            latest.DesignationApplicableTo ||
+            latest.DesignationApplicable ||
+            (dynamicDesignationKey ? latest[dynamicDesignationKey] : '') ||
+            ''
+          ).trim();
+          if (savedDes && savedDes.toLowerCase() !== 'all') {
+            lohDesignationApplicableTo = savedDes;
+          }
+        }
+      }
+    } catch (setupErr) {
+      console.log('LOH setup grace/category optional:', setupErr.message);
+    }
    
     // Helper function to fetch LOH from reports_function
     const fetchLOHFromReportsFunction = () => {
@@ -3236,10 +3292,11 @@ module.exports = async (req, res) => {
           if (userRole) {
             queryParams.set('userRole', userRole);
           }
-          // Grace (minutes) - same as LOH report; default 10 if not provided
-          const graceParam = String(url.searchParams.get('grace') || '').trim() || '10';
-          queryParams.set('grace', graceParam);
-         
+          queryParams.set('grace', lohGraceParam);
+          if (lohDesignationApplicableTo) {
+            queryParams.set('designationApplicableTo', lohDesignationApplicableTo);
+          }
+
           // Build the URL for calling reports_function
           // In Catalyst, functions can be called via their function URLs
           // Try to construct the URL from environment or use the request context
@@ -3296,7 +3353,7 @@ module.exports = async (req, res) => {
               'Content-Type': 'application/json',
               'User-Agent': 'Catalyst-AttendanceMusterFunction/1.0'
             },
-            timeout: 10000
+            timeout: 60000
           };
          
           const reqHttp = client.request(options, (resHttp) => {
@@ -3322,6 +3379,8 @@ module.exports = async (req, res) => {
                       const raw = String(emp ?? '').trim();
                       if (!raw) continue;
                       employeeSet.add(raw);
+                      const norm = raw.replace(/^0+(?=\d)/, '') || raw;
+                      if (norm) employeeSet.add(norm);
                       if (/^\d+$/.test(raw)) {
                         employeeSet.add(String(parseInt(raw, 10)));
                       }
@@ -3329,56 +3388,44 @@ module.exports = async (req, res) => {
                   }
                   const hasEmployeeFilter = employeeSet.size > 0;
                  
+                  // Dedupe by canonical emp + date (same as LOH Report calendar: one value per day)
+                  const lohByCanonicalDate = {};
                   for (const row of lohData) {
                     const empId = String(row.employeeId || row.EmployeeId || '').trim();
                     if (!empId) continue;
-                   
-                    if (hasEmployeeFilter) {
-                      const empAliases = [empId];
-                      if (/^\d+$/.test(empId)) empAliases.push(String(parseInt(empId, 10)));
-                      if (!empAliases.some((id) => employeeSet.has(id))) {
-                        continue;
-                      }
+
+                    const empAliases = [empId];
+                    if (/^\d+$/.test(empId)) empAliases.push(String(parseInt(empId, 10)));
+                    const empNorm = empId.replace(/^0+(?=\d)/, '') || empId;
+                    if (empNorm && empNorm !== empId) empAliases.push(empNorm);
+
+                    if (hasEmployeeFilter && !empAliases.some((id) => employeeSet.has(id))) {
+                      continue;
                     }
-                   
-                    // Normalize date to YYYY-MM-DD format (same as dates array)
+
                     let lohDate = row.date || '';
-                    if (lohDate) {
-                      // Ensure date is in YYYY-MM-DD format
-                      if (typeof lohDate === 'string') {
-                        if (/^\d{4}-\d{2}-\d{2}$/.test(lohDate)) {
-                          // Already in correct format
-                        } else {
-                          // Try to parse and normalize
-                          const d = new Date(lohDate);
-                          if (!isNaN(d)) {
-                            lohDate = d.toISOString().slice(0, 10);
-                          }
-                        }
-                      }
+                    if (lohDate && typeof lohDate === 'string' && !/^\d{4}-\d{2}-\d{2}$/.test(lohDate)) {
+                      const d = new Date(lohDate);
+                      if (!isNaN(d)) lohDate = d.toISOString().slice(0, 10);
                     }
                     if (!lohDate) continue;
-                   
-                    // IMPORTANT: Only include LOH data for dates within the selected date range
-                    // This ensures that LOH data is correctly filtered to match the payroll date range
-                    if (lohDate < startDate || lohDate > endDate) {
-                      continue; // Skip dates outside the selected range
-                    }
-                   
-                    // Convert lossOfHours to number
-                    // IMPORTANT: Include 0.00 values (grace period cases) - LOH report includes them in total
+                    if (lohDate < startDate || lohDate > endDate) continue;
+
                     const lohHours = parseFloat(row.lossOfHours || '0');
-                   
-                    // Store all values including 0.00 (same as LOH report does)
-                    // This ensures the total calculation matches LOH report exactly
-                    if (!isNaN(lohHours)) {
-                      const key = `${empId}_${lohDate}`;
-                      lohReportMap[key] = lohHours;
-                     
-                      // Debug logging for employee 32001
-                      if (empId === '32001') {
-                        console.log(`LOH Report Data for 32001: date=${lohDate}, lohHours=${lohHours}, key=${key}`);
-                      }
+                    if (isNaN(lohHours)) continue;
+
+                    const canonical = empNorm || empId;
+                    lohByCanonicalDate[`${canonical}_${lohDate}`] = lohHours;
+                  }
+
+                  for (const [canonKey, lohHours] of Object.entries(lohByCanonicalDate)) {
+                    const sep = canonKey.lastIndexOf('_');
+                    const canonical = canonKey.slice(0, sep);
+                    const lohDate = canonKey.slice(sep + 1);
+                    const aliases = new Set([canonical]);
+                    if (/^\d+$/.test(canonical)) aliases.add(String(parseInt(canonical, 10)));
+                    for (const alias of aliases) {
+                      lohReportMap[`${alias}_${lohDate}`] = lohHours;
                     }
                   }
                  
@@ -3405,7 +3452,7 @@ module.exports = async (req, res) => {
             resolve(null);
           });
          
-          reqHttp.setTimeout(10000, () => {
+          reqHttp.setTimeout(60000, () => {
             reqHttp.destroy();
             console.log('Timeout fetching LOH from reports_function; LOH from reports only, no fallback');
             resolve(null);
@@ -3441,6 +3488,24 @@ module.exports = async (req, res) => {
       console.error('Error fetching LOH from reports_function:', lohError);
     }
 
+    // Lookup LOH hours with employee-code aliases (104 / 0104)
+    const lookupLohReportHours = (empIdStr, dateStr) => {
+      const aliases = [String(empIdStr || '').trim()];
+      const raw = aliases[0];
+      if (!raw) return undefined;
+      const norm = raw.replace(/^0+(?=\d)/, '') || raw;
+      if (norm && !aliases.includes(norm)) aliases.push(norm);
+      if (/^\d+$/.test(raw)) {
+        const n = String(parseInt(raw, 10));
+        if (!aliases.includes(n)) aliases.push(n);
+      }
+      for (const alias of aliases) {
+        const k = `${alias}_${dateStr}`;
+        if (lohReportMap[k] !== undefined) return lohReportMap[k];
+      }
+      return undefined;
+    };
+
     // Generate LOH array from reports_function data only (no local calculation)
     const loh = employees.map(empId => {
       // Normalize employee ID to string for consistent matching
@@ -3458,6 +3523,9 @@ module.exports = async (req, res) => {
             if (rec && (rec.Source === 'CompOffWorkedOn' || rec.Source?.includes('CompOffWorkedOn'))) {
               return 'Present'; // WorkedOn date should show as Present even on holiday
             }
+            if (rec && (sourceHasCompOffTakenSegment(rec.Source) || rec.Source?.includes('Regularization'))) {
+              return getStatus(rec.FirstIN, rec.LastOUT, rec.ProvidedStatus, rec.Source);
+            }
             return 'H'; // Holiday (only if not a WorkedOn date)
           }
          
@@ -3472,17 +3540,19 @@ module.exports = async (req, res) => {
             if (rec && (rec.Source === 'CompOffWorkedOn' || rec.Source?.includes('CompOffWorkedOn'))) {
               return 'Present'; // WorkedOn date should show as Present even on Sunday
             }
+            if (rec && (sourceHasCompOffTakenSegment(rec.Source) || rec.Source?.includes('Regularization'))) {
+              return getStatus(rec.FirstIN, rec.LastOUT, rec.ProvidedStatus, rec.Source);
+            }
           return 'WO'; // Week Off (only if not a WorkedOn date)
           }
           if (!rec) return 'Absent';
           return getStatus(rec.FirstIN, rec.LastOUT, rec.ProvidedStatus, rec.Source);
         };
        
-        // Check if attendance muster status is WO or H - if so, skip LOH calculation
+        // Check if attendance muster status is WO or H - if so, skip LOH for day cell
         const rec = byKey[key];
         const musterStatus = getMusterStatusForDate();
-        if (rec && (musterStatus === 'WO' || musterStatus === 'H')) {
-          // If attendance muster shows WO or H, do not calculate or use LOH
+        if (musterStatus === 'WO' || musterStatus === 'H') {
           return '';
         }
        
@@ -3496,40 +3566,8 @@ module.exports = async (req, res) => {
           return '';
         }
        
-        // First, check if LOH data exists from reports_function (primary source)
-        // This ensures we use the exact same data as LOH report
-        let lohHours = null;
-        let lohCalculatedByFunction = false;
-        let totalWorkingMinutes = 0;
-       
-        // Check lohReportMap first - this is the PRIMARY source (from reports_function)
-        if (lohReportMap[key] !== undefined) {
-          // Use LOH from reports_function (same as LOH report uses)
-          lohHours = lohReportMap[key];
-          // Mark as calculated by function (from reports_function)
-          lohCalculatedByFunction = true;
-         
-          // Debug logging for employee 32001
-          if (empIdStr === '32001') {
-            console.log(`Using LOH from reports_function for 32001: date=${date}, key=${key}, lohHours=${lohHours}`);
-          }
-         
-          // Calculate totalWorkingMinutes for shouldIncludeRecord check (same as reports_function)
-          if (rec && rec.FirstIN && rec.LastOUT) {
-            try {
-              const firstInDate = new Date(rec.FirstIN.replace(' ', 'T'));
-              const lastOutDate = new Date(rec.LastOUT.replace(' ', 'T'));
-              if (!isNaN(firstInDate) && !isNaN(lastOutDate)) {
-                const diffMs = lastOutDate - firstInDate;
-                if (diffMs > 0) {
-                  totalWorkingMinutes = Math.floor(diffMs / (1000 * 60));
-                }
-              }
-            } catch (e) {
-              // Ignore errors
-            }
-          }
-        } else {
+        const lohHours = lookupLohReportHours(empIdStr, date);
+        if (lohHours === undefined) {
           // LOH must come from reports_function only; no local calculation fallback
           return '';
         }
@@ -3618,7 +3656,17 @@ module.exports = async (req, res) => {
       return `${hh}:${p[2]}:${p[3] || '00'}`;
     };
 
-    // Helper function to calculate overtime based on shift end time (aligned with reports_function overnight fix).
+    // Round checkout DOWN to previous :00 or :30 (aligned with reports_function Monthly OT).
+    const roundLastOutDownToHalfHourMuster = (lastOutDate) => {
+      if (!lastOutDate || isNaN(lastOutDate.getTime())) return null;
+      const d = new Date(lastOutDate.getTime());
+      const roundedMins = Math.floor(d.getMinutes() / 30) * 30;
+      d.setMinutes(roundedMins, 0, 0);
+      return d;
+    };
+
+    // Helper function to calculate overtime based on shift end time (aligned with reports_function).
+    // Rule: round checkout down to :00/:30, then OT = roundedCheckout - shiftEnd (not raw checkout).
     const calculateOvertimeForShift = (lastOutTimeStr, dateStr, expectedCheckoutTime, shiftStartTimeHms) => {
       if (!lastOutTimeStr || !dateStr || !expectedCheckoutTime) return 0;
      
@@ -3628,6 +3676,8 @@ module.exports = async (req, res) => {
        
         const lastOutTime = lastOutInstantFromStr(lastOutTimeStr, dateStr);
         if (!lastOutTime) return 0;
+        const roundedLastOut = roundLastOutDownToHalfHourMuster(lastOutTime);
+        if (!roundedLastOut) return 0;
         const endHms = normalizeShiftBoundaryHmsMuster(expectedCheckoutTime);
         let expectedEndYmd = dateStr;
         if (shiftStartTimeHms && isOvernightShiftPairMuster(shiftStartTimeHms, endHms)) {
@@ -3635,12 +3685,12 @@ module.exports = async (req, res) => {
         }
         const expectedCheckout = new Date(`${expectedEndYmd} ${endHms}`.replace(' ', 'T'));
        
-        if (isNaN(lastOutTime.getTime()) || isNaN(expectedCheckout.getTime())) {
+        if (isNaN(roundedLastOut.getTime()) || isNaN(expectedCheckout.getTime())) {
           return 0;
         }
        
-        if (lastOutTime > expectedCheckout) {
-          const diffMs = lastOutTime - expectedCheckout;
+        if (roundedLastOut > expectedCheckout) {
+          const diffMs = roundedLastOut - expectedCheckout;
           const overtimeHours = diffMs / (1000 * 60 * 60);
           // Round to 3 decimal places to match monthly report precision
           return Math.max(0, parseFloat(overtimeHours.toFixed(3)));
@@ -3654,127 +3704,23 @@ module.exports = async (req, res) => {
     };
 
     // Helper functions for shift-specific overtime calculation
-    // IMPORTANT: Keep these cutoffs aligned with `reports_function` (/monthly-overtime)
+    // IMPORTANT: Keep aligned with `reports_function` (/monthly-overtime): round down then minus shift end
     const calculateOvertimeForGeneralShift = (lastOutTimeStr, dateStr) => {
-      if (!lastOutTimeStr || !dateStr) return 0;
-      try {
-        const timePart = parseTimeFromString(lastOutTimeStr);
-        if (!timePart) return 0;
-
-        const lastOutTime = lastOutInstantFromStr(lastOutTimeStr, dateStr);
-        if (!lastOutTime) return 0;
-        // Monthly OT report rule: no OT if checkout is 18:00 or earlier
-        const cutoffTime = new Date(`${dateStr} 18:00:00`.replace(' ', 'T'));
-        const baseTime = new Date(`${dateStr} 17:00:00`.replace(' ', 'T'));
-
-        if (isNaN(lastOutTime.getTime()) || isNaN(cutoffTime.getTime()) || isNaN(baseTime.getTime())) {
-          return 0;
-        }
-
-        // Only calculate OT if checkout is after cutoff (18:00)
-        if (lastOutTime > cutoffTime) {
-          const diffMs = lastOutTime - baseTime;
-          const overtimeHours = diffMs / (1000 * 60 * 60);
-          const result = Math.max(0, parseFloat(overtimeHours.toFixed(3)));
-          return result;
-        }
-
-        return 0;
-      } catch (error) {
-        console.error('Error calculating General shift overtime:', error);
-        return 0;
-      }
+      return calculateOvertimeForShift(lastOutTimeStr, dateStr, '17:00:00', '08:30:00');
     };
 
     const calculateOvertimeForFirstShift = (lastOutTimeStr, dateStr) => {
-      if (!lastOutTimeStr || !dateStr) return 0;
-      try {
-        const timePart = parseTimeFromString(lastOutTimeStr);
-        if (!timePart) return 0;
-
-        const lastOutTime = lastOutInstantFromStr(lastOutTimeStr, dateStr);
-        if (!lastOutTime) return 0;
-        // Monthly OT report rule: no OT if checkout is 15:00 or earlier
-        const cutoffTime = new Date(`${dateStr} 15:00:00`.replace(' ', 'T'));
-        const baseTime = new Date(`${dateStr} 14:00:00`.replace(' ', 'T'));
-
-        if (isNaN(lastOutTime.getTime()) || isNaN(cutoffTime.getTime()) || isNaN(baseTime.getTime())) {
-          return 0;
-        }
-
-        // Only calculate OT if checkout is after cutoff (15:00)
-        if (lastOutTime > cutoffTime) {
-          const diffMs = lastOutTime - baseTime;
-          const overtimeHours = diffMs / (1000 * 60 * 60);
-          const result = Math.max(0, parseFloat(overtimeHours.toFixed(3)));
-          return result;
-        }
-
-        return 0;
-      } catch (error) {
-        console.error('Error calculating 1st shift overtime:', error);
-        return 0;
-      }
+      return calculateOvertimeForShift(lastOutTimeStr, dateStr, '14:30:00', '06:00:00');
     };
 
     const calculateOvertimeForSecondShift = (lastOutTimeStr, dateStr) => {
-      if (!lastOutTimeStr || !dateStr) return 0;
-      try {
-        const timePart = parseTimeFromString(lastOutTimeStr);
-        if (!timePart) return 0;
-
-        const lastOutTime = lastOutInstantFromStr(lastOutTimeStr, dateStr);
-        if (!lastOutTime) return 0;
-        // Monthly OT report rule: no OT if checkout is 23:00 or earlier
-        const cutoffTime = new Date(`${dateStr} 23:00:00`.replace(' ', 'T'));
-        const baseTime = new Date(`${dateStr} 22:00:00`.replace(' ', 'T'));
-
-        if (isNaN(lastOutTime.getTime()) || isNaN(cutoffTime.getTime()) || isNaN(baseTime.getTime())) {
-          return 0;
-        }
-
-        // Only calculate OT if checkout is after cutoff (23:00)
-        if (lastOutTime > cutoffTime) {
-          const diffMs = lastOutTime - baseTime;
-          const overtimeHours = diffMs / (1000 * 60 * 60);
-          const result = Math.max(0, parseFloat(overtimeHours.toFixed(3)));
-          return result;
-        }
-
-        return 0;
-      } catch (error) {
-        console.error('Error calculating 2nd shift overtime:', error);
-        return 0;
-      }
+      // Shift master 2ND: 08:00-16:30
+      return calculateOvertimeForShift(lastOutTimeStr, dateStr, '16:30:00', '08:00:00');
     };
 
-    // General II shift: 12:00-20:00, 10 min grace, OT if checkout after 21:00
+    // General II shift: 12:00-20:00 — round checkout down, OT = rounded - 20:00
     const calculateOvertimeForGeneralIIShift = (lastOutTimeStr, dateStr) => {
-      if (!lastOutTimeStr || !dateStr) return 0;
-      try {
-        const timePart = parseTimeFromString(lastOutTimeStr);
-        if (!timePart) return 0;
-
-        const lastOutTime = lastOutInstantFromStr(lastOutTimeStr, dateStr);
-        if (!lastOutTime) return 0;
-        // OT = checkout minus 20:00 (shift end) only if checkout is after 21:00
-        const cutoffTime = new Date(`${dateStr} 21:00:00`.replace(' ', 'T'));
-        const baseTime = new Date(`${dateStr} 20:00:00`.replace(' ', 'T'));
-
-        if (isNaN(lastOutTime.getTime()) || isNaN(cutoffTime.getTime()) || isNaN(baseTime.getTime())) {
-          return 0;
-        }
-
-        if (lastOutTime > cutoffTime) {
-          const diffMs = lastOutTime - baseTime;
-          const overtimeHours = diffMs / (1000 * 60 * 60);
-          return Math.max(0, parseFloat(overtimeHours.toFixed(3)));
-        }
-        return 0;
-      } catch (error) {
-        console.error('Error calculating General II shift overtime:', error);
-        return 0;
-      }
+      return calculateOvertimeForShift(lastOutTimeStr, dateStr, '20:00:00', '12:00:00');
     };
 
     // Generate overtimeHours array - calculate OT based on shift end times
@@ -3809,6 +3755,9 @@ module.exports = async (req, res) => {
               if (rec && (rec.Source === 'CompOffWorkedOn' || rec.Source?.includes('CompOffWorkedOn'))) {
                 return 'Present';
               }
+              if (rec && (sourceHasCompOffTakenSegment(rec.Source) || rec.Source?.includes('Regularization'))) {
+                return getStatus(rec.FirstIN, rec.LastOUT, rec.ProvidedStatus, rec.Source);
+              }
               return 'H';
             }
 
@@ -3820,6 +3769,9 @@ module.exports = async (req, res) => {
               }
               if (rec && (rec.Source === 'CompOffWorkedOn' || rec.Source?.includes('CompOffWorkedOn'))) {
                 return 'Present';
+              }
+              if (rec && (sourceHasCompOffTakenSegment(rec.Source) || rec.Source?.includes('Regularization'))) {
+                return getStatus(rec.FirstIN, rec.LastOUT, rec.ProvidedStatus, rec.Source);
               }
               return 'WO';
             }
@@ -3862,13 +3814,13 @@ module.exports = async (req, res) => {
             // For General II shift: 12:00-20:00, OT if checkout after 21:00
             otHours = calculateOvertimeForGeneralIIShift(rec.LastOUT, date);
           } else if (isGeneral) {
-            // For General shift: Calculate OT if checkout is after 18:00 (per Monthly OT report)
+            // For General shift: round checkout to :00/:30, OT = rounded - 17:00
             otHours = calculateOvertimeForGeneralShift(rec.LastOUT, date);
           } else if (isFirst) {
-            // For 1st shift: Calculate OT if checkout is after 15:00 (per Monthly OT report)
+            // For 1st shift: round checkout to :00/:30, OT = rounded - 14:30
             otHours = calculateOvertimeForFirstShift(rec.LastOUT, date);
           } else if (isSecond) {
-            // For 2nd shift: Calculate OT if checkout is after 23:00 (per Monthly OT report)
+            // For 2nd shift: round checkout to :00/:30, OT = rounded - 16:30
             otHours = calculateOvertimeForSecondShift(rec.LastOUT, date);
           } else {
             // For other shifts: Calculate OT if total hours > 8.5
@@ -4016,31 +3968,18 @@ module.exports = async (req, res) => {
       return parseFloat((reportsVal || 0).toFixed(3));
     });
 
-    // Calculate total LOH using the same logic as LOH report
-    // LOH report calculates from source data (BHR/Attendance/BioMax), so we sum the calculated daily LOH values
-    // This ensures attendance muster displays the same total LOH hours as shown in LOH report
-    // IMPORTANT: LOH report includes 0.00 values in the total, so we must include them too
-    const monthlyLOHPreferred = employees.map((empId, idx) => {
-      // Sum all daily LOH values from calculated data (same as LOH report does)
-      // The loh array contains daily LOH values calculated from source data using the same logic as LOH report
-      // Include 0.00 values in the sum (same as LOH report does)
+    // Monthly LOH = LOH Report Total Hours: one value per date from reports map (includes 0.00).
+    // Do not sum WO/H-blanked daily cells — that under/over-counts vs LOH Report.
+    const monthlyLOHPreferred = employees.map((empId) => {
+      const empIdStr = String(empId).trim();
       let totalLOH = 0;
-      if (loh && loh[idx] && Array.isArray(loh[idx])) {
-        totalLOH = loh[idx].reduce((sum, lohValue) => {
-          // Include 0.00 values (parseFloat('0.00') = 0, which is valid)
-          // Only skip empty strings and NaN values
-          if (lohValue !== '' && lohValue !== null && lohValue !== undefined && !isNaN(lohValue)) {
-            return sum + parseFloat(lohValue);
-          }
-          return sum;
-        }, 0);
+      for (const date of dates) {
+        const hours = lookupLohReportHours(empIdStr, date);
+        if (hours !== undefined && !isNaN(hours)) {
+          totalLOH += parseFloat(hours);
+        }
       }
-     
       const result = parseFloat((totalLOH || 0).toFixed(2));
-      // Debug logging for first few employees
-      if (idx < 3) {
-        console.log(`Employee ${empId}: monthlyLOHPreferred = ${result}, daily LOH values (including 0.00):`, loh && loh[idx] ? loh[idx].slice(0, 5) : 'N/A');
-      }
       return result;
     });
    

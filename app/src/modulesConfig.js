@@ -24,9 +24,9 @@ import {
  * Order: Home → Dashboard → Organization (Organization, Department, Designation) → Employees → Setup Configuration
  * App User: Organization expands to Department + Designation only (company Organization page link is hidden).
  *        → Time Office (Attendance, Onduty, Permission, Regularization)
- *        → Payroll (Payroll, Payroll Report, Payroll Template)
- *        → Shift (Shift, Shift Roaster)
  *        → Leave (Comboff, Calendar)
+ *        → Shift (Shift, Shift Roaster)
+ *        → Payroll (Payroll, Payroll Report, Payroll Template)
  *        → Reports (Monthly OT, LOH, Attendance Muster, Shiftmap Deviation, Grace)
  */
 export const sidebarModules = [
@@ -54,14 +54,11 @@ export const sidebarModules = [
     ],
   },
   {
-    icon: <BarChart3 size={22} />,
-    label: 'Payroll',
+    icon: <CalendarDays size={22} />,
+    label: 'Leave',
     children: [
-      { icon: <BarChart3 size={20} />, label: 'Payroll', path: '/payroll' },
-      { icon: <BarChart3 size={20} />, label: 'Payroll Report', path: '/payroll-report' },
-      { icon: <FileText size={20} />, label: 'PF Report', path: '/pf-report' },
-      { icon: <FileText size={20} />, label: 'ESI Report', path: '/esi-report' },
-      { icon: <FileText size={20} />, label: 'Payroll Template', path: '/payslip-template' },
+      { icon: <Clock size={20} />, label: 'Comboff', path: '/compoff' },
+      { icon: <Calendar size={20} />, label: 'Calendar', path: '/calendar' },
     ],
   },
   {
@@ -73,11 +70,14 @@ export const sidebarModules = [
     ],
   },
   {
-    icon: <CalendarDays size={22} />,
-    label: 'Leave',
+    icon: <BarChart3 size={22} />,
+    label: 'Payroll',
     children: [
-      { icon: <Clock size={20} />, label: 'Comboff', path: '/compoff' },
-      { icon: <Calendar size={20} />, label: 'Calendar', path: '/calendar' },
+      { icon: <BarChart3 size={20} />, label: 'Payroll', path: '/payroll' },
+      { icon: <BarChart3 size={20} />, label: 'Payroll Report', path: '/payroll-report' },
+      { icon: <FileText size={20} />, label: 'PF Report', path: '/pf-report' },
+      { icon: <FileText size={20} />, label: 'ESI Report', path: '/esi-report' },
+      { icon: <FileText size={20} />, label: 'Payroll Template', path: '/payslip-template' },
     ],
   },
   {

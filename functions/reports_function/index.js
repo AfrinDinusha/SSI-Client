@@ -1159,7 +1159,17 @@ module.exports = async (req, res) => {
         return `${hh}:${p[2]}:${p[3] || '00'}`;
       };
 
+      // Round checkout DOWN to previous :00 or :30 (e.g. 16:58→16:30, 17:34→17:30). OT uses this, not raw checkout.
+      const roundLastOutDownToHalfHour = (lastOutDate) => {
+        if (!lastOutDate || isNaN(lastOutDate.getTime())) return null;
+        const d = new Date(lastOutDate.getTime());
+        const roundedMins = Math.floor(d.getMinutes() / 30) * 30;
+        d.setMinutes(roundedMins, 0, 0);
+        return d;
+      };
+
       // Helper function to calculate overtime based on shift end time
+      // Rule: round checkout down to :00/:30, then OT = roundedCheckout - shiftEnd (not raw checkout - shiftEnd).
       // shiftStartTimeHms: when set and shift is overnight (from > to on clock), expected end is on the calendar day AFTER dateStr (fixes 3rd shift 20:00–06:00 with checkout next morning).
       const calculateOvertimeForShift = (lastOutTimeStr, dateStr, expectedCheckoutTime, shiftStartTimeHms) => {
         if (!lastOutTimeStr || !dateStr || !expectedCheckoutTime) return 0;
@@ -1170,6 +1180,8 @@ module.exports = async (req, res) => {
          
           const lastOutTime = lastOutInstantFromStr(lastOutTimeStr, dateStr);
           if (!lastOutTime) return 0;
+          const roundedLastOut = roundLastOutDownToHalfHour(lastOutTime);
+          if (!roundedLastOut) return 0;
           const endHms = normalizeShiftBoundaryHms(expectedCheckoutTime);
           let expectedEndYmd = dateStr;
           if (shiftStartTimeHms && isOvernightShiftPair(shiftStartTimeHms, endHms)) {
@@ -1177,22 +1189,20 @@ module.exports = async (req, res) => {
           }
           const expectedCheckout = new Date(`${expectedEndYmd} ${endHms}`.replace(' ', 'T'));
          
-          if (isNaN(lastOutTime.getTime()) || isNaN(expectedCheckout.getTime())) {
+          if (isNaN(roundedLastOut.getTime()) || isNaN(expectedCheckout.getTime())) {
             return 0;
           }
          
-          // If checkout is after expected time, calculate OT hours
-          // Note: General shift uses a different calculation (see calculateOvertimeForGeneralShift)
-          // This function is used for 1st and 2nd shifts
-          if (lastOutTime > expectedCheckout) {
-            const diffMs = lastOutTime - expectedCheckout;
+          // OT = rounded checkout (:00/:30) minus shift end — not raw checkout minus shift end
+          if (roundedLastOut > expectedCheckout) {
+            const diffMs = roundedLastOut - expectedCheckout;
             const overtimeHours = diffMs / (1000 * 60 * 60); // Convert to hours
             const result = Math.max(0, parseFloat(overtimeHours.toFixed(3))); // Round to 3 decimal places for accuracy
-            console.log(`OT Calculation: checkout=${timePart}, expectedEnd=${expectedEndYmd} ${endHms}, diffMs=${diffMs}, OT=${result.toFixed(3)} hours`);
+            console.log(`OT Calculation: checkout=${timePart}, rounded=${roundedLastOut.toTimeString().slice(0, 8)}, expectedEnd=${expectedEndYmd} ${endHms}, OT=${result.toFixed(3)} hours`);
             return result;
           }
          
-          // If checkout is exactly at or before expected time, no OT
+          // If rounded checkout is at or before shift end, no OT
           return 0;
         } catch (error) {
           console.error('Error calculating overtime:', error, 'lastOutTimeStr:', lastOutTimeStr, 'dateStr:', dateStr, 'expectedCheckoutTime:', expectedCheckoutTime);
@@ -1200,7 +1210,7 @@ module.exports = async (req, res) => {
         }
       };
 
-      /** OT after shift end (checkout minus shift out), not FirstIN–LastOUT span minus 8.5h. */
+      /** OT after shift end: round checkout to :00/:30, then minus shift out from Shift master. */
       const calculateOtHoursAfterShiftOut = (empId, dateStr, lastOutStr, firstInStr) => {
         if (!lastOutStr || !dateStr) return 0;
 
@@ -1221,13 +1231,7 @@ module.exports = async (req, res) => {
           }
         }
 
-        if (isGeneralIIShiftMonthlyOT(empId, dateStr)) {
-          return calculateOvertimeForGeneralIIShift(lastOutStr, dateStr);
-        }
-        if (isGeneralShift(empId, dateStr)) {
-          return calculateOvertimeForGeneralShift(lastOutStr, dateStr);
-        }
-
+        // Prefer Shift master TO time for the assigned shift (e.g. 2ND → 16:30, General → 17:00)
         const assignedShiftDef = getShiftDefinitionForEmployeeDate(empId, dateStr);
         if (assignedShiftDef) {
           return calculateOvertimeForDynamicShift(
@@ -1238,6 +1242,9 @@ module.exports = async (req, res) => {
           );
         }
 
+        if (isGeneralIIShiftMonthlyOT(empId, dateStr)) {
+          return calculateOvertimeForGeneralIIShift(lastOutStr, dateStr);
+        }
         if (isFirstShift(empId, dateStr)) {
           return calculateOvertimeForFirstShift(lastOutStr, dateStr);
         }
@@ -1248,171 +1255,30 @@ module.exports = async (req, res) => {
         return calculateOvertimeForGeneralShift(lastOutStr, dateStr);
       };
 
-      // General shift (08:30-17:00): no OT if checkout is 18:00 or earlier
-      // If checkout is after 18:00, calculate OT as (checkout time - 17:00)
-      // Example: 18:01 - 17:00 = 1.017 hours (61 minutes)
+      // General shift fallback (08:30-17:00): round checkout down, OT = rounded - 17:00
+      // Example: 17:34 → 17:30 - 17:00 = 0.5
       const calculateOvertimeForGeneralShift = (lastOutTimeStr, dateStr) => {
-        if (!lastOutTimeStr || !dateStr) {
-          console.log(`[General Shift OT] Missing parameters: lastOutTimeStr=${lastOutTimeStr}, dateStr=${dateStr}`);
-          return 0;
-        }
-       
-        try {
-          const timePart = parseTimeFromString(lastOutTimeStr);
-          if (!timePart) {
-            console.log(`[General Shift OT] Failed to parse time from: ${lastOutTimeStr}`);
-            return 0;
-          }
-         
-          // Normalize date to YYYY-MM-DD format
-          let normalizedDate = dateStr;
-          if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-            const d = new Date(dateStr);
-            if (!isNaN(d.getTime())) {
-              const year = d.getFullYear();
-              const month = String(d.getMonth() + 1).padStart(2, '0');
-              const day = String(d.getDate()).padStart(2, '0');
-              normalizedDate = `${year}-${month}-${day}`;
-            }
-          }
-         
-          const lastOutTime = lastOutInstantFromStr(lastOutTimeStr, normalizedDate);
-          if (!lastOutTime) {
-            console.log(`[General Shift OT] Invalid last out instant from: ${lastOutTimeStr}`);
-            return 0;
-          }
-          const cutoffTime = new Date(`${normalizedDate} 18:00:00`.replace(' ', 'T'));
-          const baseTime = new Date(`${normalizedDate} 17:00:00`.replace(' ', 'T'));
-         
-          if (isNaN(lastOutTime.getTime()) || isNaN(cutoffTime.getTime()) || isNaN(baseTime.getTime())) {
-            console.log(`[General Shift OT] Invalid date/time: lastOutTime=${lastOutTime}, cutoffTime=${cutoffTime}, baseTime=${baseTime}`);
-            return 0;
-          }
-         
-          // Only calculate OT if checkout is after 18:00
-          if (lastOutTime > cutoffTime) {
-            const diffMs = lastOutTime - baseTime;
-            const overtimeHours = diffMs / (1000 * 60 * 60); // Convert to hours
-            const result = Math.max(0, parseFloat(overtimeHours.toFixed(3))); // Round to 3 decimal places
-            console.log(`[General Shift OT] date=${normalizedDate}, checkout=${timePart}, cutoff=18:00:00, base=17:00:00, OT=${result.toFixed(3)} hours`);
-            return result;
-          }
-         
-          // If checkout is 18:00 or earlier, no OT
-          console.log(`[General Shift OT] date=${normalizedDate}, checkout=${timePart} is <= 18:00:00, no OT calculated`);
-          return 0;
-        } catch (error) {
-          console.error(`[General Shift OT] Error calculating General shift overtime for date=${dateStr}, lastOut=${lastOutTimeStr}:`, error);
-          return 0;
-        }
+        return calculateOvertimeForShift(lastOutTimeStr, dateStr, '17:00:00', '08:30:00');
       };
 
-      // Helper function to calculate overtime for 1st shift
-      // Uses 15:00:00 as the cutoff time (no OT if checkout is 15:00 or earlier)
-      // If checkout is after 15:00, calculate OT as (checkout time - 14:00)
-      // Example: 15:01 - 14:00 = 1.017 hours (61 minutes)
-      // If checkout is 15:00 or earlier, no OT is calculated
+      // 1st shift fallback (Shift master 06:00-14:30): round checkout down, OT = rounded - 14:30
       const calculateOvertimeForFirstShift = (lastOutTimeStr, dateStr) => {
-        if (!lastOutTimeStr || !dateStr) return 0;
-       
-        try {
-          const timePart = parseTimeFromString(lastOutTimeStr);
-          if (!timePart) return 0;
-         
-          const lastOutTime = lastOutInstantFromStr(lastOutTimeStr, dateStr);
-          if (!lastOutTime) return 0;
-          const cutoffTime = new Date(`${dateStr} 15:00:00`.replace(' ', 'T'));
-          const baseTime = new Date(`${dateStr} 14:00:00`.replace(' ', 'T'));
-         
-          if (isNaN(lastOutTime.getTime()) || isNaN(cutoffTime.getTime()) || isNaN(baseTime.getTime())) {
-            return 0;
-          }
-         
-          // Only calculate OT if checkout is after 15:00
-          if (lastOutTime > cutoffTime) {
-            const diffMs = lastOutTime - baseTime;
-            const overtimeHours = diffMs / (1000 * 60 * 60); // Convert to hours
-            const result = Math.max(0, parseFloat(overtimeHours.toFixed(3))); // Round to 3 decimal places
-            console.log(`[1st Shift OT] checkout=${timePart}, cutoff=15:00:00, base=14:00:00, OT=${result.toFixed(3)} hours`);
-            return result;
-          }
-         
-          // If checkout is 15:00 or earlier, no OT
-          console.log(`[1st Shift OT] checkout=${timePart} is <= 15:00:00, no OT calculated`);
-          return 0;
-        } catch (error) {
-          console.error('Error calculating 1st shift overtime:', error);
-          return 0;
-        }
+        return calculateOvertimeForShift(lastOutTimeStr, dateStr, '14:30:00', '06:00:00');
       };
 
-      // Helper function to calculate overtime for General II shift
-      // General II: 12:00-20:00, OT if checkout after 21:00
+      // General II fallback: 12:00-20:00 — round checkout down, OT = rounded - 20:00
       const calculateOvertimeForGeneralIIShift = (lastOutTimeStr, dateStr) => {
-        if (!lastOutTimeStr || !dateStr) return 0;
-        try {
-          const timePart = parseTimeFromString(lastOutTimeStr);
-          if (!timePart) return 0;
-          const lastOutTime = lastOutInstantFromStr(lastOutTimeStr, dateStr);
-          if (!lastOutTime) return 0;
-          // OT = checkout minus 20:00 (shift end) only if checkout is after 21:00
-          const cutoffTime = new Date(`${dateStr} 21:00:00`.replace(' ', 'T'));
-          const baseTime = new Date(`${dateStr} 20:00:00`.replace(' ', 'T'));
-          if (isNaN(lastOutTime.getTime()) || isNaN(cutoffTime.getTime()) || isNaN(baseTime.getTime())) {
-            return 0;
-          }
-          if (lastOutTime > cutoffTime) {
-            const diffMs = lastOutTime - baseTime;
-            const overtimeHours = diffMs / (1000 * 60 * 60);
-            return Math.max(0, parseFloat(overtimeHours.toFixed(3)));
-          }
-          return 0;
-        } catch (error) {
-          return 0;
-        }
+        return calculateOvertimeForShift(lastOutTimeStr, dateStr, '20:00:00', '12:00:00');
       };
 
-      // Helper function to calculate overtime for 2nd shift
-      // Uses 23:00:00 as the cutoff time (no OT if checkout is 23:00 or earlier)
-      // If checkout is after 23:00, calculate OT as (checkout time - 22:00)
-      // Example: 23:01 - 22:00 = 1.017 hours (61 minutes)
-      // If checkout is 23:00 or earlier, no OT is calculated
+      // 2nd shift fallback (Shift master 08:00-16:30): round checkout down, OT = rounded - 16:30
+      // Example: 16:58 → 16:30 - 16:30 = 0
       const calculateOvertimeForSecondShift = (lastOutTimeStr, dateStr) => {
-        if (!lastOutTimeStr || !dateStr) return 0;
-       
-        try {
-          const timePart = parseTimeFromString(lastOutTimeStr);
-          if (!timePart) return 0;
-         
-          const lastOutTime = lastOutInstantFromStr(lastOutTimeStr, dateStr);
-          if (!lastOutTime) return 0;
-          const cutoffTime = new Date(`${dateStr} 23:00:00`.replace(' ', 'T'));
-          const baseTime = new Date(`${dateStr} 22:00:00`.replace(' ', 'T'));
-         
-          if (isNaN(lastOutTime.getTime()) || isNaN(cutoffTime.getTime()) || isNaN(baseTime.getTime())) {
-            return 0;
-          }
-         
-          // Only calculate OT if checkout is after 23:00
-          if (lastOutTime > cutoffTime) {
-            const diffMs = lastOutTime - baseTime;
-            const overtimeHours = diffMs / (1000 * 60 * 60); // Convert to hours
-            const result = Math.max(0, parseFloat(overtimeHours.toFixed(3))); // Round to 3 decimal places
-            console.log(`[2nd Shift OT] checkout=${timePart}, cutoff=23:00:00, base=22:00:00, OT=${result.toFixed(3)} hours`);
-            return result;
-          }
-         
-          // If checkout is 23:00 or earlier, no OT
-          console.log(`[2nd Shift OT] checkout=${timePart} is <= 23:00:00, no OT calculated`);
-          return 0;
-        } catch (error) {
-          console.error('Error calculating 2nd shift overtime:', error);
-          return 0;
-        }
+        return calculateOvertimeForShift(lastOutTimeStr, dateStr, '16:30:00', '08:00:00');
       };
 
       // Dynamic OT calculation for Shift master definitions:
-      // OT is counted immediately after shift end time. Pass shiftStartTimeHms for overnight shifts (e.g. 20:00–06:00).
+      // Round checkout down to :00/:30, then OT = rounded - shift end. Pass shiftStartTimeHms for overnight shifts.
       const calculateOvertimeForDynamicShift = (lastOutTimeStr, dateStr, shiftEndTimeHms, shiftStartTimeHms) => {
         if (!shiftEndTimeHms) return 0;
         return calculateOvertimeForShift(lastOutTimeStr, dateStr, shiftEndTimeHms, shiftStartTimeHms);
