@@ -467,8 +467,7 @@ function BankFormatReport({ userRole = 'App Administrator', userEmail = null }) 
   }, [loadReport]);
 
   const normalizedRows = useMemo(() => {
-    return records.map((row, index) => ({
-      sno: index + 1,
+    return records.map((row) => ({
       employeeCode: row.employeeCode || row.EmployeeCode || row.employeeId || '-',
       employeeName: row.employeeName || row.EmployeeName || '-',
       employeeStatus: row.employeeStatus || '-',
@@ -510,29 +509,34 @@ function BankFormatReport({ userRole = 'App Administrator', userEmail = null }) 
       });
     }
     const term = search.trim().toLowerCase();
-    if (!term) return list;
-    return list.filter((row) =>
-      [
-        row.employeeCode,
-        row.employeeName,
-        row.employeeStatus,
-        row.bankName,
-        row.bankBranch,
-        row.accountNumber,
-        row.ifscCode,
-        row.pf,
-        row.esi,
-        row.loanAllowance,
-        row.uniformDeduction,
-        row.attendanceDeduction,
-        row.late,
-        row.totalDeduction,
-        row.salaryAmount,
-      ]
-        .join(' ')
-        .toLowerCase()
-        .includes(term)
-    );
+    if (term) {
+      list = list.filter((row) =>
+        [
+          row.employeeCode,
+          row.employeeName,
+          row.employeeStatus,
+          row.bankName,
+          row.bankBranch,
+          row.accountNumber,
+          row.ifscCode,
+          row.pf,
+          row.esi,
+          row.loanAllowance,
+          row.uniformDeduction,
+          row.attendanceDeduction,
+          row.late,
+          row.totalDeduction,
+          row.salaryAmount,
+        ]
+          .join(' ')
+          .toLowerCase()
+          .includes(term)
+      );
+    }
+    return list.map((row, index) => ({
+      ...row,
+      sno: index + 1,
+    }));
   }, [normalizedRows, search, employeeStatus]);
 
   const handleExportExcel = () => {

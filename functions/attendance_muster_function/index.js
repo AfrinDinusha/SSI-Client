@@ -2118,27 +2118,28 @@ module.exports = async (req, res) => {
        
         const employeeInfoResult = await zcql.executeZCQLQuery(employeeInfoQuery);
        
-        // Helper function to format date to YYYY-MM-DD
+        // Helper function to format date to YYYY-MM-DD (calendar date, no UTC day-shift)
         const formatDate = (dateVal) => {
           if (!dateVal) return '';
           if (typeof dateVal === 'string') {
-                // If already in YYYY-MM-DD format
-            if (/^\d{4}-\d{2}-\d{2}$/.test(dateVal)) {
-              return dateVal;
-                } else {
-                  // Try to parse and format
-              const d = new Date(dateVal);
-                  if (!isNaN(d)) {
-                return d.toISOString().slice(0, 10);
-                  }
-                }
-              } else {
-                // If it's a Date object or timestamp
+            const isoPrefix = dateVal.match(/^(\d{4}-\d{2}-\d{2})/);
+            if (isoPrefix) return isoPrefix[1];
             const d = new Date(dateVal);
-                if (!isNaN(d)) {
-              return d.toISOString().slice(0, 10);
-                }
-              }
+            if (!isNaN(d.getTime())) {
+              const y = d.getFullYear();
+              const m = String(d.getMonth() + 1).padStart(2, '0');
+              const day = String(d.getDate()).padStart(2, '0');
+              return `${y}-${m}-${day}`;
+            }
+            return '';
+          }
+          const d = new Date(dateVal);
+          if (!isNaN(d.getTime())) {
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${y}-${m}-${day}`;
+          }
           return '';
         };
        
@@ -2151,7 +2152,7 @@ module.exports = async (req, res) => {
             // Format DateofExit to YYYY-MM-DD if it exists
             const dateOfExit = formatDate(emp.DateofExit);
            
-            employeeInfoMap[emp.EmployeeCode] = {
+            employeeInfoMap[String(emp.EmployeeCode).trim()] = {
               employeeName: emp.EmployeeName || '',
               contractor: emp.ContractorName || '',
               department: emp.Department || '',
@@ -2466,11 +2467,18 @@ module.exports = async (req, res) => {
       console.log('Applied overnight punch pairing for 3rd/4th shift employees');
     }
 
-    // Helper function to check if a date is Sunday
+    // Helper function to check if a date is Sunday (noon local to avoid UTC day-shift)
     function isSunday(dateStr) {
-      const date = new Date(dateStr);
-      const dayOfWeek = date.getDay(); // 0 = Sunday, 6 = Saturday
-      return dayOfWeek === 0;
+      if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return false;
+      const date = new Date(`${dateStr}T12:00:00`);
+      return date.getDay() === 0;
+    }
+
+    // Week off: Sundays, except 20/09/2026 (normal day). 17/09/2026 Thursday is WO.
+    function isWeekOff(dateStr) {
+      if (dateStr === '2026-09-17') return true;
+      if (dateStr === '2026-09-20' || dateStr === '2026-01-03' || dateStr === '2026-03-01') return false;
+      return isSunday(dateStr);
     }
 
     // Holidays: Setup → Calendar only (no hardcoded dates)
@@ -2556,86 +2564,119 @@ module.exports = async (req, res) => {
       return 'Absent';
     }
 
-    const muster = employees.map(empId => {
-      // Get employee's date of joining and date of exit
-      const empInfo = employeeInfoMap[empId] || {};
+    function hoursWorkedFromPunches(firstIn, lastOut) {
+      if (!firstIn || !lastOut) return 0;
+      try {
+        const inDate = new Date(String(firstIn).substring(0, 19).replace(' ', 'T'));
+        const outDate = new Date(String(lastOut).substring(0, 19).replace(' ', 'T'));
+        if (isNaN(inDate.getTime()) || isNaN(outDate.getTime())) return 0;
+        const hours = (outDate - inDate) / (1000 * 60 * 60);
+        return hours > 0 ? hours : 0;
+      } catch (_) {
+        return 0;
+      }
+    }
+
+    function isWorkingFullDayOnHoliday(rec) {
+      if (!rec) return false;
+      return hoursWorkedFromPunches(rec.FirstIN, rec.LastOUT) >= 4;
+    }
+
+    /**
+     * Holiday status: working less than 4 hours stays H (not Present / Absent).
+     * Working 4+ hours can show Present. CompOff Taken / OnDuty keep CO / OD.
+     */
+    function statusForHoliday(rec) {
+      if (rec && (rec.Source === 'CompOffWorkedOn' || rec.Source?.includes('CompOffWorkedOn'))) {
+        return 'Present';
+      }
+      if (rec && (sourceHasCompOffTakenSegment(rec.Source) || rec.Source?.includes('Regularization') || rec.Source?.includes('OnDuty'))) {
+        const s = getStatus(rec.FirstIN, rec.LastOUT, rec.ProvidedStatus, rec.Source);
+        if (s === 'CO' || s === 'OD' || s === 'OD-0.5') return s;
+        if (hoursWorkedFromPunches(rec.FirstIN, rec.LastOUT) < 4) return 'H';
+        return s;
+      }
+      if (isWorkingFullDayOnHoliday(rec)) {
+        return 'Present';
+      }
+      return 'H';
+    }
+
+    const normalizeEmploymentDate = (d) => {
+      if (!d) return '';
+      if (typeof d === 'string') {
+        const isoPrefix = d.match(/^(\d{4}-\d{2}-\d{2})/);
+        if (isoPrefix) return isoPrefix[1];
+      }
+      if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+      const parsed = new Date(d);
+      if (!isNaN(parsed.getTime())) {
+        const y = parsed.getFullYear();
+        const m = String(parsed.getMonth() + 1).padStart(2, '0');
+        const day = String(parsed.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+      }
+      return '';
+    };
+
+    const isDateBefore = (date1, date2) => {
+      if (!date1 || !date2) return false;
+      const normDate1 = normalizeEmploymentDate(date1);
+      const normDate2 = normalizeEmploymentDate(date2);
+      return normDate1 && normDate2 && normDate1 < normDate2;
+    };
+
+    const isDateAfter = (date1, date2) => {
+      if (!date1 || !date2) return false;
+      const normDate1 = normalizeEmploymentDate(date1);
+      const normDate2 = normalizeEmploymentDate(date2);
+      return normDate1 && normDate2 && normDate1 > normDate2;
+    };
+
+    const getEmpInfo = (empId) => {
+      const key = String(empId ?? '').trim();
+      return employeeInfoMap[key] || employeeInfoMap[empId] || {};
+    };
+
+    // Days before Date of Joining (or after Date of Exit) are not employment days:
+    // leave blank — do not mark Absent / WO / H and do not include in any totals.
+    const isOutsideEmploymentPeriod = (empId, date) => {
+      const empInfo = getEmpInfo(empId);
       const dateOfJoining = empInfo.dateOfJoining || '';
       const dateOfExit = empInfo.dateOfExit || '';
-     
-      // Helper function to normalize dates to YYYY-MM-DD format for comparison
-      const normalizeDate = (d) => {
-        if (!d) return '';
-        if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
-        const parsed = new Date(d);
-        if (!isNaN(parsed.getTime())) {
-          return parsed.toISOString().slice(0, 10);
-        }
-        return '';
-      };
-     
-      // Helper function to compare dates (returns true if date1 < date2)
-      const isDateBefore = (date1, date2) => {
-        if (!date1 || !date2) return false;
-        const normDate1 = normalizeDate(date1);
-        const normDate2 = normalizeDate(date2);
-        return normDate1 && normDate2 && normDate1 < normDate2;
-      };
-     
-      // Helper function to compare dates (returns true if date1 > date2)
-      const isDateAfter = (date1, date2) => {
-        if (!date1 || !date2) return false;
-        const normDate1 = normalizeDate(date1);
-        const normDate2 = normalizeDate(date2);
-        return normDate1 && normDate2 && normDate1 > normDate2;
-      };
-     
+      if (dateOfJoining && isDateBefore(date, dateOfJoining)) return true;
+      if (dateOfExit && isDateAfter(date, dateOfExit)) return true;
+      return false;
+    };
+
+    const muster = employees.map(empId => {
       return dates.map(date => {
+        if (isOutsideEmploymentPeriod(empId, date)) {
+          return '';
+        }
+
         const key = `${empId}_${date}`;
         const rec = byKey[key];
        
         // Check if this date is a holiday (check before Sunday/Saturday checks)
         if (isHoliday(date)) {
-          // If there's a CompOffWorkedOn record for this date, show 'P' instead of 'H'
-          if (rec && (rec.Source === 'CompOffWorkedOn' || rec.Source?.includes('CompOffWorkedOn'))) {
-            return 'Present'; // WorkedOn date should show as Present even on holiday
+          const holidayStatus = statusForHoliday(rec);
+          // CompOffWorkedOn / working on holiday stay Present
+          if (holidayStatus !== 'H') {
+            return holidayStatus;
           }
-          // CompOff Taken / Regularization on holiday — use calculated status (CO / Present)
-          if (rec && (sourceHasCompOffTakenSegment(rec.Source) || rec.Source?.includes('Regularization'))) {
-            return getStatus(rec.FirstIN, rec.LastOUT, rec.ProvidedStatus, rec.Source);
-          }
-          // If date is before date of joining, don't count as Holiday - show as Absent
-          if (dateOfJoining && isDateBefore(date, dateOfJoining)) {
-            return 'Absent'; // Before date of joining, don't count H
-          }
-          // If date is after date of exit, don't count as Holiday - show as Absent
-          if (dateOfExit && isDateAfter(date, dateOfExit)) {
-            return 'Absent'; // After date of exit, don't count H
-          }
-          return 'H'; // Holiday (only if not a WorkedOn date and between date of joining and date of exit)
+          return 'H'; // Default Holiday when not working
         }
        
-        // Check if this date is Sunday
-        if (isSunday(date)) {
-          // 3/1/2026 (displayed as 03/01/2026): do not show WO; use P or A based on attendance (support both 2026-01-03 and 2026-03-01)
-          if (date === '2026-03-01' || date === '2026-01-03') {
-            if (!rec) return 'Absent';
-            return getStatus(rec.FirstIN, rec.LastOUT, rec.ProvidedStatus, rec.Source);
-          }
+        // Check if this date is week off (Sunday, plus Sep 2026: 17 WO / 20 normal)
+        if (isWeekOff(date)) {
           // If there's a CompOffWorkedOn record for this date, show 'P' instead of 'WO'
           if (rec && (rec.Source === 'CompOffWorkedOn' || rec.Source?.includes('CompOffWorkedOn'))) {
             return 'Present'; // WorkedOn date should show as Present even on Sunday
           }
-          // CompOff Taken (CO) or Regularization on WO — do not force WO (show CO / Present)
-          if (rec && (sourceHasCompOffTakenSegment(rec.Source) || rec.Source?.includes('Regularization'))) {
+          // CompOff Taken (CO), Regularization, or OnDuty on WO — do not force WO
+          if (rec && (sourceHasCompOffTakenSegment(rec.Source) || rec.Source?.includes('Regularization') || rec.Source?.includes('OnDuty'))) {
             return getStatus(rec.FirstIN, rec.LastOUT, rec.ProvidedStatus, rec.Source);
-          }
-          // If date is before date of joining, don't count as Week Off - show as Absent
-          if (dateOfJoining && isDateBefore(date, dateOfJoining)) {
-            return 'Absent'; // Before date of joining, don't count WO
-          }
-          // If date is after date of exit, don't count as Week Off - show as Absent
-          if (dateOfExit && isDateAfter(date, dateOfExit)) {
-            return 'Absent'; // After date of exit, don't count WO
           }
           return 'WO'; // Week Off (only if not a WorkedOn date and between date of joining and date of exit)
         }
@@ -2667,11 +2708,28 @@ module.exports = async (req, res) => {
       return true;
     }
 
+    /**
+     * WO / H cells: show 08:30–17:30 style times only when the person actually came
+     * (device / BioMax / regularization / OnDuty, 4+ hours). Excel Attendance-only
+     * shift defaults must not paint times on a week off they did not work.
+     */
+    function shouldShowWoOrHolidayPunchTimes(rec, musterStatus) {
+      const st = String(musterStatus || '').trim();
+      if (st !== 'WO' && st !== 'H') return true;
+      if (!rec || !rec.FirstIN || !rec.LastOUT) return false;
+      if (String(rec.FirstIN).trim() === String(rec.LastOUT).trim()) return false;
+      if (hoursWorkedFromPunches(rec.FirstIN, rec.LastOUT) < 4) return false;
+      const src = String(rec.Source || '');
+      return src.includes('BHR') || src.includes('BioMax') || src.includes('Regularization') || src.includes('OnDuty') || src.includes('CompOffWorkedOn');
+    }
+
     // Generate firstIn and lastOut arrays for each employee and date
-    const firstIn = employees.map(empId =>
-      dates.map(date => {
+    const firstIn = employees.map((empId, empIdx) =>
+      dates.map((date, dateIdx) => {
+        if (isOutsideEmploymentPeriod(empId, date)) return '';
         const key = `${empId}_${date}`;
         const rec = byKey[key];
+        if (!shouldShowWoOrHolidayPunchTimes(rec, muster[empIdx] && muster[empIdx][dateIdx])) return '';
         if (shouldHideMusterPunchTimes(key, rec)) return '';
         if (!rec || !rec.FirstIN) {
           // Debug logging for OnDuty records without FirstIN
@@ -2734,10 +2792,12 @@ module.exports = async (req, res) => {
       })
     );
 
-    const lastOut = employees.map(empId =>
-      dates.map(date => {
+    const lastOut = employees.map((empId, empIdx) =>
+      dates.map((date, dateIdx) => {
+        if (isOutsideEmploymentPeriod(empId, date)) return '';
         const key = `${empId}_${date}`;
         const rec = byKey[key];
+        if (!shouldShowWoOrHolidayPunchTimes(rec, muster[empIdx] && muster[empIdx][dateIdx])) return '';
         if (shouldHideMusterPunchTimes(key, rec)) return '';
         if (!rec || !rec.LastOUT) {
           // Debug logging for OnDuty records without LastOUT
@@ -2803,6 +2863,7 @@ module.exports = async (req, res) => {
     // Generate source array to identify OnDuty records
     const sources = employees.map(empId =>
       dates.map(date => {
+        if (isOutsideEmploymentPeriod(empId, date)) return '';
         const key = `${empId}_${date}`;
         const rec = byKey[key];
         if (!rec) return '';
@@ -2813,6 +2874,7 @@ module.exports = async (req, res) => {
     // Generate OnDuty FirstIn and LastOut dates (full datetime strings) for display
     const ondutyFirstIn = employees.map(empId =>
       dates.map(date => {
+        if (isOutsideEmploymentPeriod(empId, date)) return '';
         const key = `${empId}_${date}`;
         const rec = byKey[key];
         // Only return if source is OnDuty or contains OnDuty
@@ -2824,6 +2886,7 @@ module.exports = async (req, res) => {
 
     const ondutyLastOut = employees.map(empId =>
       dates.map(date => {
+        if (isOutsideEmploymentPeriod(empId, date)) return '';
         const key = `${empId}_${date}`;
         const rec = byKey[key];
         // Only return if source is OnDuty or contains OnDuty
@@ -2850,6 +2913,7 @@ module.exports = async (req, res) => {
     // OnDuty-applied time range (what was entered in OnDuty form) - for OD (Half Day) two-part display
     const ondutyAppliedFirstIn = employees.map(empId =>
       dates.map(date => {
+        if (isOutsideEmploymentPeriod(empId, date)) return '';
         const key = `${empId}_${date}`;
         const rec = byKey[key];
         if (!rec || !rec.Source || !rec.Source.includes('OnDuty')) return '';
@@ -2859,6 +2923,7 @@ module.exports = async (req, res) => {
     );
     const ondutyAppliedLastOut = employees.map(empId =>
       dates.map(date => {
+        if (isOutsideEmploymentPeriod(empId, date)) return '';
         const key = `${empId}_${date}`;
         const rec = byKey[key];
         if (!rec || !rec.Source || !rec.Source.includes('OnDuty')) return '';
@@ -2869,6 +2934,7 @@ module.exports = async (req, res) => {
     // Real check-in/check-out (device/BHR times) - only for OD-0.5 when merged with existing data
     const realFirstIn = employees.map(empId =>
       dates.map(date => {
+        if (isOutsideEmploymentPeriod(empId, date)) return '';
         const key = `${empId}_${date}`;
         const rec = byKey[key];
         if (!rec || !rec.RealFirstIN) return '';
@@ -2877,6 +2943,7 @@ module.exports = async (req, res) => {
     );
     const realLastOut = employees.map(empId =>
       dates.map(date => {
+        if (isOutsideEmploymentPeriod(empId, date)) return '';
         const key = `${empId}_${date}`;
         const rec = byKey[key];
         if (!rec || !rec.RealLastOUT) return '';
@@ -2885,10 +2952,12 @@ module.exports = async (req, res) => {
     );
 
     // Generate totalHours array - calculate hours worked from FirstIN and LastOUT
-    const totalHours = employees.map(empId =>
-      dates.map(date => {
+    const totalHours = employees.map((empId, empIdx) =>
+      dates.map((date, dateIdx) => {
+        if (isOutsideEmploymentPeriod(empId, date)) return '';
         const key = `${empId}_${date}`;
         const rec = byKey[key];
+        if (!shouldShowWoOrHolidayPunchTimes(rec, muster[empIdx] && muster[empIdx][dateIdx])) return '';
         if (!rec || !rec.FirstIN || !rec.LastOUT) return '';
        
         try {
@@ -2911,39 +2980,39 @@ module.exports = async (req, res) => {
 
     // Generate employeeNames and contractors arrays (same value repeated for each date per employee)
     const employeeNames = employees.map(empId => {
-      const empInfo = employeeInfoMap[empId] || {};
+      const empInfo = getEmpInfo(empId);
       const name = empInfo.employeeName || '';
       return dates.map(() => name); // Repeat the same name for each date
     });
 
     const contractors = employees.map(empId => {
-      const empInfo = employeeInfoMap[empId] || {};
+      const empInfo = getEmpInfo(empId);
       const contractor = empInfo.contractor || '';
       return dates.map(() => contractor); // Repeat the same contractor for each date
     });
 
     const departments = employees.map(empId => {
-      const empInfo = employeeInfoMap[empId] || {};
+      const empInfo = getEmpInfo(empId);
       const dept = empInfo.department || '';
       return dates.map(() => dept); // Repeat the same department for each date
     });
 
     const categories = employees.map(empId => {
-      const empInfo = employeeInfoMap[empId] || {};
+      const empInfo = getEmpInfo(empId);
       const cat = empInfo.category || '';
       return dates.map(() => cat); // Repeat the same category for each date
     });
 
     // Generate dateOfJoining array (same value repeated for each date per employee)
     const dateOfJoining = employees.map(empId => {
-      const empInfo = employeeInfoMap[empId] || {};
+      const empInfo = getEmpInfo(empId);
       const doj = empInfo.dateOfJoining || '';
       return dates.map(() => doj); // Repeat the same date of joining for each date
     });
 
     // Generate dateOfExit array (same value repeated for each date per employee)
     const dateOfExit = employees.map(empId => {
-      const empInfo = employeeInfoMap[empId] || {};
+      const empInfo = getEmpInfo(empId);
       const doe = empInfo.dateOfExit || '';
       return dates.map(() => doe); // Repeat the same date of exit for each date
     });
@@ -3132,38 +3201,36 @@ module.exports = async (req, res) => {
       return { shouldCalculate: lohHours > 0, lohHours: lohHours };
     };
 
-    // Helper function to calculate LOH for general shift (8:30-17:00) with 10 min grace (8:30-8:40)
+    // Helper function to calculate LOH for general shift (8:30-17:00) with 5 min grace (8:30-8:35)
     const calculateLOHForGeneralShift = (firstInTime, lastOutTime) => {
       const shiftStart = 8 * 60 + 30; // 08:30 = 510 minutes
       const shiftEnd = 17 * 60 + 0; // 17:00 = 1020 minutes
-      const gracePeriodEnd = 8 * 60 + 40; // 08:40 = 520 minutes (10 min grace)
+      const gracePeriodEnd = 8 * 60 + 35; // 08:35 = 515 minutes (5 min grace)
       return calculateLOHForShift(firstInTime, lastOutTime, shiftStart, shiftEnd, gracePeriodEnd);
     };
 
-    // Helper function to calculate LOH for 1st shift (6:00-14:00) with 10 min grace (6:00-6:10)
+    // Helper function to calculate LOH for 1st shift (6:00-14:00) with 5 min grace (6:00-6:05)
     const calculateLOHForFirstShift = (firstInTime, lastOutTime) => {
       const shiftStart = 6 * 60 + 0; // 06:00 = 360 minutes
       const shiftEnd = 14 * 60 + 0; // 14:00 = 840 minutes
-      const gracePeriodEnd = 6 * 60 + 10; // 06:10 = 370 minutes (10 min grace)
+      const gracePeriodEnd = 6 * 60 + 5; // 06:05 = 365 minutes (5 min grace)
       return calculateLOHForShift(firstInTime, lastOutTime, shiftStart, shiftEnd, gracePeriodEnd);
     };
 
-    // Helper function to calculate LOH for 2nd shift (14:00-22:00) with 10 min grace (14:00-14:10)
+    // Helper function to calculate LOH for 2nd shift (14:00-22:00) with 5 min grace (14:00-14:05)
     const calculateLOHForSecondShift = (firstInTime, lastOutTime) => {
       const shiftStart = 14 * 60 + 0; // 14:00 = 840 minutes
       const shiftEnd = 22 * 60 + 0; // 22:00 = 1320 minutes
-      const gracePeriodEnd = 14 * 60 + 10; // 14:10 = 850 minutes (10 min grace)
+      const gracePeriodEnd = 14 * 60 + 5; // 14:05 = 845 minutes (5 min grace)
       return calculateLOHForShift(firstInTime, lastOutTime, shiftStart, shiftEnd, gracePeriodEnd);
     };
 
-    // Helper function to calculate LOH for General II shift (12:00-20:00) with 10 min grace
-    // Check-in grace: 12:00-12:10. Checkout grace: leaving by 20:10 is on-time (no LOH).
-    // Early departure LOH uses actual shift end 20:00 (not 20:10) so e.g. 14:10 checkout = 5h50m LOH, not 6h.
+    // Helper function to calculate LOH for General II shift (12:00-20:00) with 5 min grace
+    // Check-in grace: 12:00-12:05. Early departure LOH uses actual shift end 20:00.
     const calculateLOHForGeneralIIShift = (firstInTime, lastOutTime) => {
       const shiftStart = 12 * 60 + 0; // 12:00 = 720 minutes
       const shiftEnd = 20 * 60 + 0; // 20:00 = 1200 minutes (actual shift end for early-departure LOH)
-      const gracePeriodEnd = 12 * 60 + 10; // 12:10 = 730 minutes (10 min grace for check-in)
-      // Use shiftEnd 20:00 for LOH; Rule 1 no-LOH applies when lastOut >= 20:00 (grace 20:00-20:10 = OK)
+      const gracePeriodEnd = 12 * 60 + 5; // 12:05 = 725 minutes (5 min grace for check-in)
       return calculateLOHForShift(firstInTime, lastOutTime, shiftStart, shiftEnd, gracePeriodEnd);
     };
 
@@ -3199,42 +3266,11 @@ module.exports = async (req, res) => {
       return excludedDates.includes(normalizedDate);
     };
 
-    // LOH-adjusted first-in for display: after grace, round up to next :00 or :30 (e.g. 09:45→10:00, 10:15→10:30)
-    const LOH_GRACE_MINUTES = 10;
-    const shiftStartByType = { GENERAL: 8 * 60 + 30, FIRST: 6 * 60 + 0, SECOND: 14 * 60 + 0, GENERAL_II: 12 * 60 + 0 };
-    const lohFirstIn = employees.map((empId, empIdx) =>
-      dates.map((date, dateIdx) => {
-        const firstInTime = firstIn[empIdx] && firstIn[empIdx][dateIdx] ? firstIn[empIdx][dateIdx] : '';
-        if (!firstInTime) return '';
-        const shiftType = getShiftTypeForDate(empId, date);
-        if (shiftType === 'HOUSEKEEPING') return '';
-        const shiftStart = shiftStartByType[shiftType] ?? shiftStartByType.GENERAL;
-        const gracePeriodEnd = shiftStart + LOH_GRACE_MINUTES;
-        const firstInMinutes = parseTime(firstInTime);
-        if (firstInMinutes === null) return firstInTime;
-        if (firstInMinutes < shiftStart) return firstInTime;
-        if (firstInMinutes <= gracePeriodEnd) return firstInTime;
-        return minutesToTimeStr(Math.ceil(firstInMinutes / 30) * 30);
-      })
-    );
-    const lohLastOut = employees.map((empId, empIdx) =>
-      dates.map((date, dateIdx) => {
-        const lastOutTime = lastOut[empIdx] && lastOut[empIdx][dateIdx] ? lastOut[empIdx][dateIdx] : '';
-        if (!lastOutTime) return '';
-        const shiftType = getShiftTypeForDate(empId, date);
-        if (shiftType === 'HOUSEKEEPING') return lastOutTime;
-        const lastOutMinutes = parseTime(lastOutTime);
-        if (lastOutMinutes === null) return lastOutTime;
-        // Round check-out down to previous :00 or :30 for all shifts (e.g. 20:01→20:00, 17:02→17:00)
-        return minutesToTimeStr(Math.floor(lastOutMinutes / 30) * 30);
-      })
-    );
-
     // LOH data must be fetched from reports_function only (same as LOH Report page)
     const lohReportMap = {}; // Map: employeeId_date -> LOH hours
 
-    // Load grace + category filter once (same as LOH Report setup) before HTTP call
-    let lohGraceParam = String(url.searchParams.get('grace') || '').trim() || '10';
+    // Load grace + category filter once (same as LOH Report setup) before the LOH time line is built
+    let lohGraceParam = String(url.searchParams.get('grace') || '').trim() || '5';
     let lohDesignationApplicableTo = String(url.searchParams.get('designationApplicableTo') || '').trim();
     try {
       const lohApplicableTable = catalystApp.datastore().table('399000000051588');
@@ -3267,7 +3303,42 @@ module.exports = async (req, res) => {
     } catch (setupErr) {
       console.log('LOH setup grace/category optional:', setupErr.message);
     }
-   
+
+    // LOH-adjusted first-in for display: after grace, round up to next :00 or :30 (e.g. 08:40→09:00, 09:45→10:00)
+    const LOH_GRACE_MINUTES = (/^\d+$/.test(lohGraceParam) ? parseInt(lohGraceParam, 10) : 5);
+    const shiftStartByType = { GENERAL: 8 * 60 + 30, FIRST: 6 * 60 + 0, SECOND: 14 * 60 + 0, GENERAL_II: 12 * 60 + 0 };
+    const lohFirstIn = employees.map((empId, empIdx) =>
+      dates.map((date, dateIdx) => {
+        const st = String(muster[empIdx] && muster[empIdx][dateIdx] ? muster[empIdx][dateIdx] : '').trim();
+        if (st === 'WO' || st === 'H') return '';
+        const firstInTime = firstIn[empIdx] && firstIn[empIdx][dateIdx] ? firstIn[empIdx][dateIdx] : '';
+        if (!firstInTime) return '';
+        const shiftType = getShiftTypeForDate(empId, date);
+        if (shiftType === 'HOUSEKEEPING') return '';
+        const shiftStart = shiftStartByType[shiftType] ?? shiftStartByType.GENERAL;
+        const gracePeriodEnd = shiftStart + LOH_GRACE_MINUTES;
+        const firstInMinutes = parseTime(firstInTime);
+        if (firstInMinutes === null) return firstInTime;
+        if (firstInMinutes < shiftStart) return firstInTime;
+        if (firstInMinutes <= gracePeriodEnd) return firstInTime;
+        return minutesToTimeStr(Math.ceil(firstInMinutes / 30) * 30);
+      })
+    );
+    const lohLastOut = employees.map((empId, empIdx) =>
+      dates.map((date, dateIdx) => {
+        const st = String(muster[empIdx] && muster[empIdx][dateIdx] ? muster[empIdx][dateIdx] : '').trim();
+        if (st === 'WO' || st === 'H') return '';
+        const lastOutTime = lastOut[empIdx] && lastOut[empIdx][dateIdx] ? lastOut[empIdx][dateIdx] : '';
+        if (!lastOutTime) return '';
+        const shiftType = getShiftTypeForDate(empId, date);
+        if (shiftType === 'HOUSEKEEPING') return lastOutTime;
+        const lastOutMinutes = parseTime(lastOutTime);
+        if (lastOutMinutes === null) return lastOutTime;
+        // Round check-out down to previous :00 or :30 for all shifts (e.g. 20:01→20:00, 17:02→17:00)
+        return minutesToTimeStr(Math.floor(lastOutMinutes / 30) * 30);
+      })
+    );
+
     // Helper function to fetch LOH from reports_function
     const fetchLOHFromReportsFunction = () => {
       return new Promise((resolve, reject) => {
@@ -3511,6 +3582,7 @@ module.exports = async (req, res) => {
       // Normalize employee ID to string for consistent matching
       const empIdStr = String(empId).trim();
       return dates.map(date => {
+        if (isOutsideEmploymentPeriod(empId, date)) return '';
         const key = `${empIdStr}_${date}`;
        
         // Helper function to determine if date is WO or H (same logic as muster)
@@ -3519,28 +3591,16 @@ module.exports = async (req, res) => {
          
           // Check if this date is a holiday (check before Sunday/Saturday checks)
           if (isHoliday(date)) {
-            // If there's a CompOffWorkedOn record for this date, show 'P' instead of 'H'
-            if (rec && (rec.Source === 'CompOffWorkedOn' || rec.Source?.includes('CompOffWorkedOn'))) {
-              return 'Present'; // WorkedOn date should show as Present even on holiday
-            }
-            if (rec && (sourceHasCompOffTakenSegment(rec.Source) || rec.Source?.includes('Regularization'))) {
-              return getStatus(rec.FirstIN, rec.LastOUT, rec.ProvidedStatus, rec.Source);
-            }
-            return 'H'; // Holiday (only if not a WorkedOn date)
+            return statusForHoliday(rec);
           }
          
-          // Check if this date is Sunday
-          if (isSunday(date)) {
-            // 3/1/2026 (03/01/2026): do not show WO; use P or A (support both 2026-01-03 and 2026-03-01)
-            if (date === '2026-03-01' || date === '2026-01-03') {
-              if (!rec) return 'Absent';
-              return getStatus(rec.FirstIN, rec.LastOUT, rec.ProvidedStatus, rec.Source);
-            }
+          // Check if this date is week off (Sunday, plus Sep 2026: 17 WO / 20 normal)
+          if (isWeekOff(date)) {
           // If there's a CompOffWorkedOn record for this date, show 'P' instead of 'WO'
             if (rec && (rec.Source === 'CompOffWorkedOn' || rec.Source?.includes('CompOffWorkedOn'))) {
               return 'Present'; // WorkedOn date should show as Present even on Sunday
             }
-            if (rec && (sourceHasCompOffTakenSegment(rec.Source) || rec.Source?.includes('Regularization'))) {
+            if (rec && (sourceHasCompOffTakenSegment(rec.Source) || rec.Source?.includes('Regularization') || rec.Source?.includes('OnDuty'))) {
               return getStatus(rec.FirstIN, rec.LastOUT, rec.ProvidedStatus, rec.Source);
             }
           return 'WO'; // Week Off (only if not a WorkedOn date)
@@ -3552,7 +3612,8 @@ module.exports = async (req, res) => {
         // Check if attendance muster status is WO or H - if so, skip LOH for day cell
         const rec = byKey[key];
         const musterStatus = getMusterStatusForDate();
-        if (musterStatus === 'WO' || musterStatus === 'H') {
+        // Skip LOH on week off and holidays (including Present-on-holiday)
+        if (musterStatus === 'WO' || musterStatus === 'H' || isHoliday(date)) {
           return '';
         }
        
@@ -3724,10 +3785,12 @@ module.exports = async (req, res) => {
     };
 
     // Generate overtimeHours array - calculate OT based on shift end times
-    const overtimeHours = employees.map(empId =>
-      dates.map(date => {
+    const overtimeHours = employees.map((empId, empIdx) =>
+      dates.map((date, dateIdx) => {
+        if (isOutsideEmploymentPeriod(empId, date)) return '';
         const key = `${empId}_${date}`;
         const rec = byKey[key];
+        if (!shouldShowWoOrHolidayPunchTimes(rec, muster[empIdx] && muster[empIdx][dateIdx])) return '';
         if (!rec || !rec.FirstIN || !rec.LastOUT) return '';
         if (OT_EXCLUSIONS.has(key)) return '';
         // Comboff=Yes: never add OT for the taken date (CO day). Do not use includes('CompOff') — it matches CompOffWorkedOn.
@@ -3751,26 +3814,15 @@ module.exports = async (req, res) => {
           const getMusterStatusForDate = () => {
             // Check if this date is a holiday (check before Sunday/Saturday checks)
             if (isHoliday(date)) {
-              // If there's a CompOffWorkedOn record for this date, show 'P' instead of 'H'
-              if (rec && (rec.Source === 'CompOffWorkedOn' || rec.Source?.includes('CompOffWorkedOn'))) {
-                return 'Present';
-              }
-              if (rec && (sourceHasCompOffTakenSegment(rec.Source) || rec.Source?.includes('Regularization'))) {
-                return getStatus(rec.FirstIN, rec.LastOUT, rec.ProvidedStatus, rec.Source);
-              }
-              return 'H';
+              return statusForHoliday(rec);
             }
 
-            // Check if this date is Sunday (WO)
-            if (isSunday(date)) {
-              // 3/1/2026 (03/01/2026): do not show WO; use P or A (support both 2026-01-03 and 2026-03-01)
-              if (date === '2026-03-01' || date === '2026-01-03') {
-                return getStatus(rec.FirstIN, rec.LastOUT, rec.ProvidedStatus, rec.Source);
-              }
+            // Check if this date is week off (Sunday, plus Sep 2026: 17 WO / 20 normal)
+            if (isWeekOff(date)) {
               if (rec && (rec.Source === 'CompOffWorkedOn' || rec.Source?.includes('CompOffWorkedOn'))) {
                 return 'Present';
               }
-              if (rec && (sourceHasCompOffTakenSegment(rec.Source) || rec.Source?.includes('Regularization'))) {
+              if (rec && (sourceHasCompOffTakenSegment(rec.Source) || rec.Source?.includes('Regularization') || rec.Source?.includes('OnDuty'))) {
                 return getStatus(rec.FirstIN, rec.LastOUT, rec.ProvidedStatus, rec.Source);
               }
               return 'WO';
@@ -3790,7 +3842,8 @@ module.exports = async (req, res) => {
          
           let otHours = 0;
          
-          if (musterStatus === 'WO' || musterStatus === 'H') {
+          // WO / Holiday (including Present-on-holiday): OT = total worked hours
+          if (musterStatus === 'WO' || musterStatus === 'H' || isHoliday(date)) {
             const firstInDate = new Date(rec.FirstIN.replace(' ', 'T'));
             const lastOutDate = new Date(rec.LastOUT.replace(' ', 'T'));
             if (!isNaN(firstInDate) && !isNaN(lastOutDate)) {
@@ -3974,6 +4027,7 @@ module.exports = async (req, res) => {
       const empIdStr = String(empId).trim();
       let totalLOH = 0;
       for (const date of dates) {
+        if (isOutsideEmploymentPeriod(empId, date)) continue;
         const hours = lookupLohReportHours(empIdStr, date);
         if (hours !== undefined && !isNaN(hours)) {
           totalLOH += parseFloat(hours);

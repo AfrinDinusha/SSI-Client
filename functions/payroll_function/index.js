@@ -1230,27 +1230,27 @@ async function calculateLOHFromMuster(catalystApp, month, contractor, department
       return { shouldCalculate: lohHours > 0, lohHours: lohHours };
     };
 
-    // Helper function to calculate LOH for general shift (8:30-17:00) with 10 min grace (8:30-8:40)
+    // Helper function to calculate LOH for general shift (8:30-17:00) with 5 min grace (8:30-8:35)
     const calculateLOHForGeneralShift = (firstInTime, lastOutTime) => {
       const shiftStart = 8 * 60 + 30; // 08:30 = 510 minutes
       const shiftEnd = 17 * 60 + 0; // 17:00 = 1020 minutes
-      const gracePeriodEnd = 8 * 60 + 40; // 08:40 = 520 minutes (10 min grace)
+      const gracePeriodEnd = 8 * 60 + 35; // 08:35 = 515 minutes (5 min grace)
       return calculateLOHForShift(firstInTime, lastOutTime, shiftStart, shiftEnd, gracePeriodEnd);
     };
 
-    // Helper function to calculate LOH for 1st shift (6:00-14:00) with 10 min grace (6:00-6:10)
+    // Helper function to calculate LOH for 1st shift (6:00-14:00) with 5 min grace (6:00-6:05)
     const calculateLOHForFirstShift = (firstInTime, lastOutTime) => {
       const shiftStart = 6 * 60 + 0; // 06:00 = 360 minutes
       const shiftEnd = 14 * 60 + 0; // 14:00 = 840 minutes
-      const gracePeriodEnd = 6 * 60 + 10; // 06:10 = 370 minutes (10 min grace)
+      const gracePeriodEnd = 6 * 60 + 5; // 06:05 = 365 minutes (5 min grace)
       return calculateLOHForShift(firstInTime, lastOutTime, shiftStart, shiftEnd, gracePeriodEnd);
     };
 
-    // Helper function to calculate LOH for 2nd shift (14:00-22:00) with 10 min grace (14:00-14:10)
+    // Helper function to calculate LOH for 2nd shift (14:00-22:00) with 5 min grace (14:00-14:05)
     const calculateLOHForSecondShift = (firstInTime, lastOutTime) => {
       const shiftStart = 14 * 60 + 0; // 14:00 = 840 minutes
       const shiftEnd = 22 * 60 + 0; // 22:00 = 1320 minutes
-      const gracePeriodEnd = 14 * 60 + 10; // 14:10 = 850 minutes (10 min grace)
+      const gracePeriodEnd = 14 * 60 + 5; // 14:05 = 845 minutes (5 min grace)
       return calculateLOHForShift(firstInTime, lastOutTime, shiftStart, shiftEnd, gracePeriodEnd);
     };
 
@@ -1545,7 +1545,7 @@ async function calculateLOHFromMuster(catalystApp, month, contractor, department
                   const lastOutTime = rec.LastOUT.includes(' ') ? rec.LastOUT.split(' ')[1].substring(0, 5) : rec.LastOUT.substring(0, 5);
                  
                   if (isFirst) {
-                    // For 1st shift: Calculate LOH with grace period (6:00-6:10, shift end 14:00)
+                    // For 1st shift: Calculate LOH with grace period (6:00-6:05, shift end 14:00)
                     const lohResult = calculateLOHForFirstShift(firstInTime, lastOutTime);
                    
                     if (lohResult === null) {
@@ -1563,7 +1563,7 @@ async function calculateLOHFromMuster(catalystApp, month, contractor, department
                       lohHours = 0;
                     }
                   } else if (isSecond) {
-                    // For 2nd shift: Calculate LOH with grace period (14:00-14:10, shift end 22:00)
+                    // For 2nd shift: Calculate LOH with grace period (14:00-14:05, shift end 22:00)
                     const lohResult = calculateLOHForSecondShift(firstInTime, lastOutTime);
                    
                     if (lohResult === null) {
@@ -2537,7 +2537,7 @@ function payrollApplyReportsLohToMusterData(musterData, lohRows) {
 }
 
 async function payrollFetchReportsLohRows(hostname, port, client, musterStartDate, musterEndDate, contractor, department, employeeId, userEmail, userRole) {
-  let grace = '10';
+  let grace = '5';
   let designationApplicableTo = '';
   const des = await payrollHttpGetJson(hostname, port, client, '/server/reports_function/loh-designation-applicable', 15000);
   if (des && des.data) {

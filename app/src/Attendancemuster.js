@@ -154,6 +154,7 @@ function getMusterDateCellColors(status, shiftType, firstIn, lastOut) {
   const firstInStr = String(firstIn || '').trim();
   const lastOutStr = String(lastOut || '').trim();
 
+  if (!s) return { fgHex: 'FFFFFF', fontHex: '222222' };
   if (s === 'WO' && firstInStr && lastOutStr) {
     return { fgHex: 'FFB3DE', fontHex: '000000' };
   }
@@ -251,14 +252,34 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
   };
   const isSundayDate = (dateValue) => {
     if (!dateValue) return false;
-    const d = new Date(dateValue);
+    const s = String(dateValue).trim();
+    const d = /^\d{4}-\d{2}-\d{2}$/.test(s) ? new Date(`${s}T12:00:00`) : new Date(dateValue);
     if (Number.isNaN(d.getTime())) return false;
     return d.getDay() === 0;
+  };
+  const toYmdLocal = (dateValue) => {
+    if (!dateValue) return '';
+    const s = String(dateValue).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    const d = new Date(dateValue);
+    if (Number.isNaN(d.getTime())) return '';
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+  // Week off: Sundays, except 20/09/2026 (normal). 17/09/2026 Thursday is WO.
+  const isWeekOffDate = (dateValue) => {
+    const ymd = toYmdLocal(dateValue);
+    if (!ymd) return false;
+    if (ymd === '2026-09-17') return true;
+    if (ymd === '2026-09-20' || ymd === '2026-01-03' || ymd === '2026-03-01') return false;
+    return isSundayDate(ymd);
   };
   const calculateTotalAbsentExcludingSundays = (statuses, dates) => {
     if (!Array.isArray(statuses)) return 0;
     return statuses.reduce((count, statusValue, idx) => {
-      if (isSundayDate(Array.isArray(dates) ? dates[idx] : null)) return count;
+      if (isWeekOffDate(Array.isArray(dates) ? dates[idx] : null)) return count;
       const normalized = normalizeStatus(statusValue);
       if (normalized === 'Absent' || normalized === 'A') return count + 1;
       return count;
@@ -351,7 +372,7 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
   const countPresentDaysForMusterRow = (rowStatuses, dates, { halfDayWeight = 0.5 } = {}) => {
     if (!Array.isArray(rowStatuses)) return 0;
     return rowStatuses.reduce((sum, s, idx) => {
-      if (Array.isArray(dates) && isSundayDate(dates[idx])) return sum;
+      if (Array.isArray(dates) && isWeekOffDate(dates[idx])) return sum;
       const ns = normalizeStatus(s);
       if (ns === 'WO' || ns === 'Week Off') return sum;
       if (s === 'Present' || s === 'P') return sum + 1;
@@ -726,6 +747,8 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
           const lohFirstInTime = rowLohFirstIn && rowLohFirstIn[colIdx] ? String(rowLohFirstIn[colIdx]).trim() : '';
           const lohLastOutTime = rowLohLastOut && rowLohLastOut[colIdx] ? String(rowLohLastOut[colIdx]).trim() : '';
           const lohLine = (lohFirstInTime && lohLastOutTime) ? `LOH: ${lohFirstInTime} - ${lohLastOutTime}` : '';
+          // Days before joining / after exit are blank — do not export as Absent
+          if (!status) return '';
           let statusDisplay = 'A';
           if (status === 'Present' || status === 'P') statusDisplay = 'P';
           else if (status === 'Half Day Present' || status === '0.5') statusDisplay = '0.5'; // Half Day as 0.5
@@ -1172,9 +1195,13 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
                             <td>{formattedDateOfJoining}</td>
                             <td>{formattedDateOfExit}</td>
                             {(rowStatuses && Array.isArray(rowStatuses) ? rowStatuses : []).map((status, colIdx) => {
+                              const statusValue = String(status ?? '').trim();
                               let display = status;
                               let className = '';
-                              if (status === 'Present') { display = 'P'; className = 'present'; }
+                              if (!statusValue) {
+                                display = '';
+                                className = '';
+                              } else if (status === 'Present') { display = 'P'; className = 'present'; }
                               else if (status === 'Absent') { display = ' '; className = 'absent'; }
                               else if (status === 'Half Day Present') { display = '0.5'; className = 'halfday'; }
                               else if (status === 'WO') { display = 'WO'; className = 'weekoff'; }
@@ -1186,13 +1213,13 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
                               // Apply shift-based tint (from NewShiftMap / Shiftmap) for UI clarity
                               const shiftType = rowShiftTypes && rowShiftTypes[colIdx] ? rowShiftTypes[colIdx] : 'GENERAL';
                               const firstInRawForInfer = rowFirstIn && Array.isArray(rowFirstIn) && rowFirstIn[colIdx] ? String(rowFirstIn[colIdx]).trim() : '';
-                              let shiftClass = resolveMusterShiftClassForCell(shiftType, status, firstInRawForInfer);
-                              let shiftDisplayName = normalizeShiftDisplayName(shiftType);
+                              let shiftClass = statusValue ? resolveMusterShiftClassForCell(shiftType, status, firstInRawForInfer) : '';
+                              let shiftDisplayName = statusValue ? normalizeShiftDisplayName(shiftType) : '';
                               if (shiftClass === 'shift-third' && getShiftClassName(shiftType) === 'shift-general') {
                                 shiftDisplayName = '3rd Shift';
                               }
-                              const shouldShowShiftText = shiftDisplayName && shiftDisplayName.toLowerCase() !== 'general';
-                              className = `${className} ${shiftClass}`.trim();
+                              const shouldShowShiftText = !!statusValue && shiftDisplayName && shiftDisplayName.toLowerCase() !== 'general';
+                              className = statusValue ? `${className} ${shiftClass}`.trim() : '';
                               
                               // Get source for this date
                               const source = rowSources && rowSources[colIdx] ? rowSources[colIdx] : '';
@@ -1267,7 +1294,7 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
                               // LOH first-in / last-out (rounded per LOH model: first-in up, last-out down to :00/:30)
                               const lohFirstInTime = rowLohFirstIn && rowLohFirstIn[colIdx] ? String(rowLohFirstIn[colIdx]).trim() : '';
                               const lohLastOutTime = rowLohLastOut && rowLohLastOut[colIdx] ? String(rowLohLastOut[colIdx]).trim() : '';
-                              const hasLohTimes = lohFirstInTime && lohLastOutTime;
+                              const hasLohTimes = !!statusValue && status !== 'WO' && status !== 'H' && lohFirstInTime && lohLastOutTime;
 
                               // Build final time display
                               // CO: no time display. OD-0.5 uses two-part display above. OD (full): single range. Others: firstIn - lastOut
@@ -1295,17 +1322,23 @@ function Attendancemuster({ userRole = 'App Administrator', userEmail = null }) 
                                 }
                               }
                               
+                              if (!statusValue) {
+                                finalTimeDisplay = '';
+                              }
+
                               // Inline colours for WO/H-with-times (export uses same via getMusterDateCellColors)
-                              const { fgHex, fontHex } = getMusterDateCellColors(
-                                status,
-                                shiftType,
-                                displayFirstInTime,
-                                displayLastOutTime
-                              );
+                              const { fgHex, fontHex } = statusValue
+                                ? getMusterDateCellColors(
+                                    status,
+                                    shiftType,
+                                    displayFirstInTime,
+                                    displayLastOutTime
+                                  )
+                                : { fgHex: 'FFFFFF', fontHex: '222222' };
                               const cellStyle = {
                                 backgroundColor: `#${fgHex}`,
                                 color: `#${fontHex}`,
-                                fontWeight: 600,
+                                fontWeight: statusValue ? 600 : 400,
                               };
                               
                               // Debug logging for OnDuty records

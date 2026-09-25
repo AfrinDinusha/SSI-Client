@@ -113,6 +113,8 @@ function buildMonthlyLohTotalsFromReportsRows(lohRows, employees, dates) {
 
 function isMusterCellLohExcluded(status, shiftTypeLabel) {
   const st = String(status ?? '').trim();
+  // Blank cells are days before joining / after exit — do not overlay LOH
+  if (!st) return true;
   if (st === 'WO' || st === 'H' || st === 'Week Off') return true;
   const sh = String(shiftTypeLabel ?? '').toLowerCase();
   if (sh.includes('housekeeping') || sh.includes('house keeping')) return true;
@@ -151,12 +153,17 @@ export function applyReportsLohToMusterData(musterData, lohRows) {
     });
   });
 
-  // Prefer report calendar total (all dates in range), not sum of WO/H-blanked daily cells
-  const monthlyLOHPreferred = buildMonthlyLohTotalsFromReportsRows(
-    lohRows,
-    musterData.employees,
-    dates
-  );
+  // Sum LOH report hours only for days the employee was on roll (not before joining / after exit)
+  const monthlyLOHPreferred = musterData.employees.map((empId, rowIdx) => {
+    const rowStatuses = musterData.muster?.[rowIdx] || [];
+    let total = 0;
+    dates.forEach((dateStr, colIdx) => {
+      if (!String(rowStatuses[colIdx] ?? '').trim()) return;
+      const hours = lookupLohHoursInMap(map, empId, dateStr);
+      if (hours !== undefined && Number.isFinite(hours)) total += hours;
+    });
+    return parseFloat((total || 0).toFixed(2));
+  });
 
   return {
     ...musterData,
@@ -173,7 +180,7 @@ export async function fetchLohRowsForMusterOverlay({
   userEmail,
   userRole,
 }) {
-  let grace = '10';
+  let grace = '5';
   let designationApplicableTo = '';
 
   try {

@@ -147,6 +147,53 @@ function sourceHasCompOffTakenSegment(source) {
   return /(^|\+)CompOff($|\+)/.test(s);
 }
 
+function hoursWorkedFromPunches(firstIn, lastOut) {
+  if (!firstIn || !lastOut) return 0;
+  try {
+    const inDate = new Date(String(firstIn).substring(0, 19).replace(' ', 'T'));
+    const outDate = new Date(String(lastOut).substring(0, 19).replace(' ', 'T'));
+    if (isNaN(inDate.getTime()) || isNaN(outDate.getTime())) return 0;
+    const hours = (outDate - inDate) / (1000 * 60 * 60);
+    return hours > 0 ? hours : 0;
+  } catch (_) {
+    return 0;
+  }
+}
+
+function isSundayYmd(dateStr) {
+  const s = normalizeOtDate(dateStr);
+  if (!s || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  return new Date(`${s}T12:00:00`).getDay() === 0;
+}
+
+/** Sundays that are treated as normal working days (not WO). */
+const WEEK_OFF_AS_NORMAL_DATES = new Set(['2026-01-03', '2026-03-01', '2026-09-20']);
+/** Non-Sundays treated as week off. Sep 2026 only: 17/09/2026 Thursday. */
+const EXTRA_WEEK_OFF_DATES = new Set(['2026-09-17']);
+
+function isWeekOffYmd(dateStr) {
+  const s = normalizeOtDate(dateStr);
+  if (!s || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  if (EXTRA_WEEK_OFF_DATES.has(s)) return true;
+  if (WEEK_OFF_AS_NORMAL_DATES.has(s)) return false;
+  return isSundayYmd(s);
+}
+
+/**
+ * Sunday WO OT only when they actually came (device / BioMax / regularization / OnDuty / CompOff WorkedOn, 4+ hours).
+ * Excel Attendance-only 08:30–17:00 defaults must not become 8.50 OT on a week off they did not work.
+ */
+function didActuallyWorkOnWeekOff(rec) {
+  if (!rec) return false;
+  const firstIn = rec.FirstIN || rec.FirstIn || rec.firstIn;
+  const lastOut = rec.LastOUT || rec.LastOut || rec.lastOut;
+  if (!firstIn || !lastOut) return false;
+  if (String(firstIn).trim() === String(lastOut).trim()) return false;
+  if (hoursWorkedFromPunches(firstIn, lastOut) < 4) return false;
+  const src = String(rec.Source || '');
+  return src.includes('BHR') || src.includes('BioMax') || src.includes('Regularization') || src.includes('CompOffWorkedOn');
+}
+
 /** Reports table (399000000022752) RoundOff text column — JSON or legacy Yes/No. */
 function parseReportsRoundOff(raw) {
   const s = String(raw ?? '').trim();
@@ -1432,13 +1479,8 @@ module.exports = async (req, res) => {
              
               let overtimeHours = 0;
 
-            const currentDate = new Date(dateStr);
-            const dayOfWeek = currentDate.getDay(); // Sunday - 0, Saturday - 6
-
-            // Sunday weekly off only (first Saturday of month is not auto WO)
-            const isWO = dayOfWeek === 0;
-            // Jan 3 2026 (03/01/2026) only: do not use WO model; use normal OT (after 60 min / shift threshold)
-            const useWOModel = isWO && dateStr !== '2026-01-03';
+            const isWO = isWeekOffYmd(dateStr);
+            const useWOModel = isWO;
 
             if (isOTExcluded(empDateData.EmployeeID, dateStr)) {
               // No OT for this employee-date (exclusion list)
@@ -1611,17 +1653,12 @@ module.exports = async (req, res) => {
            
             let overtimeHours = 0;
 
-            const currentDate = new Date(dateStr);
-            const dayOfWeek = currentDate.getDay(); // Sunday - 0, Saturday - 6
+            const isWO = isWeekOffYmd(dateStr);
+            const useWOModel = isWO;
 
-            // Sunday weekly off only (first Saturday of month is not auto WO)
-            const isWO = dayOfWeek === 0;
-            // Jan 3 2026 (03/01/2026) only: do not use WO model; use normal OT (after 60 min / shift threshold)
-            const useWOModel = isWO && dateStr !== '2026-01-03';
-
-            // When present on Holiday: Status = H, or Sunday, or date is declared holiday → OT = total hours (not shift-based).
-            const isSundayDate = (new Date(dateStr).getDay() === 0);
-            const isPresentOnHoliday = (String(row.Status || '').trim().toUpperCase() === 'H') || isSundayDate || isDeclaredHolidayDateHardcoded(dateStr);
+            // When present on Holiday: Status = H, or date is declared holiday → OT = total hours (not shift-based).
+            // Sunday is WO, not holiday — do not count Excel Sunday hours as holiday OT.
+            const isPresentOnHoliday = (String(row.Status || '').trim().toUpperCase() === 'H') || isDeclaredHolidayDateHardcoded(dateStr);
 
             if (isOTExcluded(row.EmployeeId, dateStr)) {
               // No OT for this employee-date (exclusion list)
@@ -1638,17 +1675,8 @@ module.exports = async (req, res) => {
               });
               console.log(`Added overtime record (H - Present on Holiday): ${row.EmployeeId} on ${dateStr} - ${totalHours}h total, ${overtimeHours.toFixed(3)}h OT`);
             } else if (useWOModel) {
-              overtimeHours = totalHours; // WO: total hours only (not doubled)
-              overtimeRecords.push({
-                EmployeeID: row.EmployeeId,
-                Date: dateStr,
-                TotalHours: totalHours,
-                OvertimeHours: overtimeHours,
-                FirstIn: row.FirstIn,
-                LastOut: row.LastOut,
-                Source: 'Attendance_WO'
-              });
-              console.log(`Added overtime record (WO - Sunday): ${row.EmployeeId} on ${dateStr} - ${totalHours}h worked, OT (total): ${overtimeHours.toFixed(3)}h`);
+              // Excel Attendance-only must not create Sunday WO OT (08:30–17:00 defaults).
+              console.log(`Skipped Attendance WO OT (no device work): ${row.EmployeeId} on ${dateStr}`);
             } else {
               overtimeHours = calculateOtHoursAfterShiftOut(row.EmployeeId, dateStr, row.LastOut, row.FirstIn);
               if (overtimeHours > 0 || dateStr === '2026-01-03') {
@@ -2368,12 +2396,6 @@ module.exports = async (req, res) => {
       console.log(`Building byKey complete. Total records in byKey: ${Object.keys(byKey).length}`);
       const overtimeFromByKey = [];
 
-      // Helper functions to identify Weekly Off (WO) days
-      const isSunday = (dateStr) => {
-        const d = new Date(dateStr);
-        return d.getDay() === 0; // 0 = Sunday
-      };
-
       // Fetch declared holidays (Calendar table + hardcoded) so present-on-H days get full OT (aligned with muster "H")
       const holidaySetForOT = new Set();
       try {
@@ -2453,10 +2475,12 @@ module.exports = async (req, res) => {
             });
             return;
           }
-          // Weekly Off (WO): present on Sunday → OT = total hours (not shift-based).
-          const isWeekOff = isSunday(rec.Date);
-          const useWOModel = isWeekOff && rec.Date !== '2026-01-03';
+          // Weekly Off (WO): present on WO day → OT = total hours (not shift-based).
+          const useWOModel = isWeekOffYmd(rec.Date);
           if (useWOModel && totalHours > 0) {
+            if (!didActuallyWorkOnWeekOff(rec)) {
+              return;
+            }
             const finalOtHours = isOTExcluded(rec.EmployeeID, rec.Date) ? 0 : totalHours;
             overtimeFromByKey.push({
               EmployeeID: rec.EmployeeID,
@@ -4882,11 +4906,11 @@ module.exports = async (req, res) => {
      
       const zcql = catalystApp.zcql();
 
-      // Grace period in minutes (from report UI). Applied to all shifts. Default 10 if not provided or invalid.
+      // Grace period in minutes (from report UI). Applied to all shifts. Default 5 if not provided or invalid.
       const graceParam = String(query.grace || '').trim();
       const graceMinutes = (/^\d+$/.test(graceParam) && parseInt(graceParam, 10) >= 0)
         ? parseInt(graceParam, 10)
-        : 10;
+        : 5;
 
       let designationApplicableToList = Array.isArray(designationApplicableToRaw)
         ? designationApplicableToRaw
@@ -6681,12 +6705,8 @@ module.exports = async (req, res) => {
         return { shouldCalculate: lohHours > 0, lohHours: lohHours };
       };
      
-      // Helper function to check if a date is Sunday
-      const isSunday = (dateStr) => {
-        const date = new Date(dateStr);
-        const dayOfWeek = date.getDay(); // 0 = Sunday, 6 = Saturday
-        return dayOfWeek === 0;
-      };
+      // Helper function to check if a date is weekly off (Sunday, plus Sep 2026 swap)
+      const isSunday = (dateStr) => isWeekOffYmd(dateStr);
 
       // Helper function to check if a date should be excluded from LOH calculation
       const isDateExcludedFromLOH = (dateStr) => {
@@ -6811,7 +6831,7 @@ module.exports = async (req, res) => {
           return true; // Marked as H (declared holiday)
         }
        
-        // Check if this date is Sunday (Holiday)
+        // Check if this date is week off (Sunday; Sep 2026: 17 WO, 20 normal)
         if (isSunday(dateStr)) {
           // If there's a CompOffWorkedOn record for this date, it's Present, not H
           if (rec && (rec.Source === 'CompOffWorkedOn' || rec.Source?.includes('CompOffWorkedOn'))) {
